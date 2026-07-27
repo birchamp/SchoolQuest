@@ -1,0 +1,35 @@
+name = "schoolquest-api"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Free-tier configuration: D1 and R2 only. No Queues — syllabus extraction runs inline
+# via ctx.waitUntil(). Swap JobRunner for a Queues producer when moving to the paid plan;
+# see src/jobs/runner.ts.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "schoolquest"
+# Replace with the id printed by: wrangler d1 create schoolquest
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+migrations_dir = "drizzle"
+
+[[r2_buckets]]
+binding = "DOCUMENTS"
+bucket_name = "schoolquest-documents"
+
+[vars]
+APP_NAME = "SchoolQuest"
+# Public origin of the web app; magic links point here and CORS is restricted to it.
+APP_URL = "http://localhost:5173"
+# Override the defaults in packages/ai/src/provider.ts without a code change.
+OPENROUTER_COACH_MODEL = "x-ai/grok-4.1-fast"
+OPENROUTER_EXTRACTION_MODEL = "x-ai/grok-4.1-fast"
+
+# Secrets — set with `wrangler secret put <NAME>`, never in this file:
+#   OPENROUTER_API_KEY   required, from https://openrouter.ai/keys
+#   AUTH_SECRET          required, HMAC key for magic-link tokens (openssl rand -hex 32)
+#   RESEND_API_KEY       optional; without it, magic links are logged instead of emailed
+
+[observability]
+enabled = true

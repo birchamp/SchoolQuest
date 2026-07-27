@@ -1,0 +1,33 @@
+{
+  "name": "@schoolquest/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "cf-typegen": "wrangler types",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply schoolquest --local",
+    "db:migrate:remote": "wrangler d1 migrations apply schoolquest --remote",
+    "db:seed:local": "wrangler d1 execute schoolquest --local --file=./seed/seed.sql"
+  },
+  "dependencies": {
+    "@schoolquest/ai": "workspace:*",
+    "@schoolquest/domain": "workspace:*",
+    "@schoolquest/fixtures": "workspace:*",
+    "@schoolquest/planning-engine": "workspace:*",
+    "@schoolquest/theme-language": "workspace:*",
+    "drizzle-orm": "^0.38.3",
+    "hono": "^4.6.14",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241230.0",
+    "drizzle-kit": "^0.30.1",
+    "tsx": "^4.23.1",
+    "wrangler": "^3.99.0"
+  }
+}

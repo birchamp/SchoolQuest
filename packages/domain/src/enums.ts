@@ -1,0 +1,125 @@
+import { z } from "zod";
+
+/**
+ * Every enum in this file is theme-neutral on purpose. No value here may be a
+ * Quest/Mission word — themed labels live in @schoolquest/theme-language and are
+ * applied at render time only (see docs/01-product-brief.md principle 9).
+ */
+
+export const themeName = z.enum(["quest", "mission", "plain"]);
+export type ThemeName = z.infer<typeof themeName>;
+
+export const detailMode = z.enum(["reduced", "standard", "expanded"]);
+export type DetailMode = z.infer<typeof detailMode>;
+
+export const termStatus = z.enum(["planning", "active", "archived"]);
+export type TermStatus = z.infer<typeof termStatus>;
+
+export const workType = z.enum([
+  "reading",
+  "quiz",
+  "quiz_prep",
+  "problem_set",
+  "paper",
+  "presentation",
+  "group_project",
+  "exam",
+  "exam_prep",
+  "lab",
+  "discussion",
+  "milestone",
+  "other",
+]);
+export type WorkType = z.infer<typeof workType>;
+
+/** docs/05-data-model-and-api.md §3 */
+export const workStatus = z.enum([
+  "unconfirmed",
+  "not_started",
+  "in_progress",
+  "blocked",
+  "completed",
+  "submitted",
+  "canceled",
+  "optional",
+]);
+export type WorkStatus = z.infer<typeof workStatus>;
+
+export const sessionStatus = z.enum([
+  "planned",
+  "started",
+  "completed",
+  "partial",
+  "missed",
+  "skipped",
+  "moved",
+]);
+export type SessionStatus = z.infer<typeof sessionStatus>;
+
+/**
+ * "Unknown" is a first-class state. Nothing in the planning engine may coerce an
+ * unknown into a fabricated default (docs/04-planning-engine-spec.md §14).
+ */
+export const confidenceStatus = z.enum([
+  "confirmed",
+  "high_inference",
+  "low_inference",
+  "unknown",
+  "superseded",
+]);
+export type ConfidenceStatus = z.infer<typeof confidenceStatus>;
+
+export const cognitiveDemand = z.enum(["low", "medium", "high"]);
+export type CognitiveDemand = z.infer<typeof cognitiveDemand>;
+
+export const energyLevel = z.enum(["low", "medium", "high"]);
+export type EnergyLevel = z.infer<typeof energyLevel>;
+
+/** How willing the scheduler is to move something. */
+export const flexibility = z.enum(["fixed", "flexible", "optional"]);
+export type Flexibility = z.infer<typeof flexibility>;
+
+/** Hard rules constrain the scheduler absolutely; soft rules may be violated with an explanation. */
+export const hardness = z.enum(["hard", "soft"]);
+export type Hardness = z.infer<typeof hardness>;
+
+export const divisibility = z.enum(["divisible", "contiguous", "atomic"]);
+export type Divisibility = z.infer<typeof divisibility>;
+
+export const commitmentType = z.enum([
+  "class",
+  "work",
+  "commute",
+  "meal",
+  "sleep",
+  "appointment",
+  "club",
+  "worship",
+  "exercise",
+  "other",
+]);
+export type CommitmentType = z.infer<typeof commitmentType>;
+
+export const outcomeCode = z.enum([
+  "completed",
+  "partially_completed",
+  "did_not_start",
+  "took_less_time",
+  "took_more_time",
+  "blocked_missing_info",
+  "needs_another_session",
+]);
+export type OutcomeCode = z.infer<typeof outcomeCode>;
+
+/** docs/04-planning-engine-spec.md §16 — deliberately non-catastrophic wording. */
+export const riskLevel = z.enum(["safe", "watch", "at_risk", "decision_needed"]);
+export type RiskLevel = z.infer<typeof riskLevel>;
+
+export const gradeConfirmation = z.enum(["confirmed", "extracted_unreviewed", "estimated"]);
+export type GradeConfirmation = z.infer<typeof gradeConfirmation>;
+
+export const dependencyType = z.enum(["finish_to_start", "informs", "same_session"]);
+export type DependencyType = z.infer<typeof dependencyType>;
+
+export const locationRequirement = z.enum(["anywhere", "desk", "library", "lab", "campus", "quiet"]);
+export type LocationRequirement = z.infer<typeof locationRequirement>;

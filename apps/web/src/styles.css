@@ -1,0 +1,466 @@
+/*
+ * Calm by default: muted surfaces, one accent, no alarm red for ordinary states.
+ * Risk is communicated by an icon and a word as well as a hue, because color is never
+ * the sole status indicator (docs/02-prd.md, Accessibility).
+ */
+
+:root {
+  --bg: #0b0b12;
+  --surface: #14141f;
+  --surface-2: #1c1c2b;
+  --border: #2a2a3d;
+  --text: #e8e8f0;
+  --text-dim: #9a9ab0;
+  --accent: #8b8bf5;
+  --accent-dim: #4a4a8f;
+  --safe: #5fbf8f;
+  --watch: #d6b45f;
+  --at-risk: #d68f5f;
+  --radius: 10px;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f7f7fb;
+    --surface: #ffffff;
+    --surface-2: #f0f0f6;
+    --border: #dedee8;
+    --text: #1a1a24;
+    --text-dim: #61617a;
+    --accent: #4a4ac4;
+    --accent-dim: #a8a8e0;
+    color-scheme: light;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Respect the OS setting and the in-app preference alike. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body[data-reduced-motion="true"] *,
+body[data-reduced-motion="true"] *::before {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Screen-reader-only text: plain terminology even when a theme is active. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 1rem 6rem;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 0;
+  flex-wrap: wrap;
+}
+
+.app-header h1 {
+  font-size: 1.25rem;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.25rem;
+}
+
+.tabs button {
+  background: none;
+  border: 0;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.tabs button[aria-current="page"] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  margin-bottom: 0.85rem;
+}
+
+.card h2 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin: 0 0 0.75rem;
+  font-weight: 600;
+}
+
+/* The one thing the student should look at first. */
+.primary-action {
+  border-color: var(--accent-dim);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+}
+
+.primary-action .title {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+  letter-spacing: -0.01em;
+}
+
+.primary-action .meta {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  margin-bottom: 0.6rem;
+}
+
+.rationale {
+  color: var(--text);
+  font-size: 0.95rem;
+  margin: 0 0 1rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--accent-dim);
+}
+
+.button-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+button.action {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.95rem;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+button.action:hover:not(:disabled) {
+  border-color: var(--accent-dim);
+}
+
+button.action.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+
+button.action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.alternatives {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.alternatives li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.92rem;
+}
+
+.alternatives li:last-child {
+  border-bottom: 0;
+}
+
+.muted {
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+
+/* Protected-later list: visible but deliberately quiet (principle 3). */
+.protected {
+  opacity: 0.72;
+}
+
+.protected li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.3rem 0;
+  font-size: 0.88rem;
+  color: var(--text-dim);
+}
+
+.capacity-bar {
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0.5rem 0 0.35rem;
+}
+
+.capacity-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent-dim);
+}
+
+.risk {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.4rem 0;
+  font-size: 0.9rem;
+}
+
+.risk .level {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.risk[data-level="safe"] .level {
+  color: var(--safe);
+}
+.risk[data-level="watch"] .level {
+  color: var(--watch);
+}
+.risk[data-level="at_risk"] .level,
+.risk[data-level="decision_needed"] .level {
+  color: var(--at-risk);
+}
+
+/* --- Week map --- */
+
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+@media (max-width: 700px) {
+  .week {
+    grid-template-columns: 1fr;
+  }
+}
+
+.day {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  min-height: 90px;
+}
+
+.day h3 {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin: 0 0 0.4rem;
+}
+
+.day.is-today {
+  border-color: var(--accent-dim);
+}
+
+.block {
+  background: var(--surface);
+  border-left: 3px solid var(--accent-dim);
+  border-radius: 5px;
+  padding: 0.35rem 0.45rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.block .time {
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  display: block;
+}
+
+/* --- Coach --- */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.bubble {
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius);
+  max-width: 85%;
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: var(--accent-dim);
+  color: #fff;
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+/* A refusal is styled as an ordinary reply, not an error. Being told "not that" should
+   not feel like being told off. */
+.bubble.assistant.refused {
+  border-style: dashed;
+  color: var(--text-dim);
+}
+
+.bubble .details {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.bubble .details strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.composer {
+  display: flex;
+  gap: 0.5rem;
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  padding: 0.6rem 0;
+}
+
+.composer input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.suggestions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.8rem;
+}
+
+.suggestions button {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+}
+
+.suggestions button:hover {
+  color: var(--text);
+  border-color: var(--accent-dim);
+}
+
+/* --- Auth / states --- */
+
+.centered {
+  max-width: 380px;
+  margin: 12vh auto;
+  text-align: center;
+  padding: 0 1rem;
+}
+
+.centered input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  padding: 0.7rem 0.9rem;
+  margin: 0.75rem 0;
+}
+
+.notice {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.88rem;
+  color: var(--text-dim);
+  margin: 0.75rem 0;
+  word-break: break-all;
+}
+
+.error {
+  color: var(--at-risk);
+  font-size: 0.88rem;
+}
