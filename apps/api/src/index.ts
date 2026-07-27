@@ -8,6 +8,7 @@ import { getDb } from "./db/repo.js";
 import { users } from "./db/schema.js";
 import { coachRoute } from "./routes/coach.js";
 import { documentsRoute } from "./routes/documents.js";
+import { extractionRoute } from "./routes/extraction.js";
 import { plansRoute } from "./routes/plans.js";
 import { sessionsRoute } from "./routes/sessions.js";
 import { termsRoute } from "./routes/terms.js";
@@ -107,6 +108,7 @@ app.route("/api", plansRoute);
 app.route("/api", sessionsRoute);
 app.route("/api", coachRoute);
 app.route("/api", documentsRoute);
+app.route("/api", extractionRoute);
 
 app.onError((error, c) => {
   console.error("[api]", error);

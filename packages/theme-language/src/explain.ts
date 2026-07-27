@@ -103,6 +103,7 @@ const RISK_TEXT: Record<string, string> = {
   PREREQUISITE_LATE: "A prerequisite step is running late.",
   NO_FEASIBLE_WINDOW: "No available window fits this before it is due.",
   DUE_DATE_UNCONFIRMED: "This due date has not been confirmed.",
+  DUE_DATE_UNKNOWN: "No due date is known for this yet, so it is not being treated as urgent.",
   EFFORT_UNKNOWN: "The time this takes is still a guess.",
   DAILY_LIMIT_EXCEEDED: "This day exceeds your daily study limit.",
   OVER_HORIZON: "This falls outside the planned week.",

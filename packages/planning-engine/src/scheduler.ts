@@ -111,7 +111,17 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
         detail: `Using a default estimate of ${requiredMinutes(item)} minutes for "${item.title}".`,
       });
     }
-    if (item.dueAt && item.sourceConfidence !== "confirmed") {
+    if (item.dueAt === null) {
+      // Undated work still gets scheduled — it exists and needs doing — but the student
+      // must be able to see that the app does not know when it is due. An unknown that
+      // looks like a plan is worse than a visible gap (docs/04-planning-engine-spec.md §14).
+      risks.push({
+        level: "watch",
+        code: "DUE_DATE_UNKNOWN",
+        workItemId: item.id,
+        detail: `No due date is known for "${item.title}", so it is scheduled without deadline pressure.`,
+      });
+    } else if (item.sourceConfidence !== "confirmed") {
       risks.push({
         level: "watch",
         code: "DUE_DATE_UNCONFIRMED",

@@ -43,6 +43,9 @@ export default defineConfig({
             },
             workbox: {
               globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+              // pdf.js is only reachable from syllabus upload, which is desktop-only.
+              // Precaching ~470 KB into every phone install would be pure waste.
+              globIgnores: ["**/pdf-*.js", "**/pdf.worker-*.{js,mjs}"],
               runtimeCaching: [
                 {
                   // The plan is read constantly and changes rarely within a session:

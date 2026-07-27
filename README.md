@@ -22,7 +22,7 @@ blindness, weak task initiation. The design principles behind every decision are
 | Start / complete / skip a session | ✅ | ✅ |
 | AI planning coach | ✅ | ✅ |
 | Week map | ✅ | ✅ |
-| **Syllabus upload** | ✅ | ✗ — points you to the desktop app |
+| **Syllabus upload & extraction** | ✅ | ✗ — points you to the desktop app |
 | Course & term setup | ✅ | ✗ |
 
 Both shells load the same React bundle from `apps/web`. The split is one `isDesktop` check
@@ -170,6 +170,47 @@ Set `OPENROUTER_COACH_MODEL` in `wrangler.toml`. Defaults live in
 `packages/ai/src/provider.ts`. Coach turns are short and grounded in pre-computed plan
 data, which is why a cheap fast model is the right default rather than a compromise.
 
+## Syllabus extraction
+
+Upload a syllabus PDF in the desktop app and it becomes reviewable assignments, grading
+categories, and meeting times — none of which touch the plan until you confirm them.
+
+**Where the work happens.** The PDF is parsed **in the client**, not the Worker. The
+Workers free plan allows 10ms of CPU per request, which cannot parse a PDF; waiting on a
+model is I/O and costs no CPU budget. So the desktop app extracts per-page text with
+pdf.js and sends that, and the Worker only calls the model and validates. pdf.js is a lazy
+chunk and is excluded from the PWA precache — a phone never uploads a syllabus and should
+not pay ~470 KB for the option.
+
+**The model is a witness, not an authority.** Every claim must cite a page and quote the
+text it read. `packages/ai/src/extraction/validate.ts` then checks that quote against the
+actual page, and this is the load-bearing defense:
+
+- **Quote not on the page → the claim is discarded**, and reported as discarded. Almost
+  every dangerous extraction failure is a fluent invention, and an invented deadline
+  cannot survive having to quote itself.
+- **A date the model computed rather than read is stripped.** If it reports 2026-10-05 but
+  no recognizable form of that date is in the text — because it silently resolved
+  "Week 5" — the date is removed and becomes a question instead.
+- **No time means no time.** 11:59 PM is a convention, not something a syllabus said. An
+  unstated time is flagged as assumed.
+- Dates outside the term are flagged as possibly last year's schedule; grading weights that
+  do not total 100% raise a warning; near-identical titles are flagged as duplicates rather
+  than silently merged.
+
+Nothing extracted is ever marked `confirmed`. Items you confirm become `high_inference`,
+and an item whose date never resolved stays `unconfirmed` with a null due date — the
+planner schedules it without deadline pressure and raises a visible `DUE_DATE_UNKNOWN`
+risk. An unknown that looks like a plan is worse than a visible gap.
+
+**Prompt injection.** Syllabus text is untrusted input. The prompt says so explicitly, but
+that is not what's relied on: injected instructions live on the page, so a claim quoting
+them verifies — and is still just a claim, subject to every rule above. Nothing in the
+document can change what the validator does.
+
+Scanned PDFs are detected and refused with an explanation rather than a bad read; OCR is
+not supported yet.
+
 ## The planning engine
 
 `packages/planning-engine` is pure and independently tested. Its priority score is a
@@ -192,10 +233,10 @@ Run them with `pnpm test`.
 ## Status
 
 Built: the monorepo, domain model, planning engine, theme layer, the AI coach with its
-guardrail end-to-end, the Worker API on D1/R2 with magic-link auth, the PWA, and the Tauri
-shell.
+guardrail, syllabus extraction with evidence-checked review, the Worker API on D1/R2 with
+magic-link auth, the PWA, and the Tauri shell.
 
 Not yet built — deliberately, per [`docs/07-mvp-roadmap.md`](docs/07-mvp-roadmap.md):
-syllabus **extraction** (upload and storage work; parsing into reviewable claims does not),
-the clarification inbox, milestone auto-decomposition, drag-and-drop week editing, grade
-screenshot import, and notifications.
+milestone auto-decomposition (extracted major projects arrive as single items, not yet
+broken into steps), a standalone clarification inbox spanning courses, drag-and-drop week
+editing, grade screenshot import, OCR for scanned syllabi, and notifications.

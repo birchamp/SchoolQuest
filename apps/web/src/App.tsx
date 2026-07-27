@@ -160,7 +160,7 @@ export function App() {
           )}
           {tab === "setup" && (
             <>
-              <SyllabusUpload courses={plan.courses} />
+              <SyllabusUpload courses={plan.courses} onPlanChanged={regenerate} />
               <section className="card">
                 <h2>Preferences</h2>
                 <div className="button-row">

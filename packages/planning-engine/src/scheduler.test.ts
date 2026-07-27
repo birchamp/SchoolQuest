@@ -258,6 +258,25 @@ describe("explanations and risk", () => {
     );
   });
 
+  it("flags work with no known due date, rather than scheduling it silently", () => {
+    const input = seedPlanningInput();
+    const undated: WorkItem = {
+      ...input.workItems.find((w) => w.id === "wi_edu_reading_w2")!,
+      id: "wi_undated",
+      title: "Group Presentation",
+      dueAt: null,
+      status: "unconfirmed",
+      sourceConfidence: "unknown",
+    };
+    const plan = generatePlan({ ...input, workItems: [...input.workItems, undated] }, PLAN_ID);
+
+    // It is still planned — the work exists — but the unknown is visible.
+    expect(plan.sessions.some((s) => s.workItemId === "wi_undated")).toBe(true);
+    expect(
+      plan.risks.some((r) => r.code === "DUE_DATE_UNKNOWN" && r.workItemId === "wi_undated"),
+    ).toBe(true);
+  });
+
   it("does not schedule a parent project directly, only its milestones", () => {
     const plan = planFor({ horizonDays: 14 });
     expect(plan.sessions.some((s) => s.workItemId === "wi_psych_paper")).toBe(false);
