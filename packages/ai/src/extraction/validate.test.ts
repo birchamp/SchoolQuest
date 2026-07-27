@@ -168,7 +168,9 @@ describe("fabrication defenses", () => {
     const quiz = result.assignments[0]!;
     expect(quiz.issues).toContain("DATE_NOT_IN_SOURCE");
     expect(quiz.assignment.dueDate.iso).toBeNull();
-    expect(quiz.confidenceStatus).toBe("low_inference");
+    // Stripping the date leaves nothing to schedule against, so the item is unknown —
+    // not merely low-confidence.
+    expect(quiz.confidenceStatus).toBe("unknown");
     // And it must become a question rather than a silent gap.
     expect(result.clarificationQuestions.some((q) => q.relatesToTitle === "Quiz 2")).toBe(true);
   });

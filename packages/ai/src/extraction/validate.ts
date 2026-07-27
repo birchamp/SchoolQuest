@@ -251,22 +251,65 @@ export function validateExtraction(
       }
     }
 
-    if (date.ambiguity === "relative_week" || date.ambiguity === "relative_event") {
-      issues.push("AMBIGUOUS_DATE");
-      derivedQuestions.push({
-        question: `"${assignment.title}" is listed as ${date.raw ?? "a relative date"}. What calendar date is that?`,
-        why: "Relative dates cannot be scheduled until they are tied to the term calendar.",
-        relatesToTitle: assignment.title,
-        kind: "relative_date",
-      });
-    } else if (date.ambiguity === "no_year") {
-      issues.push("AMBIGUOUS_DATE");
-    } else if (date.ambiguity === "missing" || (date.iso === null && date.raw === null)) {
-      issues.push("MISSING_DATE");
-    }
+    if (date.iso !== null) {
+      // Absent time is normal and correct, but the planner should know it is assuming.
+      if (date.time === null) issues.push("TIME_NOT_STATED");
+    } else {
+      // INVARIANT: an item with no resolved date always raises an issue and is always
+      // "unknown". Reaching this branch silently is the exact failure this product is
+      // built to prevent — an unschedulable item that looks like part of a plan. Real
+      // model output showed a whole course arriving here labelled "conflicting" and
+      // sailing through with no issue at all, so the check is on iso itself rather than
+      // on the ambiguity the model happened to report.
+      switch (date.ambiguity) {
+        case "relative_week":
+        case "relative_event":
+          issues.push("AMBIGUOUS_DATE");
+          derivedQuestions.push({
+            question: `"${assignment.title}" is listed as ${date.raw ?? "a relative date"}. What calendar date is that?`,
+            why: "Relative dates cannot be scheduled until they are tied to the term calendar.",
+            relatesToTitle: assignment.title,
+            kind: "relative_date",
+          });
+          break;
 
-    // Absent time is normal and correct, but the planner should know it is assuming.
-    if (date.iso !== null && date.time === null) issues.push("TIME_NOT_STATED");
+        case "conflicting":
+          issues.push("AMBIGUOUS_DATE");
+          derivedQuestions.push({
+            question: `What date should "${assignment.title}" use?`,
+            why: `The syllabus is inconsistent about this one: ${truncate(date.raw ?? "no date given", 160)}`,
+            relatesToTitle: assignment.title,
+            kind: "conflicting_information",
+          });
+          break;
+
+        case "no_year":
+          issues.push("AMBIGUOUS_DATE");
+          derivedQuestions.push({
+            question: `"${assignment.title}" is listed as ${date.raw ?? "a date"} with no year. Which year is it?`,
+            why: "Without a year this cannot be placed in the term.",
+            relatesToTitle: assignment.title,
+            kind: "relative_date",
+          });
+          break;
+
+        case "missing":
+        case "none":
+          if (date.raw !== null) {
+            // The model read a date but did not resolve it to a calendar date.
+            issues.push("AMBIGUOUS_DATE");
+            derivedQuestions.push({
+              question: `"${assignment.title}" is listed as ${truncate(date.raw, 80)}. What date should it use?`,
+              why: "The syllabus gives this date in a form that could not be resolved automatically.",
+              relatesToTitle: assignment.title,
+              kind: "relative_date",
+            });
+          } else {
+            issues.push("MISSING_DATE");
+          }
+          break;
+      }
+    }
 
     if (assignment.category && !knownCategories.has(assignment.category.trim().toLowerCase())) {
       issues.push("UNKNOWN_CATEGORY");
@@ -420,6 +463,8 @@ function confidenceFor(
   issues: ClaimIssue[],
   evidenceVerified: boolean,
 ): ConfidenceStatus {
+  // No resolved date means unknown, full stop — regardless of how sure the model sounded.
+  if (assignment.dueDate.iso === null) return "unknown";
   if (issues.includes("MISSING_DATE") || issues.includes("AMBIGUOUS_DATE")) return "unknown";
   if (!evidenceVerified || issues.includes("DATE_NOT_IN_SOURCE")) return "low_inference";
   if (assignment.confidence < 0.5) return "low_inference";
@@ -434,6 +479,12 @@ function normalizeTitle(title: string): string {
     .replace(/\b(the|a|an)\b/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Models sometimes stuff a whole explanation into a data field; keep questions readable. */
+function truncate(text: string, max: number): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  return clean.length <= max ? clean : `${clean.slice(0, max - 1)}…`;
 }
 
 function dedupeQuestions(questions: ClarificationQuestion[]): ClarificationQuestion[] {

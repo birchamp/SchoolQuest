@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GREEK_PAGES, REVELATION_PAGES, THEOLOGY_PAGES } from "@schoolquest/fixtures";
 import { dateAppearsInSource, validateExtraction, verifyEvidence } from "./validate.js";
+import { extractedMeetingPattern, normalizeTime } from "./schema.js";
 import type { ExtractedAssignment, SyllabusExtraction } from "./schema.js";
 
 /**
@@ -280,6 +281,117 @@ describe("Revelation's contradictory paper deadline", () => {
 
     expect(result.assignments[1]!.issues).toContain("DUPLICATE_OF_EARLIER_CLAIM");
     expect(result.assignments[1]!.duplicateOf).toBe("Position Paper");
+  });
+});
+
+/**
+ * Regressions found by running the production prompt through a real model over these
+ * documents. Every one of these passed the synthetic tests.
+ */
+describe("regressions from real model output", () => {
+  it("accepts the clock times a model actually returns", () => {
+    // Greek states "Time: 9:30-10:50 am". The model returned "9:30 am", and a strict
+    // HH:MM regex threw away the entire seven-page extraction over the missing zero.
+    expect(normalizeTime("9:30 am")).toBe("09:30");
+    expect(normalizeTime("10:50 am")).toBe("10:50");
+    expect(normalizeTime("6:00 PM")).toBe("18:00");
+    expect(normalizeTime("9:30")).toBe("09:30");
+    // Noon and midnight are the cases a naive +12 gets wrong.
+    expect(normalizeTime("12:00 pm")).toBe("12:00");
+    expect(normalizeTime("12:30 am")).toBe("00:30");
+
+    const parsed = extractedMeetingPattern.safeParse({
+      daysOfWeek: [3, 5],
+      startTime: "9:30 am",
+      endTime: "10:50 am",
+      location: null,
+      evidence: { page: 1, excerpt: "Time:  9:30-10:50 am" },
+      confidence: 0.95,
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.startTime).toBe("09:30");
+  });
+
+  it("leaves an unparseable time as a real validation error", () => {
+    expect(extractedMeetingPattern.safeParse({
+      daysOfWeek: [1],
+      startTime: "sometime in the morning",
+      endTime: "10:00",
+      location: null,
+      evidence: { page: 1, excerpt: "x" },
+      confidence: 0.5,
+    }).success).toBe(false);
+  });
+
+  it("never lets a dateless assignment pass as plannable", () => {
+    // The real failure: a model marked 14 of Theology's quizzes ambiguity "conflicting"
+    // with iso null. "conflicting" was unhandled, so every one of them arrived with no
+    // issues at all and confidence "high_inference" — unschedulable work presented as if
+    // it were part of a plan.
+    const quizzes = ["Sept. 1, 2026", "Sept. 8, 2026", "Sept. 15, 2026"].map((raw, i) =>
+      assignment({
+        title: `Quiz ${i + 1}`,
+        type: "quiz",
+        dueDate: { iso: null, raw, time: null, ambiguity: "conflicting" },
+        evidence: { page: 3, excerpt: "QUIZ 1 OVER\nDISM Intro & Ch. 1" },
+        confidence: 0.9,
+      }),
+    );
+
+    const result = validateExtraction(extraction(quizzes), {
+      pages: THEOLOGY_PAGES,
+      ...THEOLOGY_TERM,
+    });
+
+    for (const item of result.assignments) {
+      expect(item.assignment.dueDate.iso).toBeNull();
+      expect(item.confidenceStatus).toBe("unknown");
+      expect(item.issues.length).toBeGreaterThan(0);
+    }
+    expect(result.clarificationQuestions.length).toBeGreaterThan(0);
+  });
+
+  it("raises an issue for every ambiguity value, including ones never seen before", () => {
+    // Guards the invariant rather than the enum: no resolved date, no clean bill of health.
+    const ambiguities = ["none", "relative_week", "no_year", "conflicting", "missing", "relative_event"] as const;
+    for (const ambiguity of ambiguities) {
+      const result = validateExtraction(
+        extraction([
+          assignment({
+            title: `Item ${ambiguity}`,
+            dueDate: { iso: null, raw: "some date text", time: null, ambiguity },
+            evidence: { page: 5, excerpt: "DUE ON OR BEFORE DECEMBER 8, 2026" },
+          }),
+        ]),
+        { pages: THEOLOGY_PAGES, ...THEOLOGY_TERM },
+      );
+
+      expect(result.assignments[0]!.issues.length, `ambiguity=${ambiguity}`).toBeGreaterThan(0);
+      expect(result.assignments[0]!.confidenceStatus, `ambiguity=${ambiguity}`).toBe("unknown");
+    }
+  });
+
+  it("keeps a question readable when the model stuffs an essay into the date field", () => {
+    // Verbatim from real output: the model put its entire reasoning in `raw`.
+    const rambling =
+      'December 10 (per Course Outline table, in the Dec. 8-11, 2026 week) vs. December 11, 2026 ' +
+      '(per assignment description: "DUE ON OR BEFORE December 11, 2026")';
+
+    const result = validateExtraction(
+      extraction([
+        assignment({
+          title: "Position Paper",
+          type: "paper",
+          dueDate: { iso: null, raw: rambling, time: null, ambiguity: "conflicting" },
+          evidence: { page: 6, excerpt: "DUE ON OR BEFORE December 11, 2026" },
+        }),
+      ]),
+      { pages: REVELATION_PAGES, termStartDate: "2026-08-25", termEndDate: "2026-12-18" },
+    );
+
+    const question = result.clarificationQuestions[0]!;
+    expect(question.why.length).toBeLessThan(220);
+    expect(question.why).not.toContain("\n");
   });
 });
 

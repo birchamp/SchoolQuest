@@ -4,7 +4,7 @@ export interface DocumentPage {
   text: string;
 }
 
-export const EXTRACTION_PROMPT_VERSION = "syllabus-extract-v1";
+export const EXTRACTION_PROMPT_VERSION = "syllabus-extract-v2";
 
 /**
  * Extraction system prompt.
@@ -40,8 +40,17 @@ This is the rule that matters most. A wrong date that looks confident is far wor
 - "Week 5", "Week of Oct 12", "Unit 3" are NOT dates. Set iso to null, put the literal text in raw, and set ambiguity to "relative_week". The application resolves these against the term calendar; you must not.
 - If a date has no year, set iso to null, set ambiguity to "no_year", and put the literal text in raw. Do not guess the year from context.
 - If no time of day is stated, time MUST be null. Many courses use 11:59 PM; that is a convention, not something this syllabus said.
-- If the schedule table and the prose disagree, report the claim once with ambiguity "conflicting" and raise a clarification question.
 - If an assignment is mentioned with no date anywhere, set iso and raw to null and ambiguity to "missing".
+
+## Ambiguity flags a doubt; it does not withhold a date
+
+This is the rule most often got wrong. **If an explicit calendar date is printed for an item, always fill in iso — even when something about that item is contradictory or uncertain.** The ambiguity field is how you raise the doubt. Emptying iso as well throws away a fact the document actually gave you, and leaves the student with an assignment the app cannot schedule at all.
+
+- A schedule table lists "Sept. 1, 2026" for a quiz, but the prose says quizzes are on a different weekday: set iso to 2026-09-01 AND ambiguity to "conflicting". Do not null the date.
+- The same item appears twice with two different dates: report it once per date you found, each with its own evidence, and set ambiguity to "conflicting" on both. Let the application reconcile them.
+- A date's year looks wrong for the term: report the date exactly as printed, including that year, and set ambiguity to "conflicting". Do not correct the year yourself and do not drop the date.
+
+Set iso to null only when the document genuinely gives you no calendar date to read: a week number, a relative reference, or nothing at all.
 
 ## Other reporting rules
 

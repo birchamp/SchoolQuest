@@ -9,6 +9,39 @@ import { z } from "zod";
  * inventing a deadline that reads perfectly plausibly.
  */
 
+/**
+ * A 24-hour "HH:MM" time, coerced from whatever the model wrote.
+ *
+ * Syllabi state times as "9:30-10:50 am" and "6:00-9:00 PM", and a model quoting them
+ * faithfully returns "9:30 am". Rejecting that outright discards the entire extraction —
+ * a whole syllabus lost to a missing leading zero. Real model output did exactly this, so
+ * the schema now normalizes before it validates.
+ */
+export const timeString = z.preprocess(
+  (value) => (typeof value === "string" ? normalizeTime(value) : value),
+  z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+);
+
+/** "9:30 am" -> "09:30", "6:00 PM" -> "18:00", "9:30" -> "09:30". */
+export function normalizeTime(raw: string): string {
+  const match = /^\s*(\d{1,2})\s*[:.]\s*(\d{2})\s*([ap])\.?\s*m?\.?\s*$/i.exec(raw);
+  if (match) {
+    let hour = Number(match[1]);
+    const minute = match[2]!;
+    const meridiem = match[3]!.toLowerCase();
+    // 12 AM is midnight and 12 PM is noon — the one case a naive +12 gets wrong.
+    if (meridiem === "p" && hour !== 12) hour += 12;
+    if (meridiem === "a" && hour === 12) hour = 0;
+    return `${String(hour).padStart(2, "0")}:${minute}`;
+  }
+
+  const bare = /^\s*(\d{1,2})\s*[:.]\s*(\d{2})\s*$/.exec(raw);
+  if (bare) return `${bare[1]!.padStart(2, "0")}:${bare[2]}`;
+
+  // Unrecognized: hand it back untouched so the regex reports a real validation error.
+  return raw.trim();
+}
+
 /** A calendar date the model read verbatim. Never a date it computed or assumed. */
 export const extractedDate = z.object({
   /** ISO date, ONLY when an explicit calendar date appears in the document. */
@@ -19,7 +52,7 @@ export const extractedDate = z.object({
    * Time of day, ONLY when stated. A syllabus that says "due October 18" with no time
    * must leave this null — 11:59 PM is a convention, not a fact (docs/06 §4).
    */
-  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+  time: timeString.nullable(),
   ambiguity: z
     .enum([
       "none",
@@ -73,8 +106,8 @@ export type ExtractedAssignment = z.infer<typeof extractedAssignment>;
 
 export const extractedMeetingPattern = z.object({
   daysOfWeek: z.array(z.number().int().min(0).max(6)),
-  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  startTime: timeString,
+  endTime: timeString,
   location: z.string().nullable(),
   evidence: evidence,
   confidence: z.number().min(0).max(1),
