@@ -125,6 +125,9 @@ importers:
       '@schoolquest/domain':
         specifier: workspace:*
         version: link:../domain
+      '@schoolquest/fixtures':
+        specifier: workspace:*
+        version: link:../fixtures
       '@schoolquest/planning-engine':
         specifier: workspace:*
         version: link:../planning-engine

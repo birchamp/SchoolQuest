@@ -70,7 +70,11 @@ export const ISSUE_TEXT: Record<string, string> = {
   TIME_NOT_STATED: "No time of day was given. End of day is assumed.",
   AMBIGUOUS_DATE: "The date is relative or incomplete and needs confirming.",
   MISSING_DATE: "No due date was given anywhere in the document.",
+  DATE_YEAR_MISMATCH:
+    "The syllabus writes this date with a different year — often left over from an earlier version. Worth confirming.",
   DUPLICATE_OF_EARLIER_CLAIM: "This looks like the same item as an earlier one.",
+  CONFLICTING_DATE_FOR_SAME_ITEM:
+    "The syllabus gives this item two different dates. Pick the one you want to plan against.",
   CATEGORY_WEIGHTS_DO_NOT_SUM: "The grading weights do not add up to 100%.",
   UNKNOWN_CATEGORY: "This grading category was not found elsewhere in the syllabus.",
   LOW_MODEL_CONFIDENCE: "This one was read with low confidence — worth a careful look.",

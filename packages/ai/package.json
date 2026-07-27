@@ -16,6 +16,7 @@
     "@schoolquest/domain": "workspace:*",
     "@schoolquest/planning-engine": "workspace:*",
     "@schoolquest/theme-language": "workspace:*",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "@schoolquest/fixtures": "workspace:*"
   }
 }

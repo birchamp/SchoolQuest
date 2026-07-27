@@ -107,14 +107,14 @@ describe("evidence verification", () => {
 
 describe("date verification", () => {
   it("recognizes a date written in several common formats", () => {
-    expect(dateAppearsInSource("2026-10-18", "Paper due October 18")).toBe(true);
-    expect(dateAppearsInSource("2026-10-18", "Paper due Oct 18")).toBe(true);
-    expect(dateAppearsInSource("2026-10-18", "Paper due 10/18/2026")).toBe(true);
-    expect(dateAppearsInSource("2026-10-18", "Paper due 10/18")).toBe(true);
+    expect(dateAppearsInSource("2026-10-18", "Paper due October 18").found).toBe(true);
+    expect(dateAppearsInSource("2026-10-18", "Paper due Oct 18").found).toBe(true);
+    expect(dateAppearsInSource("2026-10-18", "Paper due 10/18/2026").found).toBe(true);
+    expect(dateAppearsInSource("2026-10-18", "Paper due 10/18").found).toBe(true);
   });
 
   it("does not find a date the document never states", () => {
-    expect(dateAppearsInSource("2026-10-18", "Quiz 2 during Week 5")).toBe(false);
+    expect(dateAppearsInSource("2026-10-18", "Quiz 2 during Week 5").found).toBe(false);
   });
 });
 

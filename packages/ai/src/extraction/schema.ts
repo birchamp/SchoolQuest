@@ -118,6 +118,12 @@ export const clarificationQuestion = z.object({
   why: z.string().min(1),
   /** Set when the question is about one specific extracted assignment. */
   relatesToTitle: z.string().nullable(),
+  /**
+   * Set by the validator when several identical questions are collapsed into one.
+   * Not part of the model's contract — a syllabus listing thirteen quizzes by week should
+   * produce one question, not thirteen (docs/02-prd.md FR-4: a minimal set, grouped).
+   */
+  relatesToTitles: z.array(z.string()).optional(),
   kind: z.enum([
     "missing_date",
     "relative_date",
