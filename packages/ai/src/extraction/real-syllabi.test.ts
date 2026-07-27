@@ -371,6 +371,40 @@ describe("regressions from real model output", () => {
     }
   });
 
+  it("does not rate a disputed date as high confidence", () => {
+    // Real v2 output reported Theology's topic approval twice, exactly as instructed:
+    // 2026-10-13 from the schedule table and 2023-10-05 from the prose. Both quotes are
+    // accurate, so both survive — but a 2023 date in a 2026 term must not be presented
+    // with the same confidence as an undisputed one.
+    const result = validateExtraction(
+      extraction([
+        assignment({
+          title: "Topic Approval",
+          type: "paper",
+          dueDate: { iso: "2026-10-13", raw: "Oct. 13, 2026", time: null, ambiguity: "conflicting" },
+          evidence: { page: 4, excerpt: "Topic Approval\nDeadline" },
+          confidence: 0.9,
+        }),
+        assignment({
+          title: "Topic Approval",
+          type: "paper",
+          dueDate: { iso: "2023-10-05", raw: "October 5, 2023", time: null, ambiguity: "conflicting" },
+          evidence: { page: 5, excerpt: "approval on or before October 5, 2023" },
+          confidence: 0.9,
+        }),
+      ]),
+      { pages: THEOLOGY_PAGES, ...THEOLOGY_TERM },
+    );
+
+    const stale = result.assignments[1]!;
+    expect(stale.issues).toContain("DATE_OUTSIDE_TERM");
+    expect(stale.issues).toContain("CONFLICTING_DATE_FOR_SAME_ITEM");
+    expect(stale.confidenceStatus).toBe("low_inference");
+
+    // The undisputed one keeps its standing.
+    expect(result.assignments[0]!.confidenceStatus).toBe("high_inference");
+  });
+
   it("keeps a question readable when the model stuffs an essay into the date field", () => {
     // Verbatim from real output: the model put its entire reasoning in `raw`.
     const rambling =

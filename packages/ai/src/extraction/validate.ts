@@ -467,8 +467,19 @@ function confidenceFor(
   if (assignment.dueDate.iso === null) return "unknown";
   if (issues.includes("MISSING_DATE") || issues.includes("AMBIGUOUS_DATE")) return "unknown";
   if (!evidenceVerified || issues.includes("DATE_NOT_IN_SOURCE")) return "low_inference";
+
+  // A date the document itself casts doubt on is not something to plan confidently
+  // against, however plainly it was printed. Real output produced a topic-approval
+  // deadline dated 2023 in a 2026 term, quoted accurately — the model was right about
+  // what it read, and the date is still not trustworthy.
+  const disputed: ClaimIssue[] = [
+    "DATE_OUTSIDE_TERM",
+    "DATE_YEAR_MISMATCH",
+    "CONFLICTING_DATE_FOR_SAME_ITEM",
+  ];
+  if (disputed.some((issue) => issues.includes(issue))) return "low_inference";
+
   if (assignment.confidence < 0.5) return "low_inference";
-  if (assignment.confidence < 0.85 || issues.length > 0) return "high_inference";
   return "high_inference";
 }
 

@@ -46,6 +46,43 @@ because they contain genuine mistakes:
 
 A fluent model will smooth all of these over. Catching them is the point.
 
+## Measured results
+
+Run over all three fixtures with a mid-tier general model standing in for the configured
+provider. Not Grok 4.1 Fast, so treat the absolute numbers as indicative — what they
+establish is that the prompt and validator work against real documents.
+
+| | prompt v1 | prompt v2 |
+|---|---|---|
+| Claims rejected by evidence check | 0 / 46 | 0 / 17 (Theology re-run) |
+| Theology dates resolved | 2 / 16 | **17 / 17** |
+| Real contradictions surfaced | all | all |
+
+**Fabrication was never the problem.** Across 46 claims not one quoted text that was
+absent from the document, and every genuine inconsistency in these syllabi was raised as a
+question — including one the hand-written ground truth had missed, a final exam dated
+after the term ends.
+
+The v1→v2 jump came from a single prompt fix. v1 let the model read "something about this
+item is contradictory" as "I cannot give a date", so it nulled dates that were printed
+plainly in the schedule table. Separating those two ideas — an explicit date always fills
+`iso`, ambiguity is how doubt is raised — took Theology from 2 usable dates to 17.
+
+Under v2 the model reports a genuinely disputed item once per date it found, each with its
+own evidence, and the validator reconciles them: Theology's topic-approval deadline comes
+back as both 2026-10-13 (schedule table) and 2023-10-05 (prose), flagged
+`CONFLICTING_DATE_FOR_SAME_ITEM` and `DATE_OUTSIDE_TERM`, with the stale one rated
+`low_inference`.
+
+### Known gap
+
+Greek and Revelation list every quiz against a week range ("Sept. 8-11, 2026") and never a
+due date, so `iso` is correctly null for all of them. The model asks the right question —
+*"the syllabus says quizzes happen each Wednesday; is each quiz due the Wednesday in its
+week?"* — but answering it currently resolves nothing. One answer should date thirteen
+quizzes. Until that loop closes, those two courses arrive with usable assignments and no
+usable dates.
+
 ## Reading a bad result
 
 - **Rejections above ~5%** — the prompt's evidence rule is not landing. Check whether the
