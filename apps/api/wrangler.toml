@@ -23,8 +23,11 @@ APP_NAME = "SchoolQuest"
 # Public origin of the web app; magic links point here and CORS is restricted to it.
 APP_URL = "http://localhost:5173"
 # Override the defaults in packages/ai/src/provider.ts without a code change.
+# Coach chat runs many times a day and summarizes plan data the engine already computed,
+# so it uses the cheap model. Extraction runs a handful of times a semester and every date
+# it reads becomes load-bearing for the whole plan, so it uses the strong one.
 OPENROUTER_COACH_MODEL = "x-ai/grok-4.1-fast"
-OPENROUTER_EXTRACTION_MODEL = "x-ai/grok-4.1-fast"
+OPENROUTER_EXTRACTION_MODEL = "x-ai/grok-4.5"
 
 # Secrets — set with `wrangler secret put <NAME>`, never in this file:
 #   OPENROUTER_API_KEY   required, from https://openrouter.ai/keys

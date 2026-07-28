@@ -48,9 +48,16 @@ A fluent model will smooth all of these over. Catching them is the point.
 
 ## Measured results
 
-Run over all three fixtures with a mid-tier general model standing in for the configured
-provider. Not Grok 4.1 Fast, so treat the absolute numbers as indicative — what they
-establish is that the prompt and validator work against real documents.
+Run over all three fixtures with Claude Sonnet standing in for the configured provider,
+which was not reachable from the build environment. Extraction is configured to run on
+`x-ai/grok-4.5`, a comparable frontier model, so these numbers should transfer reasonably
+— but they were not produced by the configured model, and that gap closes only by
+re-running with a real `OPENROUTER_API_KEY`.
+
+Note the results below would look materially worse on a cheap model: several of them turn
+on the extractor noticing that two parts of a document disagree, which is exactly the
+capability that thins out at the low end. That asymmetry is why extraction does not share
+the coach's model.
 
 | | prompt v1 | prompt v2 |
 |---|---|---|

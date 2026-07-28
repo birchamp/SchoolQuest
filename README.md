@@ -36,7 +36,8 @@ while setup work stays where a real file picker exists.
 - **API** — Hono on Cloudflare Workers
 - **Database** — Cloudflare D1 (SQLite) with Drizzle
 - **Files** — Cloudflare R2 (syllabus PDFs, grade screenshots)
-- **AI** — OpenRouter, pinned to `x-ai/grok-4.1-fast` (~$0.20/M in, $0.50/M out)
+- **AI** — OpenRouter: `x-ai/grok-4.1-fast` for coach chat, `x-ai/grok-4.5` for syllabus
+  extraction ([why the split](#which-model-runs-where))
 - **Auth** — passwordless email magic links, HMAC-hashed tokens in D1
 
 Everything runs on Cloudflare's **free tier**. No Queues — syllabus processing is designed
@@ -164,11 +165,23 @@ rather than redirecting to study prioritization. It does not diagnose or counsel
 explicitly out of scope — but answering "I want to hurt myself" with scheduling advice
 would be a serious failure. See `DISTRESS_PATTERNS` in the guardrail.
 
-### Changing the model
+### Which model runs where
 
-Set `OPENROUTER_COACH_MODEL` in `wrangler.toml`. Defaults live in
-`packages/ai/src/provider.ts`. Coach turns are short and grounded in pre-computed plan
-data, which is why a cheap fast model is the right default rather than a compromise.
+Two models, and the split is driven by call frequency rather than by which job sounds
+harder:
+
+| | Model | Runs | Why |
+|---|---|---|---|
+| Coach chat + topic guard | `x-ai/grok-4.1-fast` | many times a day | Turns are short and grounded in plan data the engine already computed. The model summarizes; it does not reason from scratch. A fraction of a cent per turn. |
+| Syllabus extraction | `x-ai/grok-4.5` | ~once per course per semester | Every date it reads becomes load-bearing for the whole plan, and extraction mistakes propagate silently into the schedule. |
+
+Extraction on a frontier model costs roughly four cents per syllabus against half a cent
+on a cheap one — pennies per semester either way. Given that the output is the foundation
+of every plan the student sees, that is not a close call. Coach chat is the opposite: high
+frequency, low stakes per call, so cheap is right there and not a compromise.
+
+Override either with `OPENROUTER_COACH_MODEL` / `OPENROUTER_EXTRACTION_MODEL` in
+`wrangler.toml`. Defaults live in `packages/ai/src/provider.ts`.
 
 ## Syllabus extraction
 

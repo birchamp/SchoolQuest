@@ -47,18 +47,30 @@ export class AiProviderError extends Error {
 /**
  * Model defaults.
  *
- * `COACH` is deliberately a cheap, fast model: coach turns are short, grounded in
- * pre-computed plan data, and happen many times a day. Grok 4.1 Fast is roughly
- * $0.20/M input and $0.50/M output, which puts a typical coach turn well under a cent.
- * Override with OPENROUTER_COACH_MODEL / OPENROUTER_EXTRACTION_MODEL.
+ * The split is driven by how often each call runs, not by which job "feels" harder.
+ *
+ * **Coach and guard: cheap.** A coach turn is short and grounded in plan data the engine
+ * already computed, so the model is summarizing, not reasoning from scratch. These run
+ * many times a day. At roughly $0.20/M in and $0.50/M out, a turn costs a fraction of a
+ * cent, and a semester of heavy use stays in single-dollar territory.
+ *
+ * **Extraction: strong.** A syllabus is read once per course per semester — call it five
+ * times a term. At ~8k in and ~4k out that is about four cents per syllabus on a frontier
+ * model against half a cent on a cheap one: a difference of pennies per semester. What it
+ * buys is the correctness of every date the student's entire plan is built on, and
+ * extraction mistakes are the expensive kind, because they propagate silently into the
+ * schedule. Paying ten times almost nothing for that is not a close call.
+ *
+ * Both are overridable per environment via OPENROUTER_COACH_MODEL and
+ * OPENROUTER_EXTRACTION_MODEL, so this is a default rather than a commitment.
  */
 export const MODELS = {
   /** Coach chat and disruption parsing. */
   COACH: "x-ai/grok-4.1-fast",
   /** Topic guardrail — smallest, cheapest classification call. */
   GUARD: "x-ai/grok-4.1-fast",
-  /** Syllabus and screenshot extraction; needs stronger structured output. */
-  EXTRACTION: "x-ai/grok-4.1-fast",
+  /** Syllabus and screenshot extraction. Deliberately the strong model — see below. */
+  EXTRACTION: "x-ai/grok-4.5",
 } as const;
 
 const openRouterResponse = z.object({

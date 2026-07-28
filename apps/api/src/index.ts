@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { detailMode, themeName } from "@schoolquest/domain";
+import { MODELS } from "@schoolquest/ai";
 import { redeemLoginToken, requestLoginLink, requireAuth, SESSION_COOKIE, setSessionCookie, signOut } from "./auth.js";
 import { getDb } from "./db/repo.js";
 import { users } from "./db/schema.js";
@@ -34,8 +35,11 @@ app.get("/api/health", (c) =>
   c.json({
     ok: true,
     app: c.env.APP_NAME,
-    coachConfigured: Boolean(c.env.OPENROUTER_API_KEY),
-    coachModel: c.env.OPENROUTER_COACH_MODEL ?? "x-ai/grok-4.1-fast",
+    aiConfigured: Boolean(c.env.OPENROUTER_API_KEY),
+    // Reported separately because they are deliberately different tiers, and a
+    // misconfigured override is otherwise invisible until a syllabus reads badly.
+    coachModel: c.env.OPENROUTER_COACH_MODEL ?? MODELS.COACH,
+    extractionModel: c.env.OPENROUTER_EXTRACTION_MODEL ?? MODELS.EXTRACTION,
   }),
 );
 
