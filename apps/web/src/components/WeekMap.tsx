@@ -160,7 +160,13 @@ function groupUnscheduledByCourse(plan: PlanResponse): {
     const item = itemsById.get(id);
     const course = item ? coursesById.get(item.courseId) : undefined;
     const key = course?.id ?? "other";
-    const name = course ? (course.code ? `${course.name} (${course.code})` : course.name) : "Other";
+    // Course names sometimes already carry the code ("General Biology I (BIO 240)");
+    // appending it again produced "(BIO 240) (BIO 240)" in group headers.
+    const name = course
+      ? course.code && !course.name.includes(course.code)
+        ? `${course.name} (${course.code})`
+        : course.name
+      : "Other";
     const group = groups.get(key) ?? { key, name, items: [] };
     group.items.push({ id, title: item?.title ?? id });
     groups.set(key, group);

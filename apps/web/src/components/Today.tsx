@@ -98,7 +98,7 @@ export function Today({
           <h2 id="primary-heading">
             {quest ? (
               <>
-                <span aria-hidden="true">⚔ </span>MAIN QUEST
+                <span aria-hidden="true">⚜ </span>MAIN QUEST
               </>
             ) : (
               label("todayAction", theme)
@@ -231,7 +231,7 @@ export function Today({
             {protectedLater.map((s) => (
               <li key={s.id}>
                 <span>
-                  {quest && <span aria-hidden="true">{"🕯 "}</span>}
+                  {quest && <span aria-hidden="true" style={{ color: "#8a6f1f" }}>{"◈ "}</span>}
                   {s.title}
                 </span>
                 <span>

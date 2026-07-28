@@ -878,3 +878,59 @@ body[data-theme="quest"] .centered input {
   border: 1px solid #9b7c3c;
   font-family: inherit;
 }
+
+/* --- The book cover ---------------------------------------------------------
+ * The theme-choice screen is the app's front door and the one screen with no theme
+ * chosen yet, which left it looking like a stock SaaS form in front of an otherwise
+ * art-directed app. It gets its own crafted shell, independent of data-theme: whatever
+ * the student picks, the cover of the book is worth opening. After a Plain choice,
+ * every subsequent screen is the calm planner.
+ * -------------------------------------------------------------------------- */
+
+body:has(.book-cover) {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 120% 60% at 50% -10%, rgba(201, 162, 39, 0.08), transparent 60%),
+    repeating-linear-gradient(115deg, rgba(0, 0, 0, 0.14) 0 2px, transparent 2px 5px),
+    linear-gradient(180deg, #1a130c, #16100b 40%);
+}
+html:has(.book-cover) {
+  background: #16100b;
+  min-height: 100%;
+}
+
+.book-cover {
+  color: #efe3c8;
+}
+
+.book-cover-kicker {
+  font-size: 2rem;
+  color: #c9a227;
+  text-align: center;
+  margin: 0 0 0.25rem;
+  text-shadow: 0 0 22px rgba(201, 162, 39, 0.5);
+}
+
+.book-cover-title {
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-size: 2rem;
+  text-align: center;
+  color: #e8c95a;
+  letter-spacing: 0.03em;
+  margin: 0 0 0.5rem;
+  text-shadow: 0 1px 0 #000, 0 0 20px rgba(201, 162, 39, 0.3);
+}
+
+.book-cover-sub {
+  text-align: center;
+  color: #b9a67f;
+  font-size: 0.92rem;
+  margin: 0 auto 1.5rem;
+  max-width: 34rem;
+}
+
+.book-cover button.action {
+  background: linear-gradient(180deg, #3a2b19, #241a10);
+  border: 1px solid #8a6f1f;
+  color: #efe3c8;
+}

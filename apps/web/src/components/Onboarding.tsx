@@ -50,7 +50,7 @@ const THEME_PREVIEWS: Record<
   mission: {
     card: {
       background: "#1a2027",
-      color: "#9fb4c7",
+      color: "#c6d4e2",
       border: "1px solid #35506b",
       fontFamily: 'system-ui, -apple-system, "Segoe UI", Arial, sans-serif',
     },
@@ -185,9 +185,12 @@ export function Onboarding({
 
   if (step === "theme") {
     return (
-      <div className="centered" style={{ textAlign: "left", maxWidth: "440px" }}>
-        <h1>Choose your adventure</h1>
-        <p className="muted">
+      <div className="centered book-cover" style={{ textAlign: "left", maxWidth: "460px" }}>
+        <p className="book-cover-kicker" aria-hidden="true">
+          ⚜
+        </p>
+        <h1 className="book-cover-title">Choose your adventure</h1>
+        <p className="book-cover-sub">
           This only changes how SchoolQuest speaks and looks. Your real courses, dates,
           and grades stay exactly what they are.
         </p>

@@ -144,16 +144,30 @@ export function SyllabusUpload({
         ))}
       </select>
 
-      <input
-        type="file"
-        accept="application/pdf"
-        disabled={working || courses.length === 0}
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) void handleFile(file);
-          e.target.value = "";
+      {/* The native file input's "No file chosen" strip cannot be styled, so the input
+          is visually hidden behind a real label-button. Keyboard and screen-reader flow
+          is unchanged: the input keeps focus and its label names the action. */}
+      <label
+        className="action"
+        style={{
+          display: "inline-block",
+          cursor: working || courses.length === 0 ? "default" : "pointer",
+          opacity: working || courses.length === 0 ? 0.5 : 1,
         }}
-      />
+      >
+        Choose a syllabus PDF…
+        <input
+          type="file"
+          accept="application/pdf"
+          className="sr-only"
+          disabled={working || courses.length === 0}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleFile(file);
+            e.target.value = "";
+          }}
+        />
+      </label>
 
       {phase.name === "reading" && (
         <p className="muted" aria-live="polite">
