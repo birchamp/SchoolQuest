@@ -117,7 +117,15 @@ export function App() {
   // A fresh account walks through setup instead of hitting a dead end. This runs in any
   // shell: setup is *emphasized* on desktop, not locked to it — a phone-only user still
   // deserves a way in.
-  if (!term) return <Onboarding onDone={bootstrap} onSignOut={signOut} />;
+  if (!term)
+    return (
+      <Onboarding
+        onDone={bootstrap}
+        onSignOut={signOut}
+        theme={theme}
+        onThemeChange={(t) => setMe((m) => (m ? { ...m, theme: t } : m))}
+      />
+    );
 
   const tabs: { id: Tab; labelText: string }[] = [
     { id: "today", labelText: "Today" },

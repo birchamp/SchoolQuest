@@ -27,6 +27,26 @@ export function Today({
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
   const today = new Date().toISOString().slice(0, 10);
 
+  // Quest-theme presentation only. Domain data and Plain/Mission rendering are untouched.
+  const quest = theme === "quest";
+  const questInk = "#2a1f14";
+  const questGold = "#c9a227";
+  const questWax = "#8c2f28";
+
+  /** 1-4 effort pips from session length; wording for screen readers stays plain. */
+  function effortPips(durationMinutes: number) {
+    const n = durationMinutes <= 30 ? 1 : durationMinutes <= 60 ? 2 : durationMinutes <= 90 ? 3 : 4;
+    return (
+      <span
+        role="img"
+        aria-label={`estimated effort: ${n} of 4`}
+        style={{ color: questGold, letterSpacing: "0.15em" }}
+      >
+        <span aria-hidden="true">{"◆".repeat(n) + "◇".repeat(4 - n)}</span>
+      </span>
+    );
+  }
+
   async function act(sessionId: string, action: "start" | "skip" | "lock", body?: unknown) {
     setBusy(sessionId + action);
     setError(null);
@@ -75,7 +95,51 @@ export function Today({
 
       {primary ? (
         <section className="card primary-action" aria-labelledby="primary-heading">
-          <h2 id="primary-heading">{label("todayAction", theme)}</h2>
+          <h2 id="primary-heading">
+            {quest ? (
+              <>
+                <span aria-hidden="true">⚔ </span>MAIN QUEST
+              </>
+            ) : (
+              label("todayAction", theme)
+            )}
+          </h2>
+          {quest && (
+            <p
+              style={{
+                margin: "0 0 0.35rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.6rem",
+                flexWrap: "wrap",
+                fontSize: "0.78rem",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                color: questWax,
+              }}
+            >
+              <span>Questline: {coursesById.get(primary.courseId)?.name}</span>
+              {(() => {
+                const xp = itemsById.get(primary.workItemId)?.pointsPossible;
+                return xp != null ? (
+                  <span
+                    style={{
+                      border: `1px solid ${questGold}`,
+                      borderRadius: "4px",
+                      padding: "0.1rem 0.45rem",
+                      color: questInk,
+                      background: "rgba(201, 162, 39, 0.25)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    <span aria-hidden="true">✦ </span>
+                    {xp} XP
+                  </span>
+                ) : null;
+              })()}
+              {effortPips(primary.durationMinutes)}
+            </p>
+          )}
           <p className="title">{primary.title}</p>
           <p className="meta">
             {coursesById.get(primary.courseId)?.name} &middot; {primary.durationMinutes} minutes
@@ -132,11 +196,16 @@ export function Today({
 
       {alternatives.length > 0 && (
         <section className="card">
-          <h2>Or instead</h2>
+          <h2>{quest ? "Side quests" : "Or instead"}</h2>
           <ul className="alternatives">
             {alternatives.slice(0, 2).map((alt) => (
               <li key={alt.sessionId}>
                 <span>
+                  {quest && (
+                    <span aria-hidden="true" style={{ color: questGold }}>
+                      {"◆ "}
+                    </span>
+                  )}
                   {alt.title}
                   <span className="muted"> &middot; {alt.durationMinutes} min</span>
                 </span>
@@ -161,7 +230,10 @@ export function Today({
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {protectedLater.map((s) => (
               <li key={s.id}>
-                <span>{s.title}</span>
+                <span>
+                  {quest && <span aria-hidden="true">{"🕯 "}</span>}
+                  {s.title}
+                </span>
                 <span>
                   {s.when} &middot; {s.minutes}m
                 </span>
@@ -176,7 +248,7 @@ export function Today({
       </section>
 
       <section className="card">
-        <h2>Capacity this week</h2>
+        <h2>{quest ? "Stamina" : "Capacity this week"}</h2>
         <div
           className="capacity-bar"
           role="meter"

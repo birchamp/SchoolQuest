@@ -464,3 +464,265 @@ button.action:disabled {
   color: var(--at-risk);
   font-size: 0.88rem;
 }
+
+/* =============================================================================
+ * QUEST THEME — presentation layer only.
+ *
+ * Everything below is scoped to body[data-theme="quest"]. The Plain theme keeps
+ * the calm default look untouched, and no domain data changes with the theme.
+ * The look aims for "leather-bound campaign journal": dark oiled leather ground,
+ * parchment quest cards, antique gold leaf, wax-seal red. All texture is CSS
+ * gradients — no external assets (CSP), no images to load.
+ * ========================================================================== */
+
+body[data-theme="quest"] {
+  --q-ink: #2a1f14;
+  --q-parchment: #efe3c8;
+  --q-parchment-deep: #e4d4b0;
+  --q-leather: #16100b;
+  --q-leather-2: #241a10;
+  --q-gold: #c9a227;
+  --q-gold-bright: #e8c95a;
+  --q-gold-dim: #8a6f1f;
+  --q-wax: #8c2f28;
+  --q-forest: #3f6c45;
+
+  --bg: var(--q-leather);
+  --surface: var(--q-leather-2);
+  --surface-2: #2e2216;
+  --border: #4a3620;
+  --text: #efe3c8;
+  --text-dim: #b9a67f;
+  --accent: var(--q-gold);
+  --accent-dim: var(--q-gold-dim);
+  --safe: #7dbb7a;
+  --watch: var(--q-gold-bright);
+  --at-risk: #d0846a;
+
+  background:
+    radial-gradient(ellipse 120% 60% at 50% -10%, rgba(201, 162, 39, 0.07), transparent 60%),
+    repeating-linear-gradient(115deg, rgba(0,0,0,0.14) 0 2px, transparent 2px 5px),
+    linear-gradient(180deg, #1a130c, var(--q-leather) 40%);
+  background-attachment: fixed;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+}
+
+body[data-theme="quest"] .app-header h1 {
+  font-size: 1.55rem;
+  letter-spacing: 0.04em;
+  color: var(--q-gold-bright);
+  text-shadow: 0 1px 0 #000, 0 0 18px rgba(201, 162, 39, 0.35);
+}
+
+body[data-theme="quest"] .app-header h1::before {
+  content: "⚜ ";
+  color: var(--q-gold);
+}
+
+body[data-theme="quest"] .tabs {
+  background: linear-gradient(180deg, #2c2013, #201709);
+  border: 1px solid var(--q-gold-dim);
+  box-shadow: inset 0 1px 0 rgba(232, 201, 90, 0.15), 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+body[data-theme="quest"] .tabs button {
+  font-family: inherit;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+}
+
+body[data-theme="quest"] .tabs button[aria-current="page"] {
+  background: linear-gradient(180deg, var(--q-gold-bright), var(--q-gold));
+  color: var(--q-ink);
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(201, 162, 39, 0.45);
+}
+
+/* --- Quest scroll cards ---------------------------------------------------- */
+
+body[data-theme="quest"] .card {
+  position: relative;
+  color: var(--q-ink);
+  background:
+    radial-gradient(ellipse at 18% 8%, rgba(140, 47, 40, 0.05), transparent 45%),
+    radial-gradient(ellipse at 85% 90%, rgba(74, 54, 32, 0.12), transparent 50%),
+    repeating-radial-gradient(circle at 30% 40%, transparent 0 3px, rgba(74, 54, 32, 0.03) 3px 4px),
+    linear-gradient(160deg, var(--q-parchment), var(--q-parchment-deep));
+  border: 1px solid #9b7c3c;
+  outline: 3px double rgba(138, 111, 31, 0.65);
+  outline-offset: -7px;
+  border-radius: 6px;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.55), inset 0 0 40px rgba(139, 106, 44, 0.12);
+}
+
+body[data-theme="quest"] .card::before,
+body[data-theme="quest"] .card::after {
+  content: "◆";
+  position: absolute;
+  color: rgba(138, 111, 31, 0.7);
+  font-size: 0.6rem;
+  line-height: 1;
+}
+body[data-theme="quest"] .card::before { top: 5px; left: 7px; }
+body[data-theme="quest"] .card::after { bottom: 5px; right: 7px; }
+
+body[data-theme="quest"] .card h2 {
+  color: var(--q-wax);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  border-bottom: 1px solid rgba(138, 111, 31, 0.4);
+  padding-bottom: 0.35rem;
+}
+
+body[data-theme="quest"] .card .muted { color: #6b5636; }
+body[data-theme="quest"] .card .rationale {
+  border-left-color: var(--q-wax);
+  font-style: italic;
+}
+
+/* The main quest is the one illuminated thing on the board. */
+body[data-theme="quest"] .primary-action {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(232, 201, 90, 0.22), transparent 55%),
+    repeating-radial-gradient(circle at 30% 40%, transparent 0 3px, rgba(74, 54, 32, 0.03) 3px 4px),
+    linear-gradient(160deg, #f4e8cd, var(--q-parchment-deep));
+  outline-color: var(--q-gold-dim);
+  border-color: var(--q-gold);
+  box-shadow: 0 0 0 1px rgba(201, 162, 39, 0.35), 0 4px 22px rgba(0, 0, 0, 0.6),
+    0 0 34px rgba(201, 162, 39, 0.18);
+}
+
+body[data-theme="quest"] .primary-action .title {
+  font-size: 1.45rem;
+  color: var(--q-ink);
+}
+
+/* --- Buttons: embossed leather and gold leaf ------------------------------- */
+
+body[data-theme="quest"] button.action {
+  font-family: inherit;
+  letter-spacing: 0.04em;
+  color: var(--q-parchment);
+  background: linear-gradient(180deg, #3a2b19, #241a10);
+  border: 1px solid var(--q-gold-dim);
+  border-radius: 5px;
+  box-shadow: inset 0 1px 0 rgba(239, 227, 200, 0.12), 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+body[data-theme="quest"] button.action:hover:not(:disabled) {
+  border-color: var(--q-gold);
+  box-shadow: inset 0 1px 0 rgba(239, 227, 200, 0.12), 0 0 10px rgba(201, 162, 39, 0.35);
+}
+
+body[data-theme="quest"] button.action.primary {
+  background: linear-gradient(180deg, var(--q-gold-bright), var(--q-gold) 55%, var(--q-gold-dim));
+  border-color: #6d5718;
+  color: var(--q-ink);
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(239, 227, 200, 0.4);
+}
+
+/* --- Stamina (capacity) bar ------------------------------------------------ */
+
+body[data-theme="quest"] .capacity-bar {
+  height: 10px;
+  background: linear-gradient(180deg, #1c1409, #2e2216);
+  border: 1px solid var(--q-gold-dim);
+  border-radius: 5px;
+}
+
+body[data-theme="quest"] .capacity-bar > span {
+  background: linear-gradient(90deg, var(--q-gold-dim), var(--q-gold), var(--q-gold-bright));
+  box-shadow: 0 0 8px rgba(201, 162, 39, 0.5);
+}
+
+/* --- Risk banners as journal marginalia ------------------------------------ */
+
+body[data-theme="quest"] .risk .level {
+  font-family: inherit;
+  border-radius: 3px;
+  border-width: 1px;
+}
+
+/* --- Chat: the guide speaks on parchment ----------------------------------- */
+
+body[data-theme="quest"] .bubble.assistant {
+  color: var(--q-ink);
+  background: linear-gradient(160deg, var(--q-parchment), var(--q-parchment-deep));
+  border: 1px solid #9b7c3c;
+}
+
+body[data-theme="quest"] .bubble.user {
+  background: linear-gradient(180deg, #4a3620, #3a2b19);
+  border: 1px solid var(--q-gold-dim);
+  color: var(--q-parchment);
+}
+
+body[data-theme="quest"] .bubble.assistant.refused {
+  border-style: dashed;
+  color: #6b5636;
+}
+
+body[data-theme="quest"] .composer { background: transparent; }
+body[data-theme="quest"] .composer input {
+  background: var(--q-parchment);
+  color: var(--q-ink);
+  border: 1px solid #9b7c3c;
+  font-family: inherit;
+}
+
+/* --- Week map: the adventure map ------------------------------------------- */
+
+body[data-theme="quest"] .day {
+  background:
+    repeating-radial-gradient(circle at 60% 30%, transparent 0 3px, rgba(74, 54, 32, 0.04) 3px 4px),
+    linear-gradient(165deg, var(--q-parchment), var(--q-parchment-deep));
+  border: 1px solid #9b7c3c;
+  color: var(--q-ink);
+}
+
+body[data-theme="quest"] .day h3 {
+  color: var(--q-wax);
+  letter-spacing: 0.12em;
+  border-bottom: 1px dashed rgba(138, 111, 31, 0.5);
+  padding-bottom: 0.25rem;
+}
+
+body[data-theme="quest"] .day.is-today {
+  border-color: var(--q-gold);
+  box-shadow: 0 0 0 1px var(--q-gold), 0 0 18px rgba(201, 162, 39, 0.3);
+}
+
+body[data-theme="quest"] .day .muted { color: #6b5636; }
+
+body[data-theme="quest"] .block {
+  background: rgba(239, 227, 200, 0.65);
+  border-left: 3px solid var(--q-wax);
+  color: var(--q-ink);
+}
+
+body[data-theme="quest"] .block .time { color: #6b5636; }
+
+/* --- Forms & inputs on parchment cards ------------------------------------- */
+
+body[data-theme="quest"] .card input,
+body[data-theme="quest"] .card select {
+  background: rgba(255, 250, 238, 0.85) !important;
+  color: var(--q-ink) !important;
+  border-color: #9b7c3c !important;
+  font-family: inherit;
+}
+
+body[data-theme="quest"] .notice {
+  background: rgba(201, 162, 39, 0.12);
+  border-color: var(--q-gold-dim);
+  color: #4a3620;
+}
+
+body[data-theme="quest"] .alternatives li { border-bottom-color: rgba(138, 111, 31, 0.35); }
+
+/* Focus ring in gold so keyboard users are first-class citizens of the realm. */
+body[data-theme="quest"] :focus-visible {
+  outline-color: var(--q-gold-bright);
+}

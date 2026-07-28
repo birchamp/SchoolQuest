@@ -12,6 +12,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * shell. Course color is paired with the course name so color is never the only signal.
  */
 export function WeekMap({ plan, theme }: { plan: PlanResponse; theme: ThemeName }) {
+  const quest = theme === "quest";
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const today = new Date().toISOString().slice(0, 10);
@@ -26,6 +27,12 @@ export function WeekMap({ plan, theme }: { plan: PlanResponse; theme: ThemeName 
   return (
     <section className="card">
       <h2>{label("weekMap", theme)}</h2>
+      {quest && (
+        <p className="muted" style={{ fontStyle: "italic", margin: "0 0 0.75rem" }}>
+          The week lies open before you. Fixed banners hold their ground; the rest is
+          yours to spend.
+        </p>
+      )}
       <div className="week">
         {days.map((date) => {
           const sessions = plan.sessions
@@ -37,13 +44,14 @@ export function WeekMap({ plan, theme }: { plan: PlanResponse; theme: ThemeName 
           return (
             <div className={`day${date === today ? " is-today" : ""}`} key={date}>
               <h3>
+                {quest && date === today && <span aria-hidden="true">{"⚑ "}</span>}
                 {DAY_NAMES[dayOfWeek]} {Number(date.slice(8, 10))}
                 {date === today && <span className="sr-only"> (today)</span>}
               </h3>
 
               {sessions.length === 0 ? (
                 <p className="muted" style={{ fontSize: "0.75rem", margin: 0 }}>
-                  Open
+                  {quest ? "Clear road" : "Open"}
                 </p>
               ) : (
                 sessions.map((s) => {
@@ -51,6 +59,14 @@ export function WeekMap({ plan, theme }: { plan: PlanResponse; theme: ThemeName 
                   const course = coursesById.get(s.courseId);
                   return (
                     <div className="block" key={s.id}>
+                      {quest && (
+                        <span
+                          aria-hidden="true"
+                          style={{ float: "left", marginRight: "0.35rem" }}
+                        >
+                          {"◆"}
+                        </span>
+                      )}
                       <span className="time">
                         {new Date(s.startAt).toLocaleTimeString(undefined, {
                           hour: "numeric",
@@ -77,7 +93,16 @@ export function WeekMap({ plan, theme }: { plan: PlanResponse; theme: ThemeName 
 
       {plan.unscheduledWorkItemIds.length > 0 && (
         <div style={{ marginTop: "1rem" }}>
-          <h2>Not fitted into this week</h2>
+          <h2>
+            {quest ? (
+              <>
+                <span aria-hidden="true">Unclaimed quests</span>
+                <span className="sr-only">Not fitted into this week</span>
+              </>
+            ) : (
+              "Not fitted into this week"
+            )}
+          </h2>
           <ul className="alternatives">
             {plan.unscheduledWorkItemIds.map((id) => (
               <li key={id}>
