@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
-import { api, isDesktop, setStoredToken } from "./lib/api";
+import { api, setStoredToken } from "./lib/api";
 import type { Me, PlanResponse, Term } from "./lib/types";
 import { SignIn } from "./components/SignIn";
+import { Onboarding } from "./components/Onboarding";
+import { CourseManager } from "./components/CourseManager";
 import { Today } from "./components/Today";
 import { Coach } from "./components/Coach";
 import { WeekMap } from "./components/WeekMap";
@@ -12,9 +14,10 @@ import { SyllabusUpload } from "./components/SyllabusUpload";
 /**
  * App shell.
  *
- * The tab set differs by shell: the desktop app gets Setup (syllabus upload, course
- * management), the phone PWA does not. Everything else is shared, so following the plan
- * feels identical in both.
+ * Every tab is available in every shell. Setup work (courses, syllabi) is a sit-down task
+ * the desktop app is best at, but locking it away entirely turned out to strand two real
+ * cases: a fresh account on a phone, and development in a plain browser where the Tauri
+ * check is false. Emphasis, not enforcement.
  */
 
 type Tab = "today" | "week" | "coach" | "setup";
@@ -108,26 +111,16 @@ export function App() {
 
   if (!me) return <SignIn onSignedIn={bootstrap} />;
 
-  if (!term) {
-    return (
-      <div className="centered">
-        <h1>No term yet</h1>
-        <p className="muted">
-          Create a term and add your courses in the desktop app to get started.
-        </p>
-        <button className="action" onClick={signOut}>
-          Sign out
-        </button>
-      </div>
-    );
-  }
+  // A fresh account walks through setup instead of hitting a dead end. This runs in any
+  // shell: setup is *emphasized* on desktop, not locked to it — a phone-only user still
+  // deserves a way in.
+  if (!term) return <Onboarding onDone={bootstrap} onSignOut={signOut} />;
 
   const tabs: { id: Tab; labelText: string }[] = [
     { id: "today", labelText: "Today" },
     { id: "week", labelText: label("weekMap", theme) },
     { id: "coach", labelText: label("coach", theme) },
-    // Setup is desktop-only: this is the split between the two shells.
-    ...(isDesktop ? [{ id: "setup" as const, labelText: "Setup" }] : []),
+    { id: "setup", labelText: "Setup" },
   ];
 
   return (
@@ -160,6 +153,7 @@ export function App() {
           )}
           {tab === "setup" && (
             <>
+              <CourseManager termId={term.id} onChanged={refreshPlan} />
               <SyllabusUpload courses={plan.courses} onPlanChanged={regenerate} />
               <section className="card">
                 <h2>Preferences</h2>

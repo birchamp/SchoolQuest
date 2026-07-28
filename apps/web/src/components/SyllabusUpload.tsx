@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Course } from "@schoolquest/domain";
-import { api, isDesktop } from "../lib/api";
+import { api } from "../lib/api";
 import { extractPdfText } from "../lib/pdf-text";
 import type { ExtractionResponse } from "../lib/extraction-types";
 import { ExtractionReview } from "./ExtractionReview";
@@ -8,11 +8,12 @@ import { ExtractionReview } from "./ExtractionReview";
 /**
  * Syllabus upload and extraction.
  *
- * The desktop app's reason to exist. It does more than POST a file: the PDF is parsed
- * here, in the client, and the resulting page text is what goes to the server for
- * extraction. That is a deliberate split — the Cloudflare Workers free plan gives 10ms of
- * CPU per request, which cannot parse a PDF, while a desktop machine barely notices.
- * The Worker only waits on the model, which is I/O and costs no CPU budget.
+ * Works in any shell — review is nicest on a big screen, but nothing here requires Tauri,
+ * and gating it stranded browser use entirely. The PDF is parsed in the client, and the
+ * resulting page text is what goes to the server for extraction. That is a deliberate
+ * split: the Cloudflare Workers free plan gives 10ms of CPU per request, which cannot
+ * parse a PDF, while any client machine barely notices. The Worker only waits on the
+ * model, which is I/O and costs no CPU budget.
  */
 
 type Phase =
@@ -33,17 +34,12 @@ export function SyllabusUpload({
   const [phase, setPhase] = useState<Phase>({ name: "idle" });
   const [error, setError] = useState<string | null>(null);
 
-  if (!isDesktop) {
-    return (
-      <section className="card">
-        <h2>Syllabus upload</h2>
-        <p className="muted">
-          Syllabus upload and review live in the desktop app. Open SchoolQuest on your computer
-          to add a syllabus — this companion app is for following the plan, not building it.
-        </p>
-      </section>
-    );
-  }
+  // Courses can be created after this mounts (the add-course form sits right above).
+  // Without this sync, the picker stays empty and upload reports "Add a course first"
+  // even though one now exists.
+  useEffect(() => {
+    if (!courses.some((c) => c.id === courseId)) setCourseId(courses[0]?.id ?? "");
+  }, [courses, courseId]);
 
   async function handleFile(file: File) {
     if (!courseId) {
