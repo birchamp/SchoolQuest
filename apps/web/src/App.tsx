@@ -75,7 +75,10 @@ export function App() {
 
   useEffect(() => {
     document.body.dataset["reducedMotion"] = String(me?.reducedMotion ?? false);
-  }, [me?.reducedMotion]);
+    // Theme drives presentation only — CSS keys off this attribute, and the Plain theme
+    // stays exactly as calm as it always was. Domain data never changes with it.
+    document.body.dataset["theme"] = theme;
+  }, [me?.reducedMotion, theme]);
 
   const refreshPlan = useCallback(() => {
     if (term) void loadPlan(term.id);

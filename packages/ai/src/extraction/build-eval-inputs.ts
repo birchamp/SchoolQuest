@@ -9,7 +9,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { GREEK_PAGES, REVELATION_PAGES, THEOLOGY_PAGES } from "@schoolquest/fixtures";
+import { FAKE_COURSES, FAKE_TERM, GREEK_PAGES, REVELATION_PAGES, THEOLOGY_PAGES } from "@schoolquest/fixtures";
 import { buildExtractionUserMessage, EXTRACTION_SYSTEM_PROMPT } from "./prompt.js";
 import { SYLLABUS_EXTRACTION_JSON_SCHEMA } from "./schema.js";
 
@@ -38,6 +38,14 @@ const cases = [
     termStartDate: "2026-08-25",
     termEndDate: "2026-12-18",
   },
+  // The synthetic five-course semester, planted traps and all.
+  ...FAKE_COURSES.map((course) => ({
+    key: `fake-${course.key}`,
+    pages: course.pages,
+    courseName: `${course.name} (${course.code})`,
+    termStartDate: FAKE_TERM.startDate,
+    termEndDate: FAKE_TERM.endDate,
+  })),
 ];
 
 for (const testCase of cases) {
