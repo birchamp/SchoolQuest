@@ -124,7 +124,7 @@ export function WeekMap({ plan, theme }: { plan: PlanResponse; theme: ThemeName 
                     {group.items.length} unclaimed
                   </span>
                 ) : (
-                  <span className="muted">{group.items.length}</span>
+                  null
                 )}
               </summary>
               <ul className="alternatives" style={{ margin: "0.25rem 0 0.5rem" }}>

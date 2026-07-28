@@ -181,7 +181,8 @@ body[data-reduced-motion="true"] *::before {
   flex-wrap: wrap;
 }
 
-button.action {
+button.action,
+label.action {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
@@ -192,11 +193,13 @@ button.action {
   cursor: pointer;
 }
 
-button.action:hover:not(:disabled) {
+button.action:hover:not(:disabled),
+label.action:hover {
   border-color: var(--accent-dim);
 }
 
-button.action.primary {
+button.action.primary,
+label.action.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
@@ -600,7 +603,8 @@ body[data-theme="quest"] .primary-action .title {
 
 /* --- Buttons: embossed leather and gold leaf ------------------------------- */
 
-body[data-theme="quest"] button.action {
+body[data-theme="quest"] button.action,
+body[data-theme="quest"] label.action {
   font-family: inherit;
   letter-spacing: 0.04em;
   color: var(--q-parchment);
@@ -610,12 +614,14 @@ body[data-theme="quest"] button.action {
   box-shadow: inset 0 1px 0 rgba(239, 227, 200, 0.12), 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
-body[data-theme="quest"] button.action:hover:not(:disabled) {
+body[data-theme="quest"] button.action:hover:not(:disabled),
+body[data-theme="quest"] label.action:hover {
   border-color: var(--q-gold);
   box-shadow: inset 0 1px 0 rgba(239, 227, 200, 0.12), 0 0 10px rgba(201, 162, 39, 0.35);
 }
 
-body[data-theme="quest"] button.action.primary {
+body[data-theme="quest"] button.action.primary,
+body[data-theme="quest"] label.action.primary {
   background: linear-gradient(180deg, var(--q-gold-bright), var(--q-gold) 55%, var(--q-gold-dim));
   border-color: #6d5718;
   color: var(--q-ink);
@@ -803,7 +809,8 @@ body[data-theme="quest"] .protected li {
 }
 
 /* 6. Buttons earn a bevel and a pressed state; hierarchy comes from gold vs leather. */
-body[data-theme="quest"] button.action {
+body[data-theme="quest"] button.action,
+body[data-theme="quest"] label.action {
   box-shadow:
     inset 0 1px 0 rgba(239, 227, 200, 0.14),
     inset 0 -2px 3px rgba(0, 0, 0, 0.35),
@@ -816,7 +823,8 @@ body[data-theme="quest"] button.action:active:not(:disabled) {
 body[data-reduced-motion="true"] button.action:active:not(:disabled) {
   transform: none;
 }
-body[data-theme="quest"] button.action.primary {
+body[data-theme="quest"] button.action.primary,
+body[data-theme="quest"] label.action.primary {
   box-shadow:
     inset 0 1px 0 rgba(255, 244, 205, 0.65),
     inset 0 -2px 3px rgba(109, 87, 24, 0.55),
@@ -889,6 +897,9 @@ body[data-theme="quest"] .centered input {
 
 body:has(.book-cover) {
   min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background:
     radial-gradient(ellipse 120% 60% at 50% -10%, rgba(201, 162, 39, 0.08), transparent 60%),
     repeating-linear-gradient(115deg, rgba(0, 0, 0, 0.14) 0 2px, transparent 2px 5px),
@@ -901,6 +912,7 @@ html:has(.book-cover) {
 
 .book-cover {
   color: #efe3c8;
+  margin: 2rem auto;
 }
 
 .book-cover-kicker {
@@ -929,7 +941,8 @@ html:has(.book-cover) {
   max-width: 34rem;
 }
 
-.book-cover button.action {
+.book-cover button.action,
+.book-cover label.action {
   background: linear-gradient(180deg, #3a2b19, #241a10);
   border: 1px solid #8a6f1f;
   color: #efe3c8;

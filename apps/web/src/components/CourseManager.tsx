@@ -86,7 +86,9 @@ export function CourseManager({
               <li key={course.id}>
                 <span>
                   {course.name}
-                  {course.code && <span className="muted"> · {course.code}</span>}
+                  {course.code && !course.name.includes(course.code) && (
+                    <span className="muted"> · {course.code}</span>
+                  )}
                 </span>
                 <span className="muted">{meetingSummary(course.id) ?? "no meeting times"}</span>
               </li>
