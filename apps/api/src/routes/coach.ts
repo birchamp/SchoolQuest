@@ -81,6 +81,7 @@ coachRoute.post("/coach/messages", async (c) => {
     defaultModel: c.env.OPENROUTER_COACH_MODEL,
     appUrl: c.env.APP_URL,
     appName: c.env.APP_NAME,
+    ...(c.env.OPENROUTER_BASE_URL ? { baseUrl: c.env.OPENROUTER_BASE_URL } : {}),
   });
 
   let result;

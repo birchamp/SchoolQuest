@@ -6,6 +6,8 @@ export interface Env {
   APP_NAME: string;
   APP_URL: string;
   OPENROUTER_COACH_MODEL?: string;
+  /** Override the API origin — for gateways, proxies, or a local mock in testing. */
+  OPENROUTER_BASE_URL?: string;
   OPENROUTER_EXTRACTION_MODEL?: string;
 
   // Secrets (wrangler secret put)

@@ -100,6 +100,67 @@ export function resolveWeekdayInRange(raw: string, weekday: number): string | nu
   return range ? weekdayWithinRange(range, weekday) : null;
 }
 
+/**
+ * Reads a week-number reference: "Week 5", "week #5", "Wk 5", "during Week 11".
+ * Returns null for anything else — including bare numbers, which are far too common in
+ * ordinary text to treat as week references.
+ */
+export function weekNumberFromRaw(raw: string): number | null {
+  const match = /\bw(?:ee)?k\s*#?\s*(\d{1,2})\b/i.exec(raw);
+  if (!match) return null;
+  const week = Number(match[1]);
+  return week >= 1 && week <= 30 ? week : null;
+}
+
+/**
+ * The Monday–Sunday span of week N, counting the week containing the term's first day as
+ * week 1. This is the convention every syllabus checked uses: a term starting Tuesday
+ * Aug 25 has "Week 1: Aug 25-28" and "Week 2: Sept 1-4", both inside the Monday-anchored
+ * weeks this produces. Breaks and research weeks do not shift the count — syllabi number
+ * them too ("Week 8: Research Week").
+ */
+export function rangeForWeekNumber(week: number, termStartDate: string): DateRange | null {
+  if (week < 1 || week > 30) return null;
+  const start = Date.parse(`${termStartDate}T00:00:00Z`);
+  if (Number.isNaN(start)) return null;
+
+  const startDay = new Date(start).getUTCDay();
+  // Step back to the Monday of the term's first week (Sunday counts as end of week).
+  const offsetToMonday = (startDay + 6) % 7;
+  const monday = start - offsetToMonday * 86_400_000 + (week - 1) * 7 * 86_400_000;
+
+  return {
+    start: new Date(monday).toISOString().slice(0, 10),
+    end: new Date(monday + 6 * 86_400_000).toISOString().slice(0, 10),
+  };
+}
+
+/**
+ * The full resolver: turns whatever raw date text the extractor preserved into a real
+ * date, given the weekday the student confirmed.
+ *
+ *   "Sept. 8-11, 2026"  + Wednesday            -> 2026-09-09   (explicit range)
+ *   "Week 5"            + Wednesday + term set -> the Wednesday of term week 5
+ *
+ * Week numbers need the term start; without it they stay unresolved rather than guessed.
+ */
+export function resolveRawDate(
+  raw: string,
+  weekday: number,
+  termStartDate?: string,
+): string | null {
+  const explicit = parseDateRange(raw);
+  if (explicit) return weekdayWithinRange(explicit, weekday);
+
+  const week = weekNumberFromRaw(raw);
+  if (week !== null && termStartDate) {
+    const range = rangeForWeekNumber(week, termStartDate);
+    if (range) return weekdayWithinRange(range, weekday);
+  }
+
+  return null;
+}
+
 export const WEEKDAY_NAMES = [
   "Sunday",
   "Monday",

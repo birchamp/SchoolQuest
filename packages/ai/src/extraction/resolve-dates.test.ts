@@ -3,7 +3,10 @@ import {
   isWithinTerm,
   parseDateRange,
   parseWeekday,
+  rangeForWeekNumber,
+  resolveRawDate,
   resolveWeekdayInRange,
+  weekNumberFromRaw,
   weekdayWithinRange,
 } from "./resolve-dates.js";
 
@@ -149,5 +152,46 @@ describe("term bounds allow for finals week", () => {
     const iso = resolveWeekdayInRange("Dec. 16-19, 2025  16", 3)!;
     expect(iso).toBe("2025-12-17");
     expect(isWithinTerm(iso, "2026-08-25", "2026-12-18")).toBe(false);
+  });
+});
+
+describe("week-number resolution against the term calendar", () => {
+  // Greek's term starts Tuesday 2026-08-25, so week 1 is the Monday-anchored week of
+  // Aug 24, and the syllabus's own table confirms the convention: "Week 2" is Sept 1-4.
+  const TERM_START = "2026-08-25";
+
+  it("reads week references in the forms syllabi use", () => {
+    expect(weekNumberFromRaw("Week 5")).toBe(5);
+    expect(weekNumberFromRaw("week #5")).toBe(5);
+    expect(weekNumberFromRaw("during Week 11")).toBe(11);
+    expect(weekNumberFromRaw("Wk 3")).toBe(3);
+  });
+
+  it("does not mistake ordinary numbers for week references", () => {
+    expect(weekNumberFromRaw("Chapter 5")).toBeNull();
+    expect(weekNumberFromRaw("worth 5 points")).toBeNull();
+    expect(weekNumberFromRaw("Week 45")).toBeNull(); // no term is 45 weeks
+    expect(weekNumberFromRaw("")).toBeNull();
+  });
+
+  it("maps week numbers onto Monday-anchored weeks containing the term start", () => {
+    expect(rangeForWeekNumber(1, TERM_START)).toEqual({ start: "2026-08-24", end: "2026-08-30" });
+    expect(rangeForWeekNumber(2, TERM_START)).toEqual({ start: "2026-08-31", end: "2026-09-06" });
+    // Cross-checked against the syllabus's own table: "Week 5: Sept. 22-25, 2026".
+    expect(rangeForWeekNumber(5, TERM_START)).toEqual({ start: "2026-09-21", end: "2026-09-27" });
+  });
+
+  it("resolves 'Week 5' plus the answered weekday to a real date", () => {
+    expect(resolveRawDate("Week 5", 3, TERM_START)).toBe("2026-09-23"); // Wednesday
+    expect(resolveRawDate("Quiz during Week 5", 4, TERM_START)).toBe("2026-09-24"); // Thursday
+  });
+
+  it("prefers an explicit range over a week number when both appear", () => {
+    // The syllabus's own dates outrank arithmetic — "Sept. 22-25, 2026  5" has a range.
+    expect(resolveRawDate("Sept. 22-25, 2026  5", 3, TERM_START)).toBe("2026-09-23");
+  });
+
+  it("leaves week references unresolved without a term start, rather than guessing", () => {
+    expect(resolveRawDate("Week 5", 3)).toBeNull();
   });
 });

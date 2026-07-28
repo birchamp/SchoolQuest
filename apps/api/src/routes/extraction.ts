@@ -9,7 +9,7 @@ import {
   ExtractionError,
   isWithinTerm,
   parseWeekday,
-  resolveWeekdayInRange,
+  resolveRawDate,
   toDueAt,
   WEEKDAY_NAMES,
   type ValidatedAssignment,
@@ -86,6 +86,7 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
     defaultModel: c.env.OPENROUTER_EXTRACTION_MODEL,
     appUrl: c.env.APP_URL,
     appName: c.env.APP_NAME,
+    ...(c.env.OPENROUTER_BASE_URL ? { baseUrl: c.env.OPENROUTER_BASE_URL } : {}),
   });
 
   let outcome;
@@ -264,7 +265,7 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
     if (payload.dueDate.iso !== null) continue;
     if (payload.dueDate.raw === null) continue;
 
-    const iso = resolveWeekdayInRange(payload.dueDate.raw, weekday);
+    const iso = resolveRawDate(payload.dueDate.raw, weekday, owned.term.startDate);
     if (iso === null) {
       unresolved.push({
         title: payload.title,
