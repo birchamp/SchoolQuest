@@ -123,43 +123,58 @@ export function Coach({
     }
   }
 
+  const quest = theme === "quest";
+
+  // The message area itself is shared between themes; quest wraps it in a parchment
+  // card so the chat reads as a framed panel rather than bubbles floating on leather.
+  const chatArea = (
+    <div className="chat" style={{ minHeight: "18rem" }}>
+      {messages.length === 0 && (
+        <div className="bubble assistant">
+          I help you decide what to work on and when. I will not do the assignments
+          themselves, and I stick to your coursework — ask me what is worth starting, how to
+          break something down, or how to recover a day you lost.
+        </div>
+      )}
+
+      {messages.map((m) => (
+        <div
+          key={m.id}
+          className={`bubble ${m.role}${m.refused && m.role === "assistant" ? " refused" : ""}`}
+          style={m.pending ? { opacity: 0.6 } : undefined}
+        >
+          {m.content}
+          {m.actions.length > 0 && (
+            <div className="button-row" style={{ marginTop: "0.7rem" }}>
+              {m.actions.map((action, i) => (
+                <button key={i} className="action" onClick={() => runAction(action)}>
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {sending && (
+        <div className="bubble assistant" aria-live="polite">
+          <span className="muted">Thinking…</span>
+        </div>
+      )}
+      <div ref={endRef} />
+    </div>
+  );
+
   return (
     <div>
-      <div className="chat">
-        {messages.length === 0 && (
-          <div className="bubble assistant">
-            I help you decide what to work on and when. I will not do the assignments
-            themselves, and I stick to your coursework — ask me what is worth starting, how to
-            break something down, or how to recover a day you lost.
-          </div>
-        )}
-
-        {messages.map((m) => (
-          <div
-            key={m.id}
-            className={`bubble ${m.role}${m.refused && m.role === "assistant" ? " refused" : ""}`}
-            style={m.pending ? { opacity: 0.6 } : undefined}
-          >
-            {m.content}
-            {m.actions.length > 0 && (
-              <div className="button-row" style={{ marginTop: "0.7rem" }}>
-                {m.actions.map((action, i) => (
-                  <button key={i} className="action" onClick={() => runAction(action)}>
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-
-        {sending && (
-          <div className="bubble assistant" aria-live="polite">
-            <span className="muted">Thinking…</span>
-          </div>
-        )}
-        <div ref={endRef} />
-      </div>
+      {quest ? (
+        <section className="card">
+          <h2>{label("coach", theme)} — your guide</h2>
+          {chatArea}
+        </section>
+      ) : (
+        chatArea
+      )}
 
       {error && <p className="error">{error}</p>}
 

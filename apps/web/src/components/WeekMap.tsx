@@ -103,16 +103,68 @@ export function WeekMap({ plan, theme }: { plan: PlanResponse; theme: ThemeName 
               "Not fitted into this week"
             )}
           </h2>
-          <ul className="alternatives">
-            {plan.unscheduledWorkItemIds.map((id) => (
-              <li key={id}>
-                <span>{itemsById.get(id)?.title ?? id}</span>
-                <span className="muted">needs a decision</span>
-              </li>
-            ))}
-          </ul>
+          <p className="muted" style={{ fontSize: "0.8rem", margin: "0 0 0.5rem" }}>
+            These items need a decision before they can be scheduled.
+          </p>
+          {groupUnscheduledByCourse(plan).map((group) => (
+            <details key={group.key} open={group.items.length <= 5}>
+              <summary style={{ cursor: "pointer", padding: "0.25rem 0" }}>
+                {group.name} — {group.items.length}{" "}
+                {group.items.length === 1 ? "item" : "items"}{" "}
+                {quest ? (
+                  <span
+                    style={{
+                      background: "#8c2f28",
+                      color: "#f2ead6",
+                      borderRadius: 999,
+                      padding: "0.05rem 0.6rem",
+                      fontSize: "0.72rem",
+                    }}
+                  >
+                    {group.items.length} unclaimed
+                  </span>
+                ) : (
+                  <span className="muted">{group.items.length}</span>
+                )}
+              </summary>
+              <ul className="alternatives" style={{ margin: "0.25rem 0 0.5rem" }}>
+                {group.items.map((item) => (
+                  <li key={item.id}>
+                    <span>{item.title}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ))}
         </div>
       )}
     </section>
   );
+}
+
+/**
+ * Groups the unscheduled work items by course so the list reads as a handful of
+ * course headers instead of one undifferentiated dump. Items whose course is not
+ * in the plan payload fall into an "Other" bucket rather than being dropped.
+ */
+function groupUnscheduledByCourse(plan: PlanResponse): {
+  key: string;
+  name: string;
+  items: { id: string; title: string }[];
+}[] {
+  const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
+  const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
+  const groups = new Map<string, { key: string; name: string; items: { id: string; title: string }[] }>();
+
+  for (const id of plan.unscheduledWorkItemIds) {
+    const item = itemsById.get(id);
+    const course = item ? coursesById.get(item.courseId) : undefined;
+    const key = course?.id ?? "other";
+    const name = course ? (course.code ? `${course.name} (${course.code})` : course.name) : "Other";
+    const group = groups.get(key) ?? { key, name, items: [] };
+    group.items.push({ id, title: item?.title ?? id });
+    groups.set(key, group);
+  }
+
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
