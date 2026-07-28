@@ -1,0 +1,7 @@
+# Copy to .dev.vars for local development. Never commit .dev.vars.
+# From https://openrouter.ai/keys
+OPENROUTER_API_KEY=sk-or-v1-...
+# HMAC key for magic-link and session tokens: openssl rand -hex 32
+AUTH_SECRET=replace-me
+# Optional. Without it, sign-in links are returned in the response and logged instead.
+RESEND_API_KEY=

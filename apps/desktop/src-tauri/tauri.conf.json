@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SchoolQuest",
+  "version": "0.1.0",
+  "identifier": "app.schoolquest.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @schoolquest/web dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "pnpm --filter @schoolquest/web build",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "SchoolQuest",
+        "width": 1100,
+        "height": 780,
+        "minWidth": 720,
+        "minHeight": 560,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:8787 http://localhost:8787 https://*.workers.dev"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage", "msi", "app", "dmg"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"],
+    "category": "Education",
+    "shortDescription": "Know what to work on now.",
+    "longDescription": "SchoolQuest turns syllabi, commitments, and deadlines into a weekly plan you can act on, and adapts it when life changes."
+  }
+}

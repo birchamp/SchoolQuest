@@ -1,0 +1,93 @@
+import type { ThemeName } from "@schoolquest/domain";
+import { label } from "@schoolquest/theme-language";
+import type { PlanResponse } from "../lib/types";
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * Read-only Week Map (docs/02-prd.md FR-10).
+ *
+ * Drag-and-drop editing is desktop-only work and lands with Phase 4; this view exists so
+ * the student can see the whole week — including what is protected later — from either
+ * shell. Course color is paired with the course name so color is never the only signal.
+ */
+export function WeekMap({ plan, theme }: { plan: PlanResponse; theme: ThemeName }) {
+  const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
+  const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
+  const today = new Date().toISOString().slice(0, 10);
+
+  const start = plan.horizonStart ?? plan.planVersion?.horizonStart ?? today;
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(`${start}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + i);
+    return date.toISOString().slice(0, 10);
+  });
+
+  return (
+    <section className="card">
+      <h2>{label("weekMap", theme)}</h2>
+      <div className="week">
+        {days.map((date) => {
+          const sessions = plan.sessions
+            .filter((s) => s.startAt.slice(0, 10) === date)
+            .sort((a, b) => a.startAt.localeCompare(b.startAt));
+          const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
+          const totalMinutes = sessions.reduce((sum, s) => sum + s.minutes, 0);
+
+          return (
+            <div className={`day${date === today ? " is-today" : ""}`} key={date}>
+              <h3>
+                {DAY_NAMES[dayOfWeek]} {Number(date.slice(8, 10))}
+                {date === today && <span className="sr-only"> (today)</span>}
+              </h3>
+
+              {sessions.length === 0 ? (
+                <p className="muted" style={{ fontSize: "0.75rem", margin: 0 }}>
+                  Open
+                </p>
+              ) : (
+                sessions.map((s) => {
+                  const item = itemsById.get(s.workItemId);
+                  const course = coursesById.get(s.courseId);
+                  return (
+                    <div className="block" key={s.id}>
+                      <span className="time">
+                        {new Date(s.startAt).toLocaleTimeString(undefined, {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                        {s.locked && " · locked"}
+                      </span>
+                      {item?.title ?? "Session"}
+                      <span className="time">{course?.name}</span>
+                    </div>
+                  );
+                })
+              )}
+
+              {totalMinutes > 0 && (
+                <p className="muted" style={{ fontSize: "0.7rem", margin: "0.3rem 0 0" }}>
+                  {totalMinutes} min
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {plan.unscheduledWorkItemIds.length > 0 && (
+        <div style={{ marginTop: "1rem" }}>
+          <h2>Not fitted into this week</h2>
+          <ul className="alternatives">
+            {plan.unscheduledWorkItemIds.map((id) => (
+              <li key={id}>
+                <span>{itemsById.get(id)?.title ?? id}</span>
+                <span className="muted">needs a decision</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}

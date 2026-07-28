@@ -1,0 +1,199 @@
+import { useCallback, useEffect, useState } from "react";
+import type { ThemeName } from "@schoolquest/domain";
+import { label } from "@schoolquest/theme-language";
+import { api, isDesktop, setStoredToken } from "./lib/api";
+import type { Me, PlanResponse, Term } from "./lib/types";
+import { SignIn } from "./components/SignIn";
+import { Today } from "./components/Today";
+import { Coach } from "./components/Coach";
+import { WeekMap } from "./components/WeekMap";
+import { SyllabusUpload } from "./components/SyllabusUpload";
+
+/**
+ * App shell.
+ *
+ * The tab set differs by shell: the desktop app gets Setup (syllabus upload, course
+ * management), the phone PWA does not. Everything else is shared, so following the plan
+ * feels identical in both.
+ */
+
+type Tab = "today" | "week" | "coach" | "setup";
+
+export function App() {
+  const [me, setMe] = useState<Me | null>(null);
+  const [term, setTerm] = useState<Term | null>(null);
+  const [plan, setPlan] = useState<PlanResponse | null>(null);
+  const [tab, setTab] = useState<Tab>("today");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const theme: ThemeName = me?.theme ?? "plain";
+
+  const loadPlan = useCallback(async (termId: string) => {
+    try {
+      const current = await api.get<PlanResponse>(`/api/terms/${termId}/plans/current`);
+      // No plan yet (fresh account, or the horizon has rolled over): generate the first one.
+      if (!current.planVersion) {
+        setPlan(await api.post<PlanResponse>(`/api/terms/${termId}/plans/generate`, {}));
+      } else {
+        setPlan(current);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load your plan.");
+    }
+  }, []);
+
+  const bootstrap = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { user } = await api.get<{ user: Me }>("/api/me");
+      setMe(user);
+
+      const { terms } = await api.get<{ terms: Term[] }>("/api/terms");
+      const active = terms.find((t) => t.status === "active") ?? terms[0] ?? null;
+      setTerm(active);
+      if (active) await loadPlan(active.id);
+    } catch (e) {
+      // A 401 simply means "not signed in", which is a state, not an error to display.
+      if (e instanceof Error && "status" in e && (e as { status: number }).status === 401) {
+        setMe(null);
+      } else {
+        setError(e instanceof Error ? e.message : "Could not reach the server.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [loadPlan]);
+
+  useEffect(() => {
+    void bootstrap();
+  }, [bootstrap]);
+
+  useEffect(() => {
+    document.body.dataset["reducedMotion"] = String(me?.reducedMotion ?? false);
+  }, [me?.reducedMotion]);
+
+  const refreshPlan = useCallback(() => {
+    if (term) void loadPlan(term.id);
+  }, [term, loadPlan]);
+
+  async function regenerate() {
+    if (!term) return;
+    setPlan(await api.post<PlanResponse>(`/api/terms/${term.id}/plans/generate`, {
+      reason: "manual_refresh",
+    }));
+  }
+
+  async function changeTheme(next: ThemeName) {
+    const { user } = await api.patch<{ user: Me }>("/api/me", { theme: next });
+    setMe(user);
+  }
+
+  async function signOut() {
+    await api.post("/api/auth/logout").catch(() => undefined);
+    setStoredToken(null);
+    setMe(null);
+    setPlan(null);
+    setTerm(null);
+  }
+
+  if (loading) {
+    return (
+      <div className="centered">
+        <p className="muted">Loading your plan…</p>
+      </div>
+    );
+  }
+
+  if (!me) return <SignIn onSignedIn={bootstrap} />;
+
+  if (!term) {
+    return (
+      <div className="centered">
+        <h1>No term yet</h1>
+        <p className="muted">
+          Create a term and add your courses in the desktop app to get started.
+        </p>
+        <button className="action" onClick={signOut}>
+          Sign out
+        </button>
+      </div>
+    );
+  }
+
+  const tabs: { id: Tab; labelText: string }[] = [
+    { id: "today", labelText: "Today" },
+    { id: "week", labelText: label("weekMap", theme) },
+    { id: "coach", labelText: label("coach", theme) },
+    // Setup is desktop-only: this is the split between the two shells.
+    ...(isDesktop ? [{ id: "setup" as const, labelText: "Setup" }] : []),
+  ];
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <h1>SchoolQuest</h1>
+        <nav className="tabs" aria-label="Main">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              aria-current={tab === t.id ? "page" : undefined}
+              onClick={() => setTab(t.id)}
+            >
+              {t.labelText}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      {error && <p className="error">{error}</p>}
+
+      {!plan ? (
+        <p className="muted">Building your first plan…</p>
+      ) : (
+        <>
+          {tab === "today" && <Today plan={plan} theme={theme} onChanged={refreshPlan} />}
+          {tab === "week" && <WeekMap plan={plan} theme={theme} />}
+          {tab === "coach" && (
+            <Coach termId={term.id} theme={theme} onPlanChanged={refreshPlan} />
+          )}
+          {tab === "setup" && (
+            <>
+              <SyllabusUpload courses={plan.courses} onPlanChanged={regenerate} />
+              <section className="card">
+                <h2>Preferences</h2>
+                <div className="button-row">
+                  {(["plain", "quest", "mission"] as const).map((t) => (
+                    <button
+                      key={t}
+                      className={`action${theme === t ? " primary" : ""}`}
+                      onClick={() => changeTheme(t)}
+                    >
+                      {t[0]!.toUpperCase() + t.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <p className="muted" style={{ marginTop: "0.6rem" }}>
+                  Themes change wording only. Your courses, assignments, and plan are
+                  untouched.
+                </p>
+              </section>
+              <section className="card">
+                <h2>Account</h2>
+                <div className="button-row">
+                  <button className="action" onClick={regenerate}>
+                    Rebuild this week&apos;s plan
+                  </button>
+                  <button className="action" onClick={signOut}>
+                    Sign out
+                  </button>
+                </div>
+              </section>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

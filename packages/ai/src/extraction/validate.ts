@@ -1,0 +1,519 @@
+import type { ConfidenceStatus } from "@schoolquest/domain";
+import type { DocumentPage } from "./prompt.js";
+import { isWithinTerm } from "./resolve-dates.js";
+import type {
+  ClarificationQuestion,
+  ExtractedAssignment,
+  ExtractedDate,
+  SyllabusExtraction,
+} from "./schema.js";
+
+/**
+ * Validation service (docs/06-ai-system-spec.md §2 step 3).
+ *
+ * The model is treated as a witness, not an authority. Everything it says is checked
+ * against the document before it is allowed anywhere near the student's plan:
+ *
+ *  - Does the quoted excerpt actually exist on the page it cited?
+ *  - Did it obey the no-invented-dates rules, or did it quietly fill a blank?
+ *  - Do the grading weights add up?
+ *  - Is this the same assignment it already reported?
+ *
+ * Claims that fail hard are dropped. Claims that fail softly are downgraded and surfaced
+ * for review. Either way the student sees the evidence and decides.
+ */
+
+export type ClaimIssue =
+  /** The quoted excerpt is not present on the cited page. Strong fabrication signal. */
+  | "EVIDENCE_NOT_FOUND"
+  | "EVIDENCE_PAGE_MISSING"
+  /** The model produced an ISO date it could not have read (e.g. from "Week 5"). */
+  | "DATE_NOT_IN_SOURCE"
+  /** The document states a different year beside this date — usually a stale syllabus. */
+  | "DATE_YEAR_MISMATCH"
+  | "DATE_OUTSIDE_TERM"
+  | "TIME_NOT_STATED"
+  | "AMBIGUOUS_DATE"
+  | "MISSING_DATE"
+  | "DUPLICATE_OF_EARLIER_CLAIM"
+  /** Same assignment, two different dates — the syllabus contradicts itself. */
+  | "CONFLICTING_DATE_FOR_SAME_ITEM"
+  | "CATEGORY_WEIGHTS_DO_NOT_SUM"
+  | "UNKNOWN_CATEGORY"
+  | "LOW_MODEL_CONFIDENCE";
+
+export interface ValidatedAssignment {
+  assignment: ExtractedAssignment;
+  /** What the planning engine should treat this record's certainty as. */
+  confidenceStatus: ConfidenceStatus;
+  issues: ClaimIssue[];
+  /** Title of the earlier claim this appears to duplicate. */
+  duplicateOf: string | null;
+  /** True when the evidence check passed outright. */
+  evidenceVerified: boolean;
+}
+
+export interface ValidationResult {
+  assignments: ValidatedAssignment[];
+  /** Assignments removed entirely, with the reason, so nothing disappears silently. */
+  rejected: { title: string; reason: ClaimIssue }[];
+  gradingCategories: SyllabusExtraction["gradingCategories"];
+  meetingPatterns: SyllabusExtraction["meetingPatterns"];
+  courseFacts: SyllabusExtraction["courseFacts"];
+  policies: SyllabusExtraction["policies"];
+  /** The model's questions plus any the validator derived from what it found. */
+  clarificationQuestions: ClarificationQuestion[];
+  warnings: string[];
+}
+
+export interface ValidationContext {
+  pages: DocumentPage[];
+  termStartDate?: string;
+  termEndDate?: string;
+}
+
+/** Collapses whitespace and punctuation variants so quoting is robust to PDF text quirks. */
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    // PDFs routinely substitute smart quotes, en dashes, and non-breaking spaces.
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‐-―−]/g, "-")
+    // Non-breaking, thin, and zero-width spaces are common in PDF text extraction output.
+    .replace(/[\u00a0\u2007\u202f\u2009\u200b]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Confirms the model quoted something that is really there.
+ *
+ * Exact substring match after normalization is the primary test. PDF text extraction can
+ * drop or reorder the odd character, so a near-miss falls back to token overlap rather
+ * than failing a legitimate claim outright.
+ */
+export function verifyEvidence(
+  excerpt: string,
+  pageText: string,
+): { verified: boolean; partial: boolean } {
+  const needle = normalize(excerpt);
+  const haystack = normalize(pageText);
+  if (needle.length === 0) return { verified: false, partial: false };
+  if (haystack.includes(needle)) return { verified: true, partial: false };
+
+  // Fall back to token overlap: most of the quoted words should appear on the page.
+  const tokens = needle.split(" ").filter((t) => t.length > 2);
+  if (tokens.length === 0) return { verified: false, partial: false };
+  const present = tokens.filter((t) => haystack.includes(t)).length;
+  const ratio = present / tokens.length;
+
+  // 0.8 tolerates extraction noise while still rejecting an invented sentence, whose
+  // content words will not be on the page at all.
+  return { verified: false, partial: ratio >= 0.8 };
+}
+
+const MONTH_NAMES = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december",
+];
+
+/** Abbreviations actually seen in the wild, longest first so the fuller form wins. */
+const MONTH_ABBREVIATIONS = [
+  ["jan"], ["feb"], ["mar"], ["apr"], ["may"], ["jun"],
+  ["jul"], ["aug"], ["sept", "sep"], ["oct"], ["nov"], ["dec"],
+];
+
+/**
+ * Checks that an ISO date the model reported could plausibly have been read, rather than
+ * computed, and reports what year the document states next to it.
+ *
+ * The year matters more than it looks. Real syllabi are edited year to year and routinely
+ * carry a stale one — an otherwise-2026 document saying "Mid-term Exam on October 31,
+ * 2025", or a paper topic due "on or before October 5, 2023". A model reading those will
+ * usually be helpful and silently correct the year to the current term. That correction is
+ * probably right, but it hides a real contradiction the student should see, and it might
+ * be wrong. So the day is verified and the stated year is reported back rather than
+ * quietly accepted.
+ */
+export function dateAppearsInSource(
+  iso: string,
+  pageText: string,
+): { found: boolean; statedYear: number | null } {
+  const haystack = normalize(pageText);
+  const [year, month, day] = iso.split("-").map(Number) as [number, number, number];
+
+  const monthName = MONTH_NAMES[month - 1]!;
+  // Real syllabi abbreviate inconsistently, and September is routinely "Sept." rather
+  // than the three-letter "Sep." — a truncate-to-three rule silently misses it.
+  const abbreviations = MONTH_ABBREVIATIONS[month - 1]!;
+
+  const candidates = [
+    iso,
+    `${month}/${day}/${year}`,
+    `${month}/${day}/${String(year).slice(2)}`,
+    `${month}/${day}`,
+    `${month}-${day}`,
+    `${monthName} ${day}`,
+    ...abbreviations.flatMap((abbr) => [`${abbr}. ${day}`, `${abbr} ${day}`]),
+    `${day} ${monthName}`,
+    ...abbreviations.map((abbr) => `${day} ${abbr}`),
+  ].map(normalize);
+
+  for (const candidate of candidates) {
+    const index = haystack.indexOf(candidate);
+    if (index === -1) continue;
+    // Reject a longer number that merely starts with ours: "oct 1" must not match "oct 15".
+    const nextChar = haystack[index + candidate.length];
+    if (nextChar !== undefined && /\d/.test(nextChar)) continue;
+
+    return { found: true, statedYear: yearNear(haystack, index + candidate.length) };
+  }
+
+  return { found: false, statedYear: null };
+}
+
+/**
+ * Looks for a 4-digit year just after a date match. The window is wide enough to step over
+ * the tail of a range — "Aug. 25-28, 2026" states its year only after the range ends.
+ */
+function yearNear(haystack: string, from: number): number | null {
+  const window = haystack.slice(from, from + 14);
+  // Anything other than range/separator characters before the year means it is unrelated.
+  const match = /^[\s\-–—,]*(?:\d{1,2}[\s\-–—,]*)?((?:19|20)\d{2})\b/.exec(window);
+  return match ? Number(match[1]) : null;
+}
+
+export function validateExtraction(
+  extraction: SyllabusExtraction,
+  context: ValidationContext,
+): ValidationResult {
+  const pageText = new Map(context.pages.map((p) => [p.page, p.text]));
+  const warnings: string[] = [];
+  const rejected: ValidationResult["rejected"] = [];
+  const derivedQuestions: ClarificationQuestion[] = [];
+  const validated: ValidatedAssignment[] = [];
+  const seen: { title: string; dateKey: string; original: string }[] = [];
+
+  const knownCategories = new Set(
+    extraction.gradingCategories.map((c) => c.name.trim().toLowerCase()),
+  );
+
+  for (const assignment of extraction.assignments) {
+    const issues: ClaimIssue[] = [];
+    const text = pageText.get(assignment.evidence.page);
+
+    // --- Evidence check. A claim citing a page that does not exist is discarded.
+    if (text === undefined) {
+      rejected.push({ title: assignment.title, reason: "EVIDENCE_PAGE_MISSING" });
+      continue;
+    }
+
+    const { verified, partial } = verifyEvidence(assignment.evidence.excerpt, text);
+    if (!verified && !partial) {
+      // The model quoted something that is not on the page. Nothing else it said about
+      // this item can be trusted, so the item does not enter the review queue at all.
+      rejected.push({ title: assignment.title, reason: "EVIDENCE_NOT_FOUND" });
+      continue;
+    }
+    if (!verified) issues.push("EVIDENCE_NOT_FOUND");
+
+    // --- Date checks.
+    const date = assignment.dueDate;
+    if (date.iso !== null) {
+      const { found, statedYear } = dateAppearsInSource(date.iso, text);
+
+      if (!found) {
+        // The date was computed, not read. Strip it rather than schedule against it.
+        issues.push("DATE_NOT_IN_SOURCE");
+        date.iso = null;
+        derivedQuestions.push({
+          question: `When is "${assignment.title}" actually due?`,
+          why: "The syllabus mentions it, but the date could not be confirmed from the document text.",
+          relatesToTitle: assignment.title,
+          kind: "missing_date",
+        });
+      } else if (statedYear !== null && statedYear !== Number(date.iso.slice(0, 4))) {
+        // The day is real but the document's year disagrees. Do not pick a winner: the
+        // stated year may be a leftover from last year's syllabus, or the model may have
+        // "corrected" a year that was right. Surface it and let the student decide.
+        issues.push("DATE_YEAR_MISMATCH");
+        derivedQuestions.push({
+          question: `Is "${assignment.title}" due in ${date.iso.slice(0, 4)} or ${statedYear}?`,
+          why: `The syllabus writes this date with the year ${statedYear}, which does not match the rest of the term. It may be left over from a previous version.`,
+          relatesToTitle: assignment.title,
+          kind: "conflicting_information",
+        });
+      } else if (isOutsideTerm(date.iso, context)) {
+        issues.push("DATE_OUTSIDE_TERM");
+        warnings.push(
+          `"${assignment.title}" is dated ${date.iso}, which falls outside the term. It may be from a prior year.`,
+        );
+      }
+    }
+
+    if (date.iso !== null) {
+      // Absent time is normal and correct, but the planner should know it is assuming.
+      if (date.time === null) issues.push("TIME_NOT_STATED");
+    } else {
+      // INVARIANT: an item with no resolved date always raises an issue and is always
+      // "unknown". Reaching this branch silently is the exact failure this product is
+      // built to prevent — an unschedulable item that looks like part of a plan. Real
+      // model output showed a whole course arriving here labelled "conflicting" and
+      // sailing through with no issue at all, so the check is on iso itself rather than
+      // on the ambiguity the model happened to report.
+      switch (date.ambiguity) {
+        case "relative_week":
+        case "relative_event":
+          issues.push("AMBIGUOUS_DATE");
+          derivedQuestions.push({
+            question: `"${assignment.title}" is listed as ${date.raw ?? "a relative date"}. What calendar date is that?`,
+            why: "Relative dates cannot be scheduled until they are tied to the term calendar.",
+            relatesToTitle: assignment.title,
+            kind: "relative_date",
+          });
+          break;
+
+        case "conflicting":
+          issues.push("AMBIGUOUS_DATE");
+          derivedQuestions.push({
+            question: `What date should "${assignment.title}" use?`,
+            why: `The syllabus is inconsistent about this one: ${truncate(date.raw ?? "no date given", 160)}`,
+            relatesToTitle: assignment.title,
+            kind: "conflicting_information",
+          });
+          break;
+
+        case "no_year":
+          issues.push("AMBIGUOUS_DATE");
+          derivedQuestions.push({
+            question: `"${assignment.title}" is listed as ${date.raw ?? "a date"} with no year. Which year is it?`,
+            why: "Without a year this cannot be placed in the term.",
+            relatesToTitle: assignment.title,
+            kind: "relative_date",
+          });
+          break;
+
+        case "missing":
+        case "none":
+          if (date.raw !== null) {
+            // The model read a date but did not resolve it to a calendar date.
+            issues.push("AMBIGUOUS_DATE");
+            derivedQuestions.push({
+              question: `"${assignment.title}" is listed as ${truncate(date.raw, 80)}. What date should it use?`,
+              why: "The syllabus gives this date in a form that could not be resolved automatically.",
+              relatesToTitle: assignment.title,
+              kind: "relative_date",
+            });
+          } else {
+            issues.push("MISSING_DATE");
+          }
+          break;
+      }
+    }
+
+    if (assignment.category && !knownCategories.has(assignment.category.trim().toLowerCase())) {
+      issues.push("UNKNOWN_CATEGORY");
+    }
+
+    if (assignment.confidence < 0.5) issues.push("LOW_MODEL_CONFIDENCE");
+
+    // --- Duplicate vs contradiction.
+    // Same title AND same date is one assignment reported twice. Same title with a
+    // DIFFERENT date is something else entirely: the syllabus contradicts itself, which
+    // happens for real when a schedule table and the grading section disagree. Collapsing
+    // those two cases would hide the more important one.
+    const title = normalizeTitle(assignment.title);
+    const dateKey = assignment.dueDate.iso ?? assignment.dueDate.raw ?? "nodate";
+    const priorMatch = seen.find((s) => s.title === title);
+
+    if (priorMatch && priorMatch.dateKey === dateKey) {
+      issues.push("DUPLICATE_OF_EARLIER_CLAIM");
+    } else if (priorMatch) {
+      issues.push("CONFLICTING_DATE_FOR_SAME_ITEM");
+      derivedQuestions.push({
+        question: `"${assignment.title}" is listed with two different dates. Which one is right?`,
+        why: `The syllabus gives both ${priorMatch.dateKey} and ${dateKey} for this.`,
+        relatesToTitle: assignment.title,
+        kind: "conflicting_information",
+      });
+    } else {
+      seen.push({ title, dateKey, original: assignment.title });
+    }
+
+    validated.push({
+      assignment,
+      confidenceStatus: confidenceFor(assignment, issues, verified),
+      issues,
+      duplicateOf: priorMatch?.original ?? null,
+      evidenceVerified: verified,
+    });
+  }
+
+  // --- Grading weights should describe a whole course.
+  const weights = extraction.gradingCategories
+    .map((c) => c.weightPercent)
+    .filter((w): w is number => w !== null);
+  if (weights.length > 0) {
+    const total = weights.reduce((sum, w) => sum + w, 0);
+    if (Math.abs(total - 100) > 1) {
+      warnings.push(
+        `The grading categories add up to ${total}%, not 100%. Some weights may be missing or misread.`,
+      );
+      derivedQuestions.push({
+        question: "Do these grading categories and weights look right?",
+        why: `They currently total ${total}%, so course-standing estimates would be off.`,
+        relatesToTitle: null,
+        kind: "conflicting_information",
+      });
+    }
+  }
+
+  if (extraction.meetingPatterns.length === 0) {
+    derivedQuestions.push({
+      question: "What days and times does this class meet?",
+      why: "Class meetings are fixed commitments, and the plan schedules work around them.",
+      relatesToTitle: null,
+      kind: "meeting_times",
+    });
+  }
+
+  return {
+    assignments: validated,
+    rejected,
+    gradingCategories: extraction.gradingCategories,
+    meetingPatterns: extraction.meetingPatterns,
+    courseFacts: extraction.courseFacts,
+    policies: extraction.policies,
+    clarificationQuestions: groupQuestions(
+      dedupeQuestions([...extraction.clarificationQuestions, ...derivedQuestions]),
+    ),
+    warnings,
+  };
+}
+
+/** Below this, listing each question separately is still readable. */
+const GROUP_THRESHOLD = 3;
+
+/**
+ * Collapses repeated per-assignment questions into one.
+ *
+ * A syllabus that lists thirteen weekly quizzes by week number rather than by date
+ * legitimately raises thirteen unanswerable dates — but presenting that as thirteen
+ * questions is exactly the overwhelm this product exists to prevent. One question,
+ * answered once, resolves the set (docs/02-prd.md FR-4).
+ */
+function groupQuestions(questions: ClarificationQuestion[]): ClarificationQuestion[] {
+  const byKind = new Map<string, ClarificationQuestion[]>();
+  for (const question of questions) {
+    const list = byKind.get(question.kind);
+    if (list) list.push(question);
+    else byKind.set(question.kind, [question]);
+  }
+
+  const result: ClarificationQuestion[] = [];
+  for (const [kind, group] of byKind) {
+    const perItem = group.filter((q) => q.relatesToTitle !== null);
+    if (perItem.length < GROUP_THRESHOLD) {
+      result.push(...group);
+      continue;
+    }
+
+    const titles = perItem.map((q) => q.relatesToTitle!);
+    const shown = titles.slice(0, 3).join(", ");
+    const rest = titles.length - 3;
+
+    result.push({
+      question: groupedQuestionText(kind, titles.length),
+      why: `${titles.length} items need this: ${shown}${rest > 0 ? `, and ${rest} more` : ""}.`,
+      relatesToTitle: null,
+      relatesToTitles: titles,
+      kind: kind as ClarificationQuestion["kind"],
+    });
+    // Questions in this group that were not about a specific item still stand alone.
+    result.push(...group.filter((q) => q.relatesToTitle === null));
+  }
+
+  return result;
+}
+
+function groupedQuestionText(kind: string, count: number): string {
+  switch (kind) {
+    case "relative_date":
+      return `${count} items are listed by week rather than a specific date. What day of the week are they due?`;
+    case "missing_date":
+      return `${count} items have no confirmable due date. Do you know when they are due?`;
+    case "conflicting_information":
+      return `${count} items have dates that contradict the rest of the syllabus. Which is right?`;
+    default:
+      return `${count} items need the same detail confirmed.`;
+  }
+}
+
+function isOutsideTerm(iso: string, context: ValidationContext): boolean {
+  if (!context.termStartDate || !context.termEndDate) return false;
+  return !isWithinTerm(iso, context.termStartDate, context.termEndDate);
+}
+
+/**
+ * Maps validation outcome onto the planning engine's confidence states. Nothing extracted
+ * is ever "confirmed" — only a human confirming it in review earns that.
+ */
+function confidenceFor(
+  assignment: ExtractedAssignment,
+  issues: ClaimIssue[],
+  evidenceVerified: boolean,
+): ConfidenceStatus {
+  // No resolved date means unknown, full stop — regardless of how sure the model sounded.
+  if (assignment.dueDate.iso === null) return "unknown";
+  if (issues.includes("MISSING_DATE") || issues.includes("AMBIGUOUS_DATE")) return "unknown";
+  if (!evidenceVerified || issues.includes("DATE_NOT_IN_SOURCE")) return "low_inference";
+
+  // A date the document itself casts doubt on is not something to plan confidently
+  // against, however plainly it was printed. Real output produced a topic-approval
+  // deadline dated 2023 in a 2026 term, quoted accurately — the model was right about
+  // what it read, and the date is still not trustworthy.
+  const disputed: ClaimIssue[] = [
+    "DATE_OUTSIDE_TERM",
+    "DATE_YEAR_MISMATCH",
+    "CONFLICTING_DATE_FOR_SAME_ITEM",
+  ];
+  if (disputed.some((issue) => issues.includes(issue))) return "low_inference";
+
+  if (assignment.confidence < 0.5) return "low_inference";
+  return "high_inference";
+}
+
+/** Collapses title noise so "Quiz 2", "Quiz #2", and "QUIZ 2" are recognized as one item. */
+function normalizeTitle(title: string): string {
+  return normalize(title)
+    .replace(/[#:]/g, "")
+    .replace(/\b(the|a|an)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Models sometimes stuff a whole explanation into a data field; keep questions readable. */
+function truncate(text: string, max: number): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  return clean.length <= max ? clean : `${clean.slice(0, max - 1)}…`;
+}
+
+function dedupeQuestions(questions: ClarificationQuestion[]): ClarificationQuestion[] {
+  const seen = new Set<string>();
+  return questions.filter((q) => {
+    const key = normalize(q.question);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Turns a validated date into the ISO instant the domain stores, or null if unresolved. */
+export function toDueAt(date: ExtractedDate): string | null {
+  if (date.iso === null) return null;
+  // No stated time means end of day is an assumption, not a fact — but a date-only
+  // deadline still has to land somewhere, so it lands at the end of that day and the
+  // TIME_NOT_STATED issue tells the student it was assumed.
+  return `${date.iso}T${date.time ?? "23:59"}:00.000Z`;
+}
