@@ -1,5 +1,6 @@
 import type { ConfidenceStatus } from "@schoolquest/domain";
 import type { DocumentPage } from "./prompt.js";
+import { isWithinTerm } from "./resolve-dates.js";
 import type {
   ClarificationQuestion,
   ExtractedAssignment,
@@ -451,7 +452,7 @@ function groupedQuestionText(kind: string, count: number): string {
 
 function isOutsideTerm(iso: string, context: ValidationContext): boolean {
   if (!context.termStartDate || !context.termEndDate) return false;
-  return iso < context.termStartDate || iso > context.termEndDate;
+  return !isWithinTerm(iso, context.termStartDate, context.termEndDate);
 }
 
 /**

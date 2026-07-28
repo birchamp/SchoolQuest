@@ -7,7 +7,11 @@ import {
   createOpenRouterProvider,
   extractSyllabus,
   ExtractionError,
+  isWithinTerm,
+  parseWeekday,
+  resolveWeekdayInRange,
   toDueAt,
+  WEEKDAY_NAMES,
   type ValidatedAssignment,
 } from "@schoolquest/ai";
 import {
@@ -201,6 +205,137 @@ extractionRoute.patch("/extraction-claims/:id", async (c) => {
     .returning();
 
   return c.json({ claim: toClaimView(updated!) });
+});
+
+const resolveWeekdayBody = z.object({
+  /** "Wednesday", "wed", or 0-6. */
+  weekday: z.union([z.string(), z.number()]),
+  /** Restrict to specific claims; omitted means every unresolved week-range claim. */
+  claimIds: z.array(z.string()).optional(),
+});
+
+/**
+ * Applies one weekday answer to every assignment still listed by week range.
+ *
+ * This is the other half of a clarification question. A syllabus schedules thirteen
+ * quizzes by week and states the weekday once in prose; the extractor is forbidden from
+ * joining those facts, so the student is asked. Asking without then acting on the answer
+ * leaves them to fix thirteen dates by hand, which is the work the app exists to remove.
+ *
+ * The resolution is arithmetic over text already in the document, not a second guess:
+ * the range came from the syllabus and the weekday came from the student.
+ */
+extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
+  const db = getDb(c.env.DB);
+  const documentId = c.req.param("id");
+
+  const owned = await loadOwnedDocument(db, documentId, c.get("userId"));
+  if (!owned) return c.json({ error: "Document not found" }, 404);
+
+  const parsed = resolveWeekdayBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const weekday = parseWeekday(parsed.data.weekday);
+  if (weekday === null) {
+    return c.json(
+      { error: `"${parsed.data.weekday}" is not a day of the week I recognize.` },
+      400,
+    );
+  }
+
+  const restrictTo = parsed.data.claimIds ? new Set(parsed.data.claimIds) : null;
+  const claims = (
+    await db
+      .select()
+      .from(extractionClaims)
+      .where(eq(extractionClaims.sourceDocumentId, documentId))
+  ).filter((claim) => claim.claimType === "assignment" && (!restrictTo || restrictTo.has(claim.id)));
+
+  const resolved: { claimId: string; title: string; dueDate: string; needsAttention: boolean }[] =
+    [];
+  const unresolved: { title: string; reason: string }[] = [];
+
+  for (const claim of claims) {
+    const payload = JSON.parse(claim.payloadJson) as ClaimAssignmentPayload & {
+      issues?: string[];
+      confidenceStatus?: string;
+    };
+    // Only items still missing a date are candidates; an already-dated item is left alone.
+    if (payload.dueDate.iso !== null) continue;
+    if (payload.dueDate.raw === null) continue;
+
+    const iso = resolveWeekdayInRange(payload.dueDate.raw, weekday);
+    if (iso === null) {
+      unresolved.push({
+        title: payload.title,
+        reason: `${WEEKDAY_NAMES[weekday]} is not inside "${payload.dueDate.raw}"`,
+      });
+      continue;
+    }
+
+    const dueDate = { ...payload.dueDate, iso, ambiguity: "none" as const };
+    // Drop the date issues this answer settles, and keep any that it does not.
+    const issues = (payload.issues ?? []).filter(
+      (issue) => issue !== "AMBIGUOUS_DATE" && issue !== "MISSING_DATE",
+    );
+
+    // Resolving a range does not launder the year it was printed with. Greek's finals row
+    // reads "Dec. 16-19, 2025" in a 2026 term, and answering "Wednesday" would otherwise
+    // turn a known-stale date into one the student appears to have confirmed. The weekday
+    // answer settles which day of a week something falls on — nothing more.
+    const outsideTerm = !isWithinTerm(iso, owned.term.startDate, owned.term.endDate);
+    if (outsideTerm && !issues.includes("DATE_OUTSIDE_TERM")) issues.push("DATE_OUTSIDE_TERM");
+
+    await db
+      .update(extractionClaims)
+      .set({
+        payloadJson: JSON.stringify({
+          ...payload,
+          dueDate,
+          issues,
+          // The student answered the weekday, so an in-term result is settled. A result
+          // outside the term still has an unanswered question attached to it.
+          confidenceStatus: outsideTerm ? "low_inference" : "confirmed",
+          resolvedFromWeekday: WEEKDAY_NAMES[weekday],
+        }),
+      })
+      .where(eq(extractionClaims.id, claim.id));
+
+    resolved.push({
+      claimId: claim.id,
+      title: payload.title,
+      dueDate: iso,
+      needsAttention: outsideTerm,
+    });
+  }
+
+  // Mark the questions this answered so the review screen stops asking.
+  const questions = (
+    await db
+      .select()
+      .from(extractionClaims)
+      .where(eq(extractionClaims.sourceDocumentId, documentId))
+  ).filter((claim) => claim.claimType === "clarification_question");
+
+  for (const question of questions) {
+    const payload = JSON.parse(question.payloadJson) as { kind?: string };
+    if (payload.kind !== "relative_date") continue;
+    await db
+      .update(extractionClaims)
+      .set({
+        payloadJson: JSON.stringify({ ...payload, answer: WEEKDAY_NAMES[weekday] }),
+        reviewStatus: "answered",
+      })
+      .where(eq(extractionClaims.id, question.id));
+  }
+
+  return c.json({
+    weekday: WEEKDAY_NAMES[weekday],
+    resolved,
+    // Reported rather than silently skipped: a Monday answer against a Tue-Fri week means
+    // the student has misremembered, and they need to see that.
+    unresolved,
+  });
 });
 
 const confirmBody = z.object({

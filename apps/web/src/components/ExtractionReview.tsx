@@ -38,6 +38,7 @@ export function ExtractionReview({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolution, setResolution] = useState<string | null>(null);
 
   useEffect(() => {
     if (initial) return;
@@ -78,6 +79,57 @@ export function ExtractionReview({
         reviewStatus: "answered",
       })
       .catch(() => undefined);
+  }
+
+  /**
+   * Applies one weekday to every assignment still listed by week range.
+   *
+   * The whole point of asking: a syllabus schedules thirteen quizzes by week and names the
+   * weekday once in prose. One click here dates all thirteen, instead of leaving the
+   * student to type thirteen dates.
+   */
+  async function resolveWeekday(weekday: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.post<{
+        weekday: string;
+        resolved: { claimId: string; title: string; dueDate: string }[];
+        unresolved: { title: string; reason: string }[];
+      }>(`/api/documents/${documentId}/extraction/resolve-weekday`, { weekday });
+
+      const byClaim = new Map(result.resolved.map((r) => [r.claimId, r.dueDate]));
+      setClaims((prev) =>
+        prev.map((c) => {
+          const iso = byClaim.get(c.id);
+          if (!iso) return c;
+          const payload = c.payload as unknown as AssignmentPayload;
+          return {
+            ...c,
+            payload: {
+              ...c.payload,
+              dueDate: { ...payload.dueDate, iso, ambiguity: "none" },
+              issues: (payload.issues ?? []).filter(
+                (i) => i !== "AMBIGUOUS_DATE" && i !== "MISSING_DATE",
+              ),
+              confidenceStatus: "confirmed",
+            },
+          };
+        }),
+      );
+
+      setResolution(
+        `Dated ${result.resolved.length} item${result.resolved.length === 1 ? "" : "s"} to the ` +
+          `${result.weekday} of each listed week.` +
+          (result.unresolved.length > 0
+            ? ` ${result.unresolved.length} could not use that day — check those below.`
+            : ""),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not apply that day.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirm() {
@@ -140,8 +192,45 @@ export function ExtractionReview({
             These change how your week gets planned. &ldquo;I don&apos;t know yet&rdquo; is a real
             answer — it stays visible as uncertainty instead of becoming a guess.
           </p>
+          {resolution && <p className="notice">{resolution}</p>}
+
           {questions.map((claim) => {
             const q = claim.payload as unknown as QuestionPayload;
+
+            // A "listed by week" question has a concrete, applicable answer: the weekday.
+            // Offering the days as buttons resolves the whole set in one click, where a
+            // free-text box would just record the word and change nothing.
+            if (q.kind === "relative_date") {
+              return (
+                <div
+                  key={claim.id}
+                  style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--border)" }}
+                >
+                  <p style={{ margin: "0 0 0.2rem", fontWeight: 500 }}>{q.question}</p>
+                  <p className="muted" style={{ margin: "0 0 0.5rem" }}>{q.why}</p>
+                  <div className="button-row">
+                    {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map((day) => (
+                      <button
+                        key={day}
+                        className="action"
+                        disabled={busy}
+                        onClick={() => void resolveWeekday(day)}
+                      >
+                        {day}
+                      </button>
+                    ))}
+                    <button
+                      className="action"
+                      disabled={busy}
+                      onClick={() => void saveAnswer(claim, "unknown")}
+                    >
+                      I don&apos;t know yet
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div key={claim.id} style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--border)" }}>
                 <p style={{ margin: "0 0 0.2rem", fontWeight: 500 }}>{q.question}</p>
