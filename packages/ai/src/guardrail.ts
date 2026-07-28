@@ -40,9 +40,22 @@ export interface GuardDecision {
  * work. Kept narrow: anything debatable falls through to the classifier rather than
  * being refused by a regex.
  */
+/**
+ * Production-verb requests: refused outright when phrased imperatively, but deferred to
+ * the classifier when the message OPENS as a question — "when should I write my essay?"
+ * is a scheduling question that merely mentions the work.
+ */
+const DO_MY_WORK_SOFT_PATTERNS: RegExp[] = [
+  // "write my essay", "write me a paragraph", "write my history research paper". The
+  // modifier gap after the possessive matters: end-to-end testing showed "write my
+  // history research paper" sailing past a pattern that only allowed articles there.
+  /\b(write|draft|compose|rewrite|edit|proofread|revise)\s+(?:(?:me|my|us|the|a|an|this|that)\s+)?(?:[\w-]+\s+){0,3}?(essays?|papers?|paragraphs?|intro(?:duction)?s?|conclusions?|thes[ie]s|abstracts?|reports?|reflections?|discussion posts?|responses?|summar(?:y|ies)|lab reports?)\b/i,
+  // "...for me" after a production verb is a request to do the work, whatever the noun.
+  /\b(write|do|solve|complete|finish|answer|make)\b[^.?!]{0,60}\bfor me\b/i,
+];
+
+/** Answer-seeking and checking requests: a question mark does not soften these. */
 const DO_MY_WORK_PATTERNS: RegExp[] = [
-  // "write my essay", "write me a paragraph", "draft an introduction for me"
-  /\b(write|draft|compose|rewrite|edit|proofread|revise)\s+(?:(?:me|my|us|the|a|an|this|that)\s+){0,3}(essays?|papers?|paragraphs?|intro(?:duction)?s?|conclusions?|thes[ie]s|abstracts?|reports?|reflections?|discussion posts?|responses?|summar(?:y|ies)|lab reports?)\b/i,
   /\b(solve|answer|calculate|compute|work out|do)\s+(this|these|that|those|my|the)\s+(problem|question|equation|homework|assignment|worksheet|problem set|pset|exercise)/i,
   /\b(what('?s| is)|give me)\s+the\s+answers?\b/i,
   /\bcheck\s+(my|these|this|the)\s+(answers?|work|solutions?|proofs?|essays?|papers?|code|math)\b/i,
@@ -119,6 +132,23 @@ export function prefilter(message: string): GuardDecision | null {
   // contains a deadline word but is still a request to write the essay.
   if (DO_MY_WORK_PATTERNS.some((p) => p.test(text))) {
     return { verdict: "DO_MY_WORK", source: "prefilter", refusal: pick(DO_MY_WORK_REFUSALS, text) };
+  }
+
+  // Production-verb requests defer to the classifier when phrased as a question:
+  // "when should I write my essay?" is planning, "write my essay" is not.
+  if (DO_MY_WORK_SOFT_PATTERNS.some((p) => p.test(text))) {
+    const interrogativeOpener =
+      /^(when|what|how|should|shall|can|could|would|where|why|which|is|are|do i|if i)\b/i.test(
+        text.trim(),
+      );
+    if (!interrogativeOpener) {
+      return {
+        verdict: "DO_MY_WORK",
+        source: "prefilter",
+        refusal: pick(DO_MY_WORK_REFUSALS, text),
+      };
+    }
+    return null; // The classifier weighs planning-vs-production for question forms.
   }
 
   if (PLANNING_PATTERNS.some((p) => p.test(text))) {
@@ -211,4 +241,9 @@ function pick(options: string[], seed: string): string {
   return options[hash % options.length]!;
 }
 
-export const __testing = { DO_MY_WORK_PATTERNS, PLANNING_PATTERNS, DISTRESS_PATTERNS };
+export const __testing = {
+  DO_MY_WORK_PATTERNS,
+  DO_MY_WORK_SOFT_PATTERNS,
+  PLANNING_PATTERNS,
+  DISTRESS_PATTERNS,
+};

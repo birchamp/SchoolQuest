@@ -151,3 +151,25 @@ describe("refusal copy", () => {
     }
   });
 });
+
+describe("gaps found by end-to-end testing", () => {
+  it("refuses 'write my history research paper for me' without a model call", () => {
+    // Slipped past the original pattern: "history research" sat between the possessive
+    // and "paper", and only articles were allowed there.
+    expect(prefilter("write my history research paper for me")?.verdict).toBe("DO_MY_WORK");
+    expect(prefilter("write my biology lab report")?.verdict).toBe("DO_MY_WORK");
+    expect(prefilter("do this problem set for me")?.verdict).toBe("DO_MY_WORK");
+  });
+
+  it("lets a scheduling question that mentions the work go to the classifier", () => {
+    // "when should I write my essay" is a planning question. The widened patterns match
+    // its noun phrase, so the interrogative opener must route it onward instead of
+    // refusing a legitimate question.
+    expect(prefilter("When should I write my history paper?")).toBeNull();
+    expect(prefilter("How long will my lab report take?")?.verdict).toBe("ALLOW");
+  });
+
+  it("still refuses the imperative form with a deadline attached", () => {
+    expect(prefilter("write my essay, it's due Friday")?.verdict).toBe("DO_MY_WORK");
+  });
+});
