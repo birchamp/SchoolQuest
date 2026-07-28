@@ -22,6 +22,22 @@ import { SyllabusUpload } from "./components/SyllabusUpload";
 
 type Tab = "today" | "week" | "coach" | "setup";
 
+/**
+ * Sessions loaded from a saved plan carry startAt/endAt but no precomputed minutes —
+ * only freshly generated plans have that field. Screens render "· 45m" style summaries,
+ * and a missing value showed up in the wild as the truncated string "Wed · m".
+ */
+function normalizePlan(plan: PlanResponse): PlanResponse {
+  return {
+    ...plan,
+    sessions: plan.sessions.map((s) => ({
+      ...s,
+      minutes:
+        s.minutes ?? Math.max(0, Math.round((Date.parse(s.endAt) - Date.parse(s.startAt)) / 60_000)),
+    })),
+  };
+}
+
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [term, setTerm] = useState<Term | null>(null);
@@ -39,7 +55,7 @@ export function App() {
       if (!current.planVersion) {
         setPlan(await api.post<PlanResponse>(`/api/terms/${termId}/plans/generate`, {}));
       } else {
-        setPlan(current);
+        setPlan(normalizePlan(current));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load your plan.");

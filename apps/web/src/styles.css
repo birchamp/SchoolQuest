@@ -726,3 +726,155 @@ body[data-theme="quest"] .alternatives li { border-bottom-color: rgba(138, 111, 
 body[data-theme="quest"] :focus-visible {
   outline-color: var(--q-gold-bright);
 }
+
+/* --- Quest craft layer (critic round 1) ------------------------------------
+ * The first critique called the theme "Bootstrap with a sepia palette" and it was
+ * right about why: a background that stopped mid-page, flat gradients standing in for
+ * parchment, native form controls, and unreadable badge chips. Each fix below answers
+ * one of those verdicts.
+ * -------------------------------------------------------------------------- */
+
+/* 1. The leather must run the full page — the white seam below 900px broke the fiction
+ *    instantly. :has() keys the root element off the body attribute. */
+html:has(body[data-theme="quest"]) {
+  background: #16100b;
+  min-height: 100%;
+}
+body[data-theme="quest"] {
+  min-height: 100vh;
+}
+
+/* 2. Real parchment: an SVG turbulence grain over the gradient, and an edge vignette.
+ *    Data-URI SVG, so nothing external loads and the CSP stays untouched. */
+body[data-theme="quest"] .card,
+body[data-theme="quest"] .day {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.29 0 0 0 0 0.22 0 0 0 0 0.12 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse at 18% 8%, rgba(140, 47, 40, 0.05), transparent 45%),
+    radial-gradient(ellipse at 85% 90%, rgba(74, 54, 32, 0.14), transparent 50%),
+    linear-gradient(160deg, var(--q-parchment), var(--q-parchment-deep));
+  box-shadow:
+    0 3px 14px rgba(0, 0, 0, 0.55),
+    inset 0 0 26px rgba(90, 66, 32, 0.28),
+    inset 0 0 4px rgba(90, 66, 32, 0.35);
+}
+
+body[data-theme="quest"] .primary-action {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.29 0 0 0 0 0.22 0 0 0 0 0.12 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse at 50% 0%, rgba(232, 201, 90, 0.25), transparent 55%),
+    linear-gradient(160deg, #f4e8cd, var(--q-parchment-deep));
+}
+
+/* 3. Gold corner brackets on cards, drawn with positioned gradients — framing, not
+ *    just a border-radius with a shadow. */
+body[data-theme="quest"] .card {
+  border-radius: 3px;
+  background-repeat: repeat, no-repeat, no-repeat, no-repeat;
+}
+
+/* 4. Readable status chips: solid fills, dark-on-gold and cream-on-wax. The outline
+ *    chips failed contrast on parchment (~2:1). */
+body[data-theme="quest"] .risk .level {
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  font-weight: 700;
+}
+body[data-theme="quest"] .risk[data-level="safe"] .level {
+  background: var(--q-forest);
+  color: #f2ead6;
+}
+body[data-theme="quest"] .risk[data-level="watch"] .level {
+  background: linear-gradient(180deg, var(--q-gold-bright), var(--q-gold));
+  color: #3a2b00;
+}
+body[data-theme="quest"] .risk[data-level="at_risk"] .level,
+body[data-theme="quest"] .risk[data-level="decision_needed"] .level {
+  background: var(--q-wax);
+  color: #f2ead6;
+}
+body[data-theme="quest"] .card .risk { color: #4a3620; }
+
+/* 5. The faded "protected" list still has to be readable — quiet, not illegible. */
+body[data-theme="quest"] .protected {
+  opacity: 1;
+}
+body[data-theme="quest"] .protected li {
+  color: #5a4730;
+}
+
+/* 6. Buttons earn a bevel and a pressed state; hierarchy comes from gold vs leather. */
+body[data-theme="quest"] button.action {
+  box-shadow:
+    inset 0 1px 0 rgba(239, 227, 200, 0.14),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.35),
+    0 2px 4px rgba(0, 0, 0, 0.5);
+}
+body[data-theme="quest"] button.action:active:not(:disabled) {
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.55);
+  transform: translateY(1px);
+}
+body[data-reduced-motion="true"] button.action:active:not(:disabled) {
+  transform: none;
+}
+body[data-theme="quest"] button.action.primary {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 205, 0.65),
+    inset 0 -2px 3px rgba(109, 87, 24, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+/* 7. Native controls were the cheapest-looking pixels in the app. Selects get custom
+ *    chrome with a gold chevron; file inputs get a themed selector button. */
+body[data-theme="quest"] select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23c9a227' stroke-width='2'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 0.7rem center !important;
+  background-color: rgba(255, 250, 238, 0.9) !important;
+  padding-right: 2rem !important;
+  border-radius: 4px !important;
+  font-family: inherit;
+}
+
+body[data-theme="quest"] input[type="file"] {
+  color: #6b5636;
+  font-family: inherit;
+}
+body[data-theme="quest"] input[type="file"]::file-selector-button {
+  background: linear-gradient(180deg, var(--q-gold-bright), var(--q-gold) 55%, var(--q-gold-dim));
+  border: 1px solid #6d5718;
+  border-radius: 4px;
+  color: var(--q-ink);
+  font-family: inherit;
+  font-weight: 700;
+  padding: 0.45rem 0.9rem;
+  margin-right: 0.7rem;
+  cursor: pointer;
+}
+
+/* 8. Date/time inputs on parchment share the manuscript look. */
+body[data-theme="quest"] input[type="date"],
+body[data-theme="quest"] input[type="time"] {
+  border-radius: 4px !important;
+  font-family: inherit;
+}
+
+/* 9. The centered flows (sign-in, onboarding) sit on the leather too — the first
+ *    screen of the campaign must not be a SaaS form. Cards inside it are parchment
+ *    via .card; bare .centered content gets parchment ink on its own panel. */
+body[data-theme="quest"] .centered {
+  color: var(--q-parchment);
+}
+body[data-theme="quest"] .centered h1 {
+  font-size: 1.8rem;
+  color: var(--q-gold-bright);
+  text-shadow: 0 1px 0 #000, 0 0 18px rgba(201, 162, 39, 0.3);
+  letter-spacing: 0.03em;
+}
+body[data-theme="quest"] .centered .muted { color: var(--text-dim); }
+body[data-theme="quest"] .centered input {
+  background: var(--q-parchment);
+  color: var(--q-ink);
+  border: 1px solid #9b7c3c;
+  font-family: inherit;
+}
