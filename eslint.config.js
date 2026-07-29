@@ -9,6 +9,12 @@ export default tseslint.config(
       "**/.wrangler/**",
       "**/src-tauri/target/**",
       "**/drizzle/**",
+      // Same scratch patterns .gitignore carries. Flat config does not read .gitignore,
+      // so without these an untracked throwaway script under tools/ fails `pnpm lint`
+      // for the whole workspace.
+      "tools/**/.*.mjs",
+      "tools/**/_tmp*",
+      "tools/**/*.tmp.*",
     ],
   },
   js.configs.recommended,
