@@ -32,6 +32,42 @@ export const workType = z.enum([
 ]);
 export type WorkType = z.infer<typeof workType>;
 
+/**
+ * Identity colours for courses, in assignment order.
+ *
+ * `colorToken` exists so a student can tell their courses apart at a glance, but nothing
+ * ever assigned one — every course in the database carried the schema default, so every
+ * course chip on screen came out the same colour and the field did no work at all. Courses
+ * are now given the next token in this cycle as they are created.
+ *
+ * These are names, not values: each theme maps them to its own palette, so the Plain
+ * theme's calm hues and the Quest theme's heraldic tinctures stay independent while both
+ * agree on *which* course is which.
+ */
+export const COURSE_COLOR_TOKENS = [
+  "azure",
+  "vermilion",
+  "verdant",
+  "amber",
+  "violet",
+  "sable",
+] as const;
+export type CourseColorToken = (typeof COURSE_COLOR_TOKENS)[number];
+
+/**
+ * Deterministic fallback for a course that predates token assignment, or that was given
+ * an unrecognised one. Keyed on the id so the colour is stable across reloads and across
+ * screens — a course that is vermilion on the week map must not be azure on setup.
+ */
+export function colorTokenFor(courseId: string, storedToken?: string | null): CourseColorToken {
+  if (storedToken && (COURSE_COLOR_TOKENS as readonly string[]).includes(storedToken)) {
+    return storedToken as CourseColorToken;
+  }
+  let hash = 0;
+  for (let i = 0; i < courseId.length; i += 1) hash = (hash * 31 + courseId.charCodeAt(i)) | 0;
+  return COURSE_COLOR_TOKENS[Math.abs(hash) % COURSE_COLOR_TOKENS.length]!;
+}
+
 /** docs/05-data-model-and-api.md §3 */
 export const workStatus = z.enum([
   "unconfirmed",

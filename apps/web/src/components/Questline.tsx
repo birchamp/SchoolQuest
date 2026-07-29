@@ -1,4 +1,4 @@
-import type { Course, ThemeName } from "@schoolquest/domain";
+import { colorTokenFor, type Course, type CourseColorToken, type ThemeName } from "@schoolquest/domain";
 import type { CourseProgressView, TermProgressView } from "../lib/types";
 
 /**
@@ -38,16 +38,13 @@ const Q = {
  * initials at 4.5:1, because the sigil is a filled chip and color is never load-bearing on
  * its own — the course name sits immediately beside it.
  */
-const HERALDRY = ["#8c2f28", "#3f6c45", "#2f4a6d", "#5a3b6b", "#6b4a2a", "#4a4a2e"] as const;
-
-/** Known seed tokens keep a stable tincture across renders; anything else falls back to position. */
-const HERALDRY_BY_TOKEN: Record<string, string> = {
-  rose: HERALDRY[0],
-  emerald: HERALDRY[1],
-  sky: HERALDRY[2],
-  violet: HERALDRY[3],
-  amber: HERALDRY[4],
-  slate: HERALDRY[5],
+const HERALDRY: Record<CourseColorToken, string> = {
+  azure: "#2f4a6d",
+  vermilion: "#8c2f28",
+  verdant: "#3f6c45",
+  amber: "#6b4a2a",
+  violet: "#5a3b6b",
+  sable: "#241a10",
 };
 
 /** Locale-formatted, but never rounded up into a friendlier number. */
@@ -418,10 +415,10 @@ export function Questline({
         {progress.courses.map((cp: CourseProgressView, index) => {
           const course = coursesById.get(cp.courseId);
           const name = courseLabel(course, cp.courseId);
-          const tincture =
-            HERALDRY_BY_TOKEN[course?.colorToken ?? ""] ??
-            HERALDRY[index % HERALDRY.length] ??
-            HERALDRY[0];
+          // Keyed on the course's own identity colour, not its position in this list, so
+          // a course keeps its tincture wherever it appears. Position-keyed colour meant
+          // the same course changed hue between screens that happened to sort differently.
+          const tincture = HERALDRY[colorTokenFor(cp.courseId, course?.colorToken)];
           const empty = cp.itemsTotal === 0;
           const points = cp.basis === "points";
           const partial = points && cp.pointsCoverage < 1;

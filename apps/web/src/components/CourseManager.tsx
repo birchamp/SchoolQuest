@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ThemeName } from "@schoolquest/domain";
+import { colorTokenFor, type CourseColorToken, type ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { DayPicker, TimeRange } from "./DayPicker";
@@ -10,6 +10,8 @@ interface SnapshotCourse {
   id: string;
   name: string;
   code: string | null;
+  /** Identity colour. Older courses predate assignment; `colorTokenFor` covers them. */
+  colorToken?: string | null;
 }
 
 interface SnapshotMeeting {
@@ -141,13 +143,23 @@ const SHIELD =
   " 32% 94%, 14% 82%, 4% 66%, 0% 48%, 0% 7%)";
 
 /**
- * Every course the app creates carries the schema default `colorToken: "slate"`, so
- * keying the tincture off the token paints an identical mark on every row — which is
- * exactly how the Week tab ends up with five interchangeable chips. Position is the only
- * thing that actually differs, so position is what is used, and the code letters remain
- * the mark that names the course.
+ * Tinctures keyed on the course's own identity colour.
+ *
+ * `colorToken` used to default to "slate" for every course, so keying off it painted an
+ * identical mark on every row — which is why the Week roster showed five interchangeable
+ * chips. Courses are now issued a distinct token when created, and `colorTokenFor` gives
+ * older ones a stable colour derived from their id. Position was the obvious stand-in but
+ * it is not an identity: two screens that sort differently would give the same course two
+ * different colours.
  */
-const TINCTURES = [Q.wax, Q.forest, Q.leather2] as const;
+const TINCTURES: Record<CourseColorToken, string> = {
+  azure: "#2f4a6d",
+  vermilion: Q.wax,
+  verdant: Q.forest,
+  amber: "#6b4a2a",
+  violet: "#5a3b6b",
+  sable: Q.leather2,
+};
 
 /**
  * Sigil lettering, matched to the Week tab so the two screens agree. Digits are skipped
@@ -162,8 +174,8 @@ function initialsFor(course: SnapshotCourse): string {
   return (second ? first.slice(0, 1) + second.slice(0, 1) : first.slice(0, 3)).toUpperCase();
 }
 
-function CourseSigil({ course, index }: { course: SnapshotCourse; index: number }) {
-  const tincture = TINCTURES[index % TINCTURES.length] ?? Q.wax;
+function CourseSigil({ course }: { course: SnapshotCourse }) {
+  const tincture = TINCTURES[colorTokenFor(course.id, course.colorToken)];
   return (
     <span
       aria-hidden="true"
@@ -286,10 +298,10 @@ export function CourseManager({
           </p>
         ) : (
           <ul className="alternatives">
-            {snapshot.courses.map((course, index) => (
+            {snapshot.courses.map((course) => (
               <li key={course.id}>
                 <span style={{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
-                  {quest && <CourseSigil course={course} index={index} />}
+                  {quest && <CourseSigil course={course} />}
                   <span>
                     {course.name}
                     {course.code && !course.name.includes(course.code) && (

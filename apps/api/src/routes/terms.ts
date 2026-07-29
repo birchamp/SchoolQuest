@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { newId, planningPreferences } from "@schoolquest/domain";
+import { COURSE_COLOR_TOKENS, newId, planningPreferences } from "@schoolquest/domain";
 import {
   availabilityRules,
   commitments,
@@ -157,6 +157,14 @@ termsRoute.post("/terms/:termId/courses", async (c) => {
   const parsed = courseBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
+  // Hand each course the next identity colour rather than the schema default. Counting
+  // existing courses keeps the cycle stable for a term built one course at a time, which
+  // is how every term is actually built.
+  const existing = await db
+    .select({ id: courses.id })
+    .from(courses)
+    .where(eq(courses.termId, termId));
+
   const course = {
     id: newId("course"),
     termId,
@@ -164,7 +172,8 @@ termsRoute.post("/terms/:termId/courses", async (c) => {
     code: parsed.data.code ?? null,
     instructor: parsed.data.instructor ?? null,
     credits: parsed.data.credits ?? null,
-    colorToken: parsed.data.colorToken ?? "slate",
+    colorToken:
+      parsed.data.colorToken ?? COURSE_COLOR_TOKENS[existing.length % COURSE_COLOR_TOKENS.length]!,
     expectedWeeklyMinutes: null,
     targetGrade: parsed.data.targetGrade ?? null,
     gradingConfidence: parsed.data.gradingCategories?.length ? "confirmed" : "unknown",
