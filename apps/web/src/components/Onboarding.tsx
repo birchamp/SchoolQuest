@@ -83,12 +83,22 @@ const THEME_PREVIEWS: Record<
  *   - `::-webkit-calendar-picker-indicator` is repainted with a data-URI SVG
  *     drawn in gold-dim ink, so the affordance stays a calendar / a clock but in
  *     the palette (4.6:1 against the cream field — a UI glyph needs 3:1).
- *   - `::-webkit-datetime-edit-*-field:focus` takes gold-on-leather instead of
- *     the OS selection blue (7.1:1), and `::selection` is themed to match, which
- *     also catches the term-name field.
+ *   - the OS blue. `::-webkit-datetime-edit-<x>-field:focus` is not a selector
+ *     Chromium will parse from an author sheet (measured: the rule never lands),
+ *     and `::selection` does not reach the shadow text either. What does work is
+ *     `input:focus::-webkit-datetime-edit-<x>-field { background-color: transparent }`:
+ *     an author background beats the UA's `background-color: highlight`, so the
+ *     blue chip disappears — while the UA's matching `color: highlighttext` is
+ *     left *undeclared* and therefore survives, which is what still marks the
+ *     segment you are editing. The whole value then sits on a leather ribbon
+ *     (`:focus::-webkit-datetime-edit`) with the live segment reading bright and
+ *     the rest in parchment. Nothing is lost: the segment cursor is still shown,
+ *     it is simply shown in the palette. Measured on the ribbon: parchment 9.3:1,
+ *     the live segment 13.6:1, the separators 5.7:1.
  *   - the resting `mm/dd/yyyy` is hidden and replaced by the chart's own voice
  *     ("Not yet marked"). It comes straight back the moment the field is focused,
  *     so nobody ever has to guess the entry format while typing.
+ *   - `::selection` is themed to gold, which catches the term-name field too.
  *
  * None of that is expressible as an inline style attribute, and styles.css is not
  * this component's to edit, so the rules ride in a `<style>` element rendered by
@@ -109,7 +119,7 @@ const CLOCK_ICON =
   "%3Cpath d='M8 4.2V8l2.7 1.9' stroke-linecap='round'/%3E%3C/svg%3E\")";
 
 const QUEST_FIELD_CSS = `
-.sq-quest-onboarding ::selection { background: #c9a227; color: #241a10; }
+.sq-quest-onboarding ::selection { background-color: #c9a227; color: #241a10; }
 
 .sq-quest-onboarding input[type="date"],
 .sq-quest-onboarding input[type="time"] {
@@ -142,23 +152,51 @@ const QUEST_FIELD_CSS = `
   background-color: rgba(201, 162, 39, 0.22);
 }
 
-.sq-quest-onboarding input::-webkit-datetime-edit { color: #2a1f14; padding: 0; }
-.sq-quest-onboarding input::-webkit-datetime-edit-text { color: #6b5636; padding: 0 0.1em; }
-.sq-quest-onboarding input::-webkit-datetime-edit-year-field:focus,
-.sq-quest-onboarding input::-webkit-datetime-edit-month-field:focus,
-.sq-quest-onboarding input::-webkit-datetime-edit-day-field:focus,
-.sq-quest-onboarding input::-webkit-datetime-edit-hour-field:focus,
-.sq-quest-onboarding input::-webkit-datetime-edit-minute-field:focus,
-.sq-quest-onboarding input::-webkit-datetime-edit-ampm-field:focus {
-  background: #c9a227;
-  color: #241a10;
-  border-radius: 2px;
-  outline: none;
+/* Resting: ink on cream, exactly like every other field on the card. The 0.2em
+   inset is carried in both states so the value never shifts when the ribbon
+   appears; the inputs give it back out of their own padding-left. */
+.sq-quest-onboarding input[type="date"]::-webkit-datetime-edit,
+.sq-quest-onboarding input[type="time"]::-webkit-datetime-edit {
+  color: #2a1f14;
+  padding: 0 0.2em;
+  border-radius: 3px;
+}
+.sq-quest-onboarding input[type="date"]::-webkit-datetime-edit-text,
+.sq-quest-onboarding input[type="time"]::-webkit-datetime-edit-text {
+  color: #6b5636;
+}
+
+/* Editing: the value is laid on a strip of the same leather the buttons are cut
+   from, so nothing on the screen is outside the palette. */
+.sq-quest-onboarding input[type="date"]:focus::-webkit-datetime-edit,
+.sq-quest-onboarding input[type="time"]:focus::-webkit-datetime-edit {
+  background-color: #3a2b19;
+  color: #e4d4b0;
+}
+.sq-quest-onboarding input[type="date"]:focus::-webkit-datetime-edit-text,
+.sq-quest-onboarding input[type="time"]:focus::-webkit-datetime-edit-text {
+  color: #c9a227;
+}
+/* Clears the UA's blue chip while leaving its text colour alone — that inherited
+   highlighttext colour is what still marks the segment under the cursor. */
+.sq-quest-onboarding input:focus::-webkit-datetime-edit-year-field,
+.sq-quest-onboarding input:focus::-webkit-datetime-edit-month-field,
+.sq-quest-onboarding input:focus::-webkit-datetime-edit-day-field,
+.sq-quest-onboarding input:focus::-webkit-datetime-edit-hour-field,
+.sq-quest-onboarding input:focus::-webkit-datetime-edit-minute-field,
+.sq-quest-onboarding input:focus::-webkit-datetime-edit-ampm-field {
+  background-color: transparent;
 }
 
 /* Resting state only: React drops the class the instant the field takes focus,
    so the real mm/dd/yyyy guides are always there while you are typing. */
-.sq-quest-onboarding input.sq-q-blank::-webkit-datetime-edit { color: transparent; }
+.sq-quest-onboarding input.sq-q-blank::-webkit-datetime-edit,
+.sq-quest-onboarding input.sq-q-blank::-webkit-datetime-edit-text,
+.sq-quest-onboarding input.sq-q-blank::-webkit-datetime-edit-year-field,
+.sq-quest-onboarding input.sq-q-blank::-webkit-datetime-edit-month-field,
+.sq-quest-onboarding input.sq-q-blank::-webkit-datetime-edit-day-field {
+  color: transparent;
+}
 
 /* Seven day chips, seven columns. They used to wrap 6+1 and orphan "Sat". */
 .sq-quest-days fieldset .button-row {
@@ -414,6 +452,27 @@ const formColumn: React.CSSProperties = {
   display: "flex",
 };
 
+/**
+ * The parchment panel and its form fill the column, so whichever of the two
+ * panels is shorter grows to meet the other's bottom edge, and the buttons ride
+ * at the foot of the page rather than floating in the middle of it.
+ */
+const cardPanel: React.CSSProperties = {
+  marginBottom: 0,
+  flex: 1,
+  width: "100%",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const panelForm: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  flex: 1,
+};
+
+const panelFoot: React.CSSProperties = { marginTop: "auto", paddingTop: "0.6rem" };
+
 /** Vertically centres the step in the viewport instead of pinning it to the top. */
 const questPage: React.CSSProperties = {
   margin: "0 auto",
@@ -496,7 +555,14 @@ function DateField({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           className={blank ? "sq-q-blank" : undefined}
-          style={{ ...INPUT_STYLE, display: "block", margin: 0 }}
+          style={{
+            ...INPUT_STYLE,
+            display: "block",
+            margin: 0,
+            // Gives back the 0.2em the leather ribbon takes, so the date starts on
+            // the same vertical as the term name above it.
+            paddingLeft: "calc(0.8rem - 0.2em)",
+          }}
         />
         {blank && (
           // Decorative stand-in only — the field keeps its own <label>, so this is
@@ -809,44 +875,46 @@ export function Onboarding({
     const termForm = (
       <div
         className="card"
-        style={quest ? { marginBottom: 0, flex: 1, width: "100%" } : undefined}
+        style={quest ? cardPanel : undefined}
       >
-        <form onSubmit={createTerm}>
-          <label className="muted" htmlFor="term-name" style={{ fontSize: "0.85rem" }}>
-            Term name
-          </label>
-          <input
-            id="term-name"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Fall 2026"
-            style={inputStyle}
-          />
+        <form onSubmit={createTerm} style={quest ? panelForm : undefined}>
+          <div>
+            <label className="muted" htmlFor="term-name" style={{ fontSize: "0.85rem" }}>
+              Term name
+            </label>
+            <input
+              id="term-name"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Fall 2026"
+              style={inputStyle}
+            />
 
-          <DateField
-            id="term-start"
-            label="First day of classes"
-            value={startDate}
-            onChange={setStartDate}
-            quest={quest}
-            hint="Not yet marked"
-          />
-          <DateField
-            id="term-end"
-            label="Last day of instruction"
-            value={endDate}
-            onChange={setEndDate}
-            quest={quest}
-            hint="Not yet marked"
-          />
-          <p className="muted" style={{ marginTop: "-0.4rem", fontSize: "0.82rem" }}>
-            Finals week after this date is fine — the planner allows for it.
-          </p>
+            <DateField
+              id="term-start"
+              label="First day of classes"
+              value={startDate}
+              onChange={setStartDate}
+              quest={quest}
+              hint="Not yet marked"
+            />
+            <DateField
+              id="term-end"
+              label="Last day of instruction"
+              value={endDate}
+              onChange={setEndDate}
+              quest={quest}
+              hint="Not yet marked"
+            />
+            <p className="muted" style={{ marginTop: "-0.4rem", fontSize: "0.82rem" }}>
+              Finals week after this date is fine — the planner allows for it.
+            </p>
 
-          {error && <p className="error">{error}</p>}
+            {error && <p className="error">{error}</p>}
+          </div>
 
-          <div className="button-row">
+          <div className="button-row" style={quest ? panelFoot : undefined}>
             <button className="action primary" type="submit" disabled={busy}>
               {busy ? "Creating…" : quest ? "Charter it" : "Continue"}
             </button>
@@ -934,33 +1002,58 @@ export function Onboarding({
       : null;
 
   const availabilityForm = (
-    <div
-      className="card"
-      style={quest ? { marginBottom: 0, flex: 1, width: "100%" } : undefined}
-    >
-      <form onSubmit={saveAvailability}>
-        <DayPicker value={days} onChange={setDays} label="Days you can usually study" />
-        <TimeRange
-          start={startTime}
-          end={endTime}
-          onStart={setStartTime}
-          onEnd={setEndTime}
-          label="Between"
-        />
+    <div className="card" style={quest ? cardPanel : undefined}>
+      <form onSubmit={saveAvailability} style={quest ? panelForm : undefined}>
+        <div>
+          <DayPicker value={days} onChange={setDays} label="Days you can usually study" />
+          <TimeRange
+            start={startTime}
+            end={endTime}
+            onStart={setStartTime}
+            onEnd={setEndTime}
+            label="Between"
+          />
 
-        {error && <p className="error">{error}</p>}
+          {/* Plain and mission carry this reassurance in the paragraph above the
+              card; the quest copy had dropped it, which left the last step of the
+              flow reading as a commitment rather than a first draft. */}
+          {quest && (
+            <p
+              className="muted"
+              style={{
+                margin: "0.9rem 0 0",
+                paddingTop: "0.75rem",
+                borderTop: "1px dashed rgba(138, 111, 31, 0.45)",
+                fontSize: "0.84rem",
+                fontStyle: "italic",
+              }}
+            >
+              <span aria-hidden="true" style={{ marginRight: "0.4rem", color: "#8a6f1f" }}>
+                ✧
+              </span>
+              Rough is fine. These hours can be redrawn from Setup whenever the campaign
+              changes — the planner simply re-lays the quests inside whatever windows it
+              is given.
+            </p>
+          )}
+
+          {error && <p className="error">{error}</p>}
+        </div>
 
         {/* The last button of the flow used to say "Finish setup" in a screen whose
             other buttons say "Charter it" — admin language at the one moment the
             campaign actually begins. Plain and mission keep the plain wording. */}
-        <button
-          className="action primary"
-          type="submit"
-          disabled={busy}
-          style={quest ? { marginTop: "0.35rem" } : undefined}
-        >
-          {busy ? (quest ? "Sealing…" : "Saving…") : quest ? "Begin the campaign" : "Finish setup"}
-        </button>
+        <div style={quest ? panelFoot : undefined}>
+          <button className="action primary" type="submit" disabled={busy}>
+            {busy
+              ? quest
+                ? "Sealing…"
+                : "Saving…"
+              : quest
+                ? "Begin the campaign"
+                : "Finish setup"}
+          </button>
+        </div>
       </form>
     </div>
   );
