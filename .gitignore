@@ -34,3 +34,4 @@ test-results/
 # Three of these reached commits by way of `git add -A` before the rule existed.
 tools/**/.*.mjs
 tools/**/_tmp*
+tools/**/*.tmp.*
