@@ -40,17 +40,24 @@ const TARGET_COMPLETED = 4;
 if (termId) {
   const plan = await api(`/api/terms/${termId}/plans/current`, "GET", undefined, sessionToken);
   const sessions = plan.sessions ?? [];
-  const alreadyDone = sessions.filter((s) => s.status === "completed").length;
-  // Top up to a fixed number rather than completing four more every run, so repeated
-  // rounds of the critique loop are comparable instead of steadily draining the term.
-  const toComplete = sessions
-    .filter((s) => s.status === "planned")
-    .sort((a, b) => a.startAt.localeCompare(b.startAt))
-    .slice(0, Math.max(0, TARGET_COMPLETED - alreadyDone));
+
+  // Pick a *fixed set* of sessions and complete whichever of them are still open, rather
+  // than "top up to four completed". The earlier version did the latter and did not
+  // converge: finishing a session retires its work item and releases that item's other
+  // blocks as `released`, not `completed`, so the completed count stayed at four while
+  // every run retired four more items. Six rounds of screenshots left the reference
+  // semester with ten of its ten exams marked done — the loop was quietly grinding its own
+  // fixture into a finished term, which is the opposite of comparable rounds.
+  const target = [...sessions]
+    .sort((a, b) => a.startAt.localeCompare(b.startAt) || a.id.localeCompare(b.id))
+    .slice(0, TARGET_COMPLETED);
+  const toComplete = target.filter((s) => s.status === "planned" || s.status === "started");
   for (const session of toComplete) {
     await api(`/api/work-sessions/${session.id}/complete`, "POST", { outcome: "completed" }, sessionToken);
   }
-  console.log(`seeded progress: ${alreadyDone} already done, completed ${toComplete.length} more`);
+  console.log(
+    `seeded progress: ${target.length - toComplete.length} of the fixed set already done, completed ${toComplete.length}`,
+  );
 }
 
 // The container preinstalls Chromium; newer playwright versions look for a headless

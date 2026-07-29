@@ -137,3 +137,83 @@ export function explainRecommendation(
   const last = reasons.pop()!;
   return `Work on ${title} because ${reasons.join(", ")}, and ${last}.`;
 }
+
+/**
+ * Encounter kinds → a name and a one-line hint.
+ *
+ * The planning engine classifies each beat of the week from real fields (see
+ * `docs/07-session-prep-design.md`); this is where those neutral codes are allowed to
+ * become "gauntlet". The `plain` column is what screen readers get under every theme, so
+ * the metaphor is always decoration — a student who cannot see the flavour still learns
+ * exactly what kind of work the block holds.
+ */
+const BLOCK_KIND_TEXT: Record<
+  string,
+  Record<ThemeName, { name: string; hint: string }>
+> = {
+  major_assessment: {
+    quest: { name: "Set piece", hint: "The encounter the week has been building toward." },
+    mission: { name: "Primary action", hint: "The decisive item in this window." },
+    plain: { name: "Major assessment", hint: "An exam, presentation, or imminent major deadline." },
+  },
+  back_to_back: {
+    quest: { name: "Gauntlet", hint: "Several passes in a row. Pace yourself through it." },
+    mission: { name: "Sustained run", hint: "Consecutive blocks. Plan the pacing." },
+    plain: { name: "Back-to-back", hint: "Several blocks of this in one day." },
+  },
+  recurring: {
+    quest: { name: "Ritual", hint: "The upkeep this questline asks for every week." },
+    mission: { name: "Standing task", hint: "Recurring work on this theater." },
+    plain: { name: "Recurring", hint: "Work that repeats through the term." },
+  },
+  first_pass: {
+    quest: { name: "Reconnaissance", hint: "First look. Getting in is the whole goal." },
+    mission: { name: "First pass", hint: "Initial survey. Opening the file is the objective." },
+    plain: { name: "First pass", hint: "Not started yet — beginning is the goal." },
+  },
+  short_block: {
+    quest: { name: "Skirmish", hint: "Short and contained." },
+    mission: { name: "Short block", hint: "Brief and contained." },
+    plain: { name: "Short block", hint: "Half an hour or less." },
+  },
+  sustained: {
+    quest: { name: "Long march", hint: "Steady ground to cover." },
+    mission: { name: "Extended block", hint: "Steady work through the window." },
+    plain: { name: "Sustained work", hint: "A longer stretch of steady work." },
+  },
+};
+
+export function explainBlockKind(
+  kind: string,
+  theme: ThemeName,
+): { name: string; hint: string; plainName: string } {
+  const entry = BLOCK_KIND_TEXT[kind];
+  if (!entry) {
+    // An unknown kind means the engine grew a category this table has not learned yet.
+    // Showing the raw code is honest and obviously unfinished; inventing a name is not.
+    return { name: kind, hint: "", plainName: kind };
+  }
+  return { ...entry[theme], plainName: entry.plain.name };
+}
+
+/**
+ * Day load → wording.
+ *
+ * The load comes from minutes weighted by cognitive demand, which is why a short exam day
+ * is never "light". Every theme keeps the four steps distinct and in the same order, so the
+ * shape of a week reads the same whichever wording is on screen.
+ */
+const DAY_LOAD_TEXT: Record<string, Record<ThemeName, string>> = {
+  heavy: { quest: "Perilous", mission: "High tempo", plain: "Heavy" },
+  steady: { quest: "Steady march", mission: "Steady", plain: "Steady" },
+  light: { quest: "Easy road", mission: "Light", plain: "Light" },
+  clear: { quest: "Clear road", mission: "Clear", plain: "Clear" },
+};
+
+export function explainDayLoad(load: string, theme: ThemeName): string {
+  return DAY_LOAD_TEXT[load]?.[theme] ?? load;
+}
+
+export function plainDayLoad(load: string): string {
+  return DAY_LOAD_TEXT[load]?.plain ?? load;
+}

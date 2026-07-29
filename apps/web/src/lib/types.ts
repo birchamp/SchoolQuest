@@ -79,6 +79,91 @@ export interface TermProgressView {
   sessionsCompleted: number;
 }
 
+/**
+ * The week read as prepared session notes (packages/planning-engine/src/session-brief.ts,
+ * docs/07-session-prep-design.md). Every field is derived from real work-item data on each
+ * read; nothing here is stored or inferred.
+ */
+export type BlockKind =
+  | "major_assessment"
+  | "back_to_back"
+  | "recurring"
+  | "first_pass"
+  | "short_block"
+  | "sustained";
+
+export type DayLoad = "heavy" | "steady" | "light" | "clear";
+
+export interface EncounterGroupView {
+  workItemId: string;
+  courseId: string;
+  title: string;
+  date: string;
+  startAt: string;
+  minutes: number;
+  blocks: number;
+  kind: BlockKind;
+  sessionIds: string[];
+}
+
+export interface DayShapeView {
+  date: string;
+  dayOfWeek: number;
+  load: DayLoad;
+  minutes: number;
+  weightedHours: number;
+  encounters: number;
+  /** Something major is due this day, whether or not time is booked for it. */
+  carriesAssessment: boolean;
+}
+
+export interface FallbackView {
+  code: "SHORT_WINDOW" | "CRUX_DAY_LOST" | "SLACK_REMAINING" | "NO_SLACK";
+  workItemIds: string[];
+  minutes: number | null;
+  date: string | null;
+}
+
+export interface MilestoneView {
+  workItemId: string;
+  courseId: string;
+  title: string;
+  workType: string;
+  dueAt: string;
+  /** Negative means it is past due and still open. */
+  daysAway: number;
+  /** Whether preparation has started. The number this feature exists for. */
+  prepBlocks: number;
+  prepMinutes: number;
+  dueConfirmed: boolean;
+}
+
+export interface UndatedMilestoneView {
+  workItemId: string;
+  courseId: string;
+  title: string;
+  workType: string;
+  prepBlocks: number;
+  prepMinutes: number;
+}
+
+export interface SessionBriefView {
+  spine: {
+    workItemId: string;
+    courseId: string;
+    title: string;
+    minutes: number;
+    blocks: number;
+    dueAt: string | null;
+  } | null;
+  crux: { date: string; load: DayLoad; carriesAssessment: boolean } | null;
+  days: DayShapeView[];
+  encounters: EncounterGroupView[];
+  fallbacks: FallbackView[];
+  milestones: MilestoneView[];
+  undatedMilestones: UndatedMilestoneView[];
+}
+
 export interface PlanResponse {
   planVersionId?: string;
   planVersion?: { id: string; versionNumber: number; horizonStart: string; horizonEnd: string } | null;
@@ -94,6 +179,8 @@ export interface PlanResponse {
   standings: Record<string, CourseStandingView>;
   /** Absent only from the "no plan yet" response, which carries no courses either. */
   progress?: TermProgressView;
+  /** Present on saved-plan reads; the generate response does not build one. */
+  brief?: SessionBriefView;
 }
 
 export interface CoachActionView {

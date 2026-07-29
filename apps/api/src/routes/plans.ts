@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { newId, toEpochMinutes } from "@schoolquest/domain";
 import {
+  buildSessionBrief,
   computeTermProgress,
   generatePlan,
   selectRecommendedSessions,
@@ -187,6 +188,33 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     },
     ...summary,
     recommendations,
+    // The week read as prepared session notes rather than a grid (see
+    // docs/07-session-prep-design.md). Milestones are drawn from every work item in the
+    // term, not just this horizon — the whole point is seeing the exam that is three weeks
+    // out — while the day shape and the contingencies are about the seven days on screen.
+    brief: buildSessionBrief({
+      sessions: sessions.map((s) => ({
+        id: s.id,
+        workItemId: s.workItemId,
+        startAt: s.startAt,
+        minutes: Math.max(
+          0,
+          Math.round((Date.parse(s.endAt) - Date.parse(s.startAt)) / 60_000),
+        ),
+      })),
+      workItems: snapshot.workItems,
+      now: new Date().toISOString(),
+      horizonStart: current.horizonStart,
+      horizonDays: 7,
+      ...(isCapacity(summary["capacity"])
+        ? {
+            slackMinutes: Math.max(
+              0,
+              summary["capacity"].availableMinutes - summary["capacity"].usedMinutes,
+            ),
+          }
+        : {}),
+    }),
     sessions: sessions.map((s) => ({
       ...s,
       reasonCodes: JSON.parse(s.reasonCodesJson) as string[],
@@ -222,6 +250,20 @@ plansRoute.post("/plans/:planId/accept", async (c) => {
 
   return c.json({ ok: true });
 });
+
+/**
+ * The plan summary is stored as JSON, so its shape is only as trustworthy as the version
+ * that wrote it. Checking rather than casting means an older summary yields a brief without
+ * a slack line instead of `NaN minutes of slack`.
+ */
+function isCapacity(value: unknown): value is { availableMinutes: number; usedMinutes: number } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { availableMinutes?: unknown }).availableMinutes === "number" &&
+    typeof (value as { usedMinutes?: unknown }).usedMinutes === "number"
+  );
+}
 
 /** Attaches the human-readable explanation to every recommendation and risk. */
 function serializePlan(
