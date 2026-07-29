@@ -11,6 +11,7 @@ import { Coach } from "./components/Coach";
 import { WeekMap } from "./components/WeekMap";
 import { Questline } from "./components/Questline";
 import { CampaignArc } from "./components/CampaignArc";
+import { SessionBrief } from "./components/SessionBrief";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 
 /**
@@ -180,6 +181,9 @@ export function App() {
               landmarks, then how far each course has come. */}
           {tab === "week" && (
             <>
+              {plan.brief && (
+                <SessionBrief brief={plan.brief} courses={plan.courses} theme={theme} />
+              )}
               <WeekMap plan={plan} theme={theme} brief={plan.brief} />
               {plan.brief && (
                 <CampaignArc
