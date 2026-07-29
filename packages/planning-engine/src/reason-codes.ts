@@ -45,6 +45,8 @@ export const RISK_CODES = [
   "EFFORT_UNKNOWN",
   "DAILY_LIMIT_EXCEEDED",
   "OVER_HORIZON",
+  /** Long work being advanced steadily rather than crammed into one horizon. */
+  "PACED_TO_DEADLINE",
 ] as const;
 
 export type RiskCode = (typeof RISK_CODES)[number];

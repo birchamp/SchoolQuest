@@ -16,11 +16,14 @@
 -- Touches progress only. Courses, work items, dates, weights, commitments, and availability
 -- are left exactly as extraction produced them.
 
+-- `remaining_minutes` goes back to NULL, not to `estimated_minutes`: extraction never sets
+-- an estimate (no syllabus says how long something takes), so COALESCE(estimated, remaining)
+-- resolved to the already-zeroed remaining value and the reset silently restored nothing.
+-- NULL is the honest "unknown", and both the scheduler and the stats layer already fall back
+-- to the same per-type default when they see it.
 UPDATE work_items
 SET status = CASE WHEN status = 'canceled' THEN 'canceled' ELSE 'not_started' END,
-    -- Estimated effort is the best available stand-in for "all of it still to do"; the
-    -- original remaining value is not recoverable and inventing one would be worse.
-    remaining_minutes = COALESCE(estimated_minutes, remaining_minutes);
+    remaining_minutes = estimated_minutes;
 
 UPDATE work_sessions
 SET status = 'planned',

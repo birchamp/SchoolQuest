@@ -103,6 +103,8 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
     const required = requiredMinutes(item) - (carriedMinutesByItem.get(item.id) ?? 0);
     if (required <= 0) continue;
 
+    const allocation = horizonAllocation(item, required, input, now);
+
     if (item.estimatedMinutes === null && item.remainingMinutes === null) {
       risks.push({
         level: "watch",
@@ -130,10 +132,21 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
       });
     }
 
+    if (allocation.paced) {
+      risks.push({
+        level: "safe",
+        code: "PACED_TO_DEADLINE",
+        workItemId: item.id,
+        detail:
+          `"${item.title}" is being worked through steadily: ${allocation.minutes} of its ` +
+          `${required} remaining minutes are planned for this week.`,
+      });
+    }
+
     pending.push({
       item,
       priority,
-      minutesRemaining: required,
+      minutesRemaining: allocation.minutes,
       latestEnd: latestSafeEnd(item, input),
       earliestStart: Math.max(
         now,
@@ -235,6 +248,61 @@ function requiredMinutes(item: WorkItem): number {
   if (item.remainingMinutes !== null) return item.remainingMinutes;
   if (item.estimatedMinutes !== null) return item.estimatedMinutes;
   return DEFAULT_EFFORT_MINUTES[item.workType] ?? 60;
+}
+
+/**
+ * Aim to finish a paced project about a fifth early, so one bad week is absorbed rather
+ * than compounding into a crisis.
+ */
+const PACING_HEADROOM = 1.25;
+
+/** More than two sittings: large enough that *when* it happens has to be planned. */
+const LONG_PROJECT_MINUTES = 120;
+
+/** A paced project always gets at least this much, so it can never become invisible. */
+const MIN_PACED_MINUTES = 45;
+
+/**
+ * How much of a long item's remaining effort belongs in *this* horizon.
+ *
+ * Without this the scheduler placed every item's entire remaining effort in the current
+ * week, whatever its due date. Measured against a realistic squeeze — one 900-minute paper
+ * six weeks out against twelve quizzes due within three days — it put all 900 minutes of
+ * the paper into week one, took 71% of the week for it, and pushed four of the quizzes out
+ * of the plan entirely.
+ *
+ * That is the same failure as ignoring the paper, wearing the opposite costume: the student
+ * is handed an impossible week, the genuinely urgent work disappears, and there is no sense
+ * of steady progress — just one enormous block that will not happen.
+ *
+ * Only long work is paced. An earlier version also deferred *small* distant work out of the
+ * horizon entirely, which emptied the back half of the week and wasted capacity that could
+ * happily hold next week's reading. Short items due later were never the problem; they fill
+ * a week productively and finish in one sitting whenever they land.
+ */
+function horizonAllocation(
+  item: WorkItem,
+  required: number,
+  input: PlanningInput,
+  now: number,
+): { minutes: number; paced: boolean } {
+  if (required <= LONG_PROJECT_MINUTES) return { minutes: required, paced: false };
+
+  // No deadline is no basis for pacing against a runway, but a large undated item must
+  // still not swallow the week — it gets a quarter, which is the same "make steady
+  // progress" behaviour without pretending to know a date.
+  if (!item.dueAt) {
+    const share = Math.max(MIN_PACED_MINUTES, Math.round(required / 4));
+    return { minutes: Math.min(required, share), paced: share < required };
+  }
+
+  const untilDue = toEpochMinutes(item.dueAt) - now;
+  if (untilDue <= input.horizonDays * MINUTES_PER_DAY) return { minutes: required, paced: false };
+
+  const daysUntilDue = untilDue / MINUTES_PER_DAY;
+  const share = Math.round((required * input.horizonDays * PACING_HEADROOM) / daysUntilDue);
+  const minutes = Math.min(required, Math.max(MIN_PACED_MINUTES, share));
+  return { minutes, paced: minutes < required };
 }
 
 /**

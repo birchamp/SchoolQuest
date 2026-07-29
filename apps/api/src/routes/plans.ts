@@ -4,9 +4,11 @@ import { z } from "zod";
 import { newId, toEpochMinutes } from "@schoolquest/domain";
 import {
   buildSessionBrief,
+  computeProjectProgress,
   computeTermProgress,
   generatePlan,
   selectRecommendedSessions,
+  summarizeProjects,
 } from "@schoolquest/planning-engine";
 import { explainRecommendation, explainRisk, explainTradeoff } from "@schoolquest/theme-language";
 import { planVersions, workSessions } from "../db/schema.js";
@@ -177,6 +179,33 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     },
   );
 
+  // Where the big things stand. Built from the term's whole session history rather than the
+  // current horizon: a long project's story is months of blocks, and "am I going to make it"
+  // is a meaningless question inside a seven-day window.
+  const effort = await loadEffortTotals(db, termId);
+  const minutesOf = (s: { startAt: string; endAt: string; actualMinutes: number | null }) =>
+    s.actualMinutes ?? Math.max(0, Math.round((Date.parse(s.endAt) - Date.parse(s.startAt)) / 60_000));
+  const projectRows = computeProjectProgress({
+    workItems: snapshot.workItems,
+    completed: snapshot.existingSessions
+      .filter((s) => s.status === "completed" || s.status === "partial")
+      .map((s) => ({ workItemId: s.workItemId, endAt: s.endAt, minutes: minutesOf(s) })),
+    booked: snapshot.existingSessions
+      .filter((s) => s.status === "planned" || s.status === "started")
+      .map((s) => ({ workItemId: s.workItemId, minutes: minutesOf(s) })),
+    now: new Date().toISOString(),
+    // Health claims are measured against the student's real weekly study time, not against
+    // how much this horizon happens to hold.
+    weeklyCapacityMinutes: isCapacity(summary["capacity"]) ? summary["capacity"].availableMinutes : 0,
+  });
+  const projects = {
+    rows: projectRows,
+    summary: summarizeProjects(projectRows, {
+      investedMinutes: effort.effortMinutes,
+      sessionsCompleted: effort.sessionsCompleted,
+    }),
+  };
+
   return c.json({
     planVersion: {
       id: current.id,
@@ -215,6 +244,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
           }
         : {}),
     }),
+    projects,
     sessions: sessions.map((s) => ({
       ...s,
       reasonCodes: JSON.parse(s.reasonCodesJson) as string[],
@@ -227,7 +257,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
         snapshot.courses.map((course) => course.id),
         snapshot.workItems,
       ),
-      ...(await loadEffortTotals(db, termId)),
+      ...effort,
     },
   });
 });
