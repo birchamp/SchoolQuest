@@ -24,6 +24,10 @@ export default tseslint.config(
         process: "readonly",
         fetch: "readonly",
         URL: "readonly",
+        // These run inside `page.evaluate`, so they execute in the browser even though
+        // the file itself is a Node script.
+        document: "readonly",
+        getComputedStyle: "readonly",
         localStorage: "readonly",
       },
     },

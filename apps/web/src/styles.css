@@ -32,6 +32,13 @@
     --text-dim: #61617a;
     --accent: #4a4ac4;
     --accent-dim: #a8a8e0;
+    /* The dark-mode risk colours are tuned for a near-black ground; carried onto white
+       they collapse — the "watch" chip measured 1.99:1, which is the most common risk
+       level in the app and so the label a student sees most often. These are the same
+       hues pushed dark enough to clear the 4.5:1 floor on white. */
+    --safe: #17794a;
+    --watch: #8a6410;
+    --at-risk: #b0451a;
     color-scheme: light;
   }
 }
@@ -644,6 +651,15 @@ body[data-theme="quest"] .tabs button[aria-current="page"] {
 
 body[data-theme="quest"] .card {
   position: relative;
+  /* The page ground is dark oiled leather, so --text and --text-dim are set to
+     parchment tones at :root. A card flips the ground to parchment, which means every
+     rule that resolves "text on the ground" has to flip with it — otherwise anything
+     styled `color: var(--text)` paints cream on cream. That is not hypothetical: the
+     Main Quest rationale, the single most important sentence in the product, was
+     measured at 1.06:1 against its own card. Re-pointing the tokens here fixes every
+     descendant at once instead of chasing them rule by rule. */
+  --text: var(--q-ink);
+  --text-dim: #6b5636;
   color: var(--q-ink);
   background:
     radial-gradient(ellipse at 18% 8%, rgba(140, 47, 40, 0.05), transparent 45%),
@@ -720,9 +736,13 @@ body[data-theme="quest"] label.action:hover {
 
 body[data-theme="quest"] button.action.primary,
 body[data-theme="quest"] label.action.primary {
-  background: linear-gradient(180deg, var(--q-gold-bright), var(--q-gold) 55%, var(--q-gold-dim));
+  /* The gradient's foot used to run down to --q-gold-dim (#8a6f1f), which put the label
+     at 3.35:1 over the bottom third of the button — under the 4.5:1 floor for text this
+     size. Stopping the ramp higher keeps the struck-metal look and clears the floor
+     across the whole face, not just the top of it. */
+  background: linear-gradient(180deg, var(--q-gold-bright), var(--q-gold) 55%, #b08f1f);
   border-color: #6d5718;
-  color: var(--q-ink);
+  color: #1c1409;
   font-weight: 700;
   text-shadow: 0 1px 0 rgba(239, 227, 200, 0.4);
 }
