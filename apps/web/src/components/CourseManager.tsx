@@ -80,7 +80,6 @@ function Themed({ visible, plain }: { visible: string; plain: string }) {
 
 /** Quest palette, duplicated from the `--q-*` custom properties as literals (cf. Questline). */
 const Q = {
-  ink: "#2a1f14",
   gold: "#c9a227",
   goldBright: "#e8c95a",
   goldDim: "#8a6f1f",
@@ -169,8 +168,8 @@ function CourseSigil({ course, index }: { course: SnapshotCourse; index: number 
     <span
       aria-hidden="true"
       style={{
-        width: 27,
-        height: 31,
+        width: 29,
+        height: 33,
         flex: "0 0 auto",
         display: "grid",
         padding: 2,
@@ -182,6 +181,10 @@ function CourseSigil({ course, index }: { course: SnapshotCourse; index: number 
         style={{
           display: "grid",
           placeItems: "center",
+          // A chief at the top and a point at the bottom both eat into where letters can
+          // sit, so the charge is nudged into the widest band of the field rather than
+          // into the geometric middle.
+          paddingTop: 3,
           paddingBottom: 5,
           clipPath: SHIELD,
           background:
@@ -189,9 +192,9 @@ function CourseSigil({ course, index }: { course: SnapshotCourse; index: number 
             " linear-gradient(107deg, rgba(255, 255, 255, 0.15) 0 46%, rgba(0, 0, 0, 0.26) 46%)," +
             ` ${tincture}`,
           color: Q.cream,
-          fontSize: "0.6rem",
+          fontSize: "0.56rem",
           fontWeight: 700,
-          letterSpacing: "0.02em",
+          letterSpacing: "0.01em",
           lineHeight: 1,
           textShadow: "0 1px 0 rgba(0, 0, 0, 0.55)",
         }}

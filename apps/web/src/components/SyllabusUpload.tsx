@@ -234,7 +234,7 @@ export function SyllabusUpload({
       {quest && (
         <p className="muted" style={{ marginTop: 0 }}>
           <Themed
-            visible="A syllabus is the chart a questline is drawn from. Choose the PDF and its dates, weights, and tasks are read straight off it."
+            visible="A syllabus is the map a questline is drawn from. Choose the PDF and its dates, weights, and tasks are read straight off it."
             plain="Upload a course syllabus PDF and its dates, grading weights, and assignments are read out of it."
           />
         </p>
