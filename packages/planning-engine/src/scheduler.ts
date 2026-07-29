@@ -542,7 +542,19 @@ export function selectRecommendedSessions<T extends RecommendableSession>(
   const todays = upcoming.filter((s) => toEpochMinutes(s.startAt) < endOfToday);
   const chosen = todays.length > 0 ? todays : nextScheduledDay(upcoming);
 
-  return chosen.slice(0, limit);
+  // One session per work item. Long assignments are split into several blocks on the same
+  // day, which made Today offer "Lab Notebook" as the next action and then again as both
+  // alternatives. The alternatives exist to answer "or instead?", and the same task three
+  // times is not an alternative — it is the same choice printed three times.
+  const seen = new Set<string>();
+  const distinct: T[] = [];
+  for (const session of chosen) {
+    if (seen.has(session.workItemId)) continue;
+    seen.add(session.workItemId);
+    distinct.push(session);
+    if (distinct.length === limit) break;
+  }
+  return distinct;
 }
 
 /** All sessions on the earliest upcoming date, so the fallback reads as one coherent day. */

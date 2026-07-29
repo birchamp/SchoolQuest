@@ -365,3 +365,22 @@ describe("selecting today's next actions", () => {
     expect(selectRecommendedSessions([], toEpochMinutes(SEED_NOW))).toEqual([]);
   });
 });
+
+describe("recommendation variety", () => {
+  it("never offers the same work item as its own alternative", () => {
+    const plan = planFor();
+    const ids = plan.recommendations.map((r) => r.workItemId);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("returns a single entry when the day holds only one task, split into blocks", () => {
+    const now = toEpochMinutes(SEED_NOW);
+    const blocks = [0, 90, 180].map((offset, i) => ({
+      id: `ws_${i}`,
+      workItemId: "wi_only",
+      startAt: new Date((now + 60 + offset) * 60_000).toISOString(),
+    }));
+    // Three blocks, one assignment: Today should say so rather than pad the list.
+    expect(selectRecommendedSessions(blocks, now)).toHaveLength(1);
+  });
+});
