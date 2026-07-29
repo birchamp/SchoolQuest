@@ -29,3 +29,8 @@ apps/desktop/src-tauri/gen/
 coverage/
 playwright-report/
 test-results/
+
+# Scratch scripts written by parallel workers while iterating on the visual loop.
+# Three of these reached commits by way of `git add -A` before the rule existed.
+tools/**/.*.mjs
+tools/**/_tmp*
