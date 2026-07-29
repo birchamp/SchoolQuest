@@ -189,7 +189,14 @@ const QUEST_FIELD_CSS = `
 }
 
 /* Resting state only: React drops the class the instant the field takes focus,
-   so the real mm/dd/yyyy guides are always there while you are typing. */
+   so the real mm/dd/yyyy guides are always there while you are typing. The plain
+   colour rule is the cross-browser floor — engines that do not know the -webkit
+   pseudo-elements below would otherwise print their own placeholder underneath
+   the parchment hint. It has to out-specify the sheet's own .card input override,
+   hence the extra class. */
+.sq-quest-onboarding .card input.sq-q-blank {
+  color: transparent !important;
+}
 .sq-quest-onboarding input.sq-q-blank::-webkit-datetime-edit,
 .sq-quest-onboarding input.sq-q-blank::-webkit-datetime-edit-text,
 .sq-quest-onboarding input.sq-q-blank::-webkit-datetime-edit-year-field,
