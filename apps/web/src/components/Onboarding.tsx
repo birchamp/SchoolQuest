@@ -473,13 +473,18 @@ const panelForm: React.CSSProperties = {
 
 const panelFoot: React.CSSProperties = { marginTop: "auto", paddingTop: "0.6rem" };
 
-/** Vertically centres the step in the viewport instead of pinning it to the top. */
+/**
+ * Vertically centres the step in the viewport instead of pinning it to the top —
+ * the steps used to sit in the top-left corner of a 1280×1008 canvas with 40% of
+ * it left as bare leather below. `safe center` so a short window falls back to
+ * top-aligned rather than pushing the heading off the top edge.
+ */
 const questPage: React.CSSProperties = {
   margin: "0 auto",
   minHeight: "100vh",
   display: "flex",
   flexDirection: "column",
-  justifyContent: "center",
+  justifyContent: "safe center",
   paddingTop: "2.5rem",
   paddingBottom: "2.5rem",
 };
