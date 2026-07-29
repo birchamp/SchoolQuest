@@ -18,6 +18,8 @@ interface CompleteResult {
   workItemStatus: string;
   /** The item's real `pointsPossible`, and only on the call that finished it. */
   pointsBanked: number | null;
+  /** Blocks that were still held for this item and are now the student's time again. */
+  releasedSessions: number;
 }
 
 /**
@@ -39,7 +41,7 @@ export function Today({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finished, setFinished] = useState<
-    { title: string; points: number | null; minutes: number } | null
+    { title: string; points: number | null; minutes: number; released: number } | null
   >(null);
 
   const [primary, ...alternatives] = plan.recommendations;
@@ -53,16 +55,35 @@ export function Today({
   const questGold = "#c9a227";
   const questWax = "#8c2f28";
 
-  /** 1-4 effort pips from session length; wording for screen readers stays plain. */
-  function effortPips(durationMinutes: number) {
-    const n = durationMinutes <= 30 ? 1 : durationMinutes <= 60 ? 2 : durationMinutes <= 90 ? 3 : 4;
+  /**
+   * How far the questline this task belongs to has actually come.
+   *
+   * This slot used to hold four pips derived from the *session length* — an effort
+   * estimate. Sitting immediately after "Questline: <course>" they read as questline
+   * progress, and so a course the roster reported as "0 of 6 tasks, 0%" showed two filled
+   * pips on the hero card. The fix is not better wording: it is to put the real number
+   * here, drawn from the same ledger the Week tab prints, so the two can never disagree.
+   */
+  function questlineStanding(courseId: string) {
+    const course = progress?.courses.find((c) => c.courseId === courseId);
+    if (!course || course.itemsTotal === 0) return null;
+    const filled = Math.round(course.completionFraction * 4);
     return (
-      <span
-        role="img"
-        aria-label={`estimated effort: ${n} of 4`}
-        style={{ color: questGold, letterSpacing: "0.15em" }}
-      >
-        <span aria-hidden="true">{"◆".repeat(n) + "◇".repeat(4 - n)}</span>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+        <span aria-hidden="true" style={{ color: questGold, letterSpacing: "0.15em" }}>
+          {"◆".repeat(filled) + "◇".repeat(4 - filled)}
+        </span>
+        <span aria-hidden="true">
+          {course.basis === "points"
+            ? `${Math.round(course.pointsDone)} / ${Math.round(course.pointsTotal)} XP`
+            : `${course.itemsDone} / ${course.itemsTotal}`}
+        </span>
+        <span className="sr-only">
+          {course.basis === "points"
+            ? `${Math.round(course.pointsDone)} of ${Math.round(course.pointsTotal)} points`
+            : `${course.itemsDone} of ${course.itemsTotal} assignments`}{" "}
+          finished in this course
+        </span>
       </span>
     );
   }
@@ -95,7 +116,12 @@ export function Today({
         { outcome },
       );
       if (result.workItemStatus === "completed") {
-        setFinished({ title, points: result.pointsBanked, minutes });
+        setFinished({
+          title,
+          points: result.pointsBanked,
+          minutes,
+          released: result.releasedSessions ?? 0,
+        });
       }
       onChanged();
     } catch (e) {
@@ -106,20 +132,55 @@ export function Today({
   }
 
   // Everything scheduled after today: visible, de-emphasized, and explicitly "protected".
-  const protectedLater = plan.sessions
-    .filter((s) => s.startAt.slice(0, 10) > today)
-    .slice(0, 6)
-    .map((s) => ({
-      id: s.id,
-      title: itemsById.get(s.workItemId)?.title ?? "Session",
-      when: new Date(s.startAt).toLocaleDateString(undefined, { weekday: "short" }),
-      minutes: s.minutes,
-    }));
+  //
+  // Grouped by work item rather than listed per session. A long assignment is split into
+  // several blocks, so the raw list printed "Lab Notebook" three times with nothing to
+  // tell the entries apart — which reads as a rendering fault and hides how much else is
+  // coming. One row per piece of work, with its blocks summed.
+  const protectedLater = (() => {
+    const groups = new Map<
+      string,
+      { id: string; title: string; when: string; minutes: number; blocks: number }
+    >();
+    for (const s of plan.sessions.filter((s) => s.startAt.slice(0, 10) > today)) {
+      const existing = groups.get(s.workItemId);
+      if (existing) {
+        existing.minutes += s.minutes;
+        existing.blocks += 1;
+        continue;
+      }
+      groups.set(s.workItemId, {
+        id: s.workItemId,
+        title: itemsById.get(s.workItemId)?.title ?? "Session",
+        // The first block's day: when this work starts, not when it ends.
+        when: new Date(s.startAt).toLocaleDateString(undefined, { weekday: "short" }),
+        minutes: s.minutes,
+        blocks: 1,
+      });
+    }
+    return [...groups.values()].slice(0, 6);
+  })();
 
   const capacityPercent =
     plan.capacity.availableMinutes > 0
       ? Math.min(100, (plan.capacity.usedMinutes / plan.capacity.availableMinutes) * 100)
       : 0;
+  const capacityPressure = capacityPercent >= 90 ? "tight" : capacityPercent >= 70 ? "full" : "easy";
+
+  // Risks arrive one per work item, so the same sentence — "The time this takes is still
+  // a guess." — was printed several times in a row. Collapsing identical explanations and
+  // counting them says the same thing once and tells the student how widespread it is.
+  const risks = (() => {
+    const byText = new Map<string, { key: string; level: string; text: string; count: number }>();
+    for (const risk of plan.risks) {
+      const text = risk.explanation ?? explainRisk(risk.code);
+      const key = `${risk.level}:${text}`;
+      const existing = byText.get(key);
+      if (existing) existing.count += 1;
+      else byText.set(key, { key, level: risk.level, text, count: 1 });
+    }
+    return [...byText.values()].slice(0, 4);
+  })();
 
   return (
     <div>
@@ -219,10 +280,22 @@ export function Today({
                 )}
               </strong>
             </p>
+            {/* Says only what actually happened. The previous copy claimed the week
+                redrew itself while the forecast below was pixel-identical — the blocks
+                for the finished item were still sitting there. Now they are released,
+                and the sentence reports the real count instead of a flourish. */}
             <p className="completion-note">
-              {quest
-                ? "Banked. The week redraws itself around what is left."
-                : "Recorded. Your plan has been updated around what remains."}
+              {finished.released > 0
+                ? quest
+                  ? `${finished.released} held ${
+                      finished.released === 1 ? "block" : "blocks"
+                    } released — that time is yours again.`
+                  : `${finished.released} scheduled ${
+                      finished.released === 1 ? "block" : "blocks"
+                    } for this were freed up.`
+                : quest
+                  ? "Banked. Nothing else was being held for it."
+                  : "Recorded. Nothing else was scheduled for it."}
             </p>
           </div>
           <button className="action" onClick={() => setFinished(null)}>
@@ -275,7 +348,7 @@ export function Today({
                   </span>
                 ) : null;
               })()}
-              {effortPips(primary.durationMinutes)}
+              {questlineStanding(primary.courseId)}
             </p>
           )}
           <p className="title">{primary.title}</p>
@@ -387,7 +460,10 @@ export function Today({
                   {s.title}
                 </span>
                 <span>
-                  {s.when} &middot; {s.minutes}m
+                  {s.when} &middot; {formatEffort(s.minutes)}
+                  {s.blocks > 1 && (
+                    <span className="muted"> &middot; {s.blocks} blocks</span>
+                  )}
                 </span>
               </li>
             ))}
@@ -401,8 +477,12 @@ export function Today({
 
       <section className="card">
         <h2>{quest ? "Stamina" : "Capacity this week"}</h2>
+        {/* A near-full bar means the week has almost no slack left — an alarm. Drawn in
+            the same gold as everything else it read as a trophy: full meter, goal met.
+            The pressure state repaints it and says plainly what a full week costs. */}
         <div
           className="capacity-bar"
+          data-pressure={capacityPressure}
           role="meter"
           aria-valuenow={Math.round(capacityPercent)}
           aria-valuemin={0}
@@ -414,14 +494,29 @@ export function Today({
         <p className="muted">
           {plan.capacity.usedMinutes} of {plan.capacity.availableMinutes} available minutes are
           scheduled.
+          {capacityPressure === "tight" && (
+            <>
+              {" "}
+              <strong>
+                {quest
+                  ? "Little strength held in reserve — one long day will not fit."
+                  : "Almost no slack left — one long day will not fit."}
+              </strong>
+            </>
+          )}
         </p>
 
-        {plan.risks.length > 0 && (
+        {risks.length > 0 && (
           <div style={{ marginTop: "0.75rem" }}>
-            {plan.risks.slice(0, 4).map((risk, index) => (
-              <div className="risk" data-level={risk.level} key={`${risk.code}-${index}`}>
+            {risks.map((risk) => (
+              <div className="risk" data-level={risk.level} key={risk.key}>
                 <span className="level">{risk.level.replace("_", " ")}</span>
-                <span>{risk.explanation ?? explainRisk(risk.code)}</span>
+                <span>
+                  {risk.text}
+                  {risk.count > 1 && (
+                    <span className="muted"> · {risk.count} items</span>
+                  )}
+                </span>
               </div>
             ))}
           </div>

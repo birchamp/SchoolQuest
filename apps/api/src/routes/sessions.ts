@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { newId, outcomeCode } from "@schoolquest/domain";
 import { auditEvents, courses, terms, workItems, workSessions } from "../db/schema.js";
@@ -106,6 +106,26 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
     .set({ remainingMinutes: remaining, status: itemStatus })
     .where(eq(workItems.id, item.id));
 
+  // Finishing the work frees every block still held for it. Without this the interface
+  // told the truth and lied in the same breath: it announced an assignment complete while
+  // the forecast directly below went on listing three more sessions of it, and the claim
+  // that the week redraws itself around what is left was visibly false.
+  let releasedSessions = 0;
+  if (itemStatus === "completed") {
+    const released = await db
+      .update(workSessions)
+      .set({ status: "released" })
+      .where(
+        and(
+          eq(workSessions.workItemId, item.id),
+          eq(workSessions.status, "planned"),
+          ne(workSessions.id, id),
+        ),
+      )
+      .returning({ id: workSessions.id });
+    releasedSessions = released.length;
+  }
+
   await db.insert(auditEvents).values({
     id: newId("auditEvent"),
     userId: c.get("userId"),
@@ -128,6 +148,7 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
     status,
     workItemStatus: itemStatus,
     pointsBanked: completedNow ? item.pointsPossible : null,
+    releasedSessions,
   });
 });
 

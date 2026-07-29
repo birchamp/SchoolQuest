@@ -270,6 +270,16 @@ button.action:disabled {
   background: var(--accent-dim);
 }
 
+/* A capacity bar is not a score: filling it up is the bad outcome. At 90%+ the week has
+   almost no slack, so the fill stops looking like an achievement and starts looking like
+   a warning. Colour is never the only signal — the sentence beneath it says so too. */
+.capacity-bar[data-pressure="full"] > span {
+  background: var(--watch);
+}
+.capacity-bar[data-pressure="tight"] > span {
+  background: var(--at-risk);
+}
+
 /* --- Term progress strip and completion moment ------------------------------
  * Both are theme-neutral by default: a plain progress readout and a plain
  * acknowledgment. The Quest theme dresses them up further down the file.
@@ -698,16 +708,32 @@ body[data-theme="quest"] .card .rationale {
   font-style: italic;
 }
 
-/* The main quest is the one illuminated thing on the board. */
+/* The main quest is the one illuminated thing on the board.
+ *
+ * It previously differed from the three cards below it only by being taller — same
+ * parchment, same gold double-border, same corner pips — so "one clear next thing", the
+ * product's whole thesis, was not legible at a glance. It now carries an illuminated
+ * gold band across the top and a deeper vellum ground: the same family, a different
+ * rank. */
 body[data-theme="quest"] .primary-action {
   background:
-    radial-gradient(ellipse at 50% 0%, rgba(232, 201, 90, 0.22), transparent 55%),
+    linear-gradient(180deg, rgba(232, 201, 90, 0.5) 0 4px, transparent 4px),
+    radial-gradient(ellipse at 50% 0%, rgba(232, 201, 90, 0.3), transparent 60%),
     repeating-radial-gradient(circle at 30% 40%, transparent 0 3px, rgba(74, 54, 32, 0.03) 3px 4px),
-    linear-gradient(160deg, #f4e8cd, var(--q-parchment-deep));
-  outline-color: var(--q-gold-dim);
-  border-color: var(--q-gold);
-  box-shadow: 0 0 0 1px rgba(201, 162, 39, 0.35), 0 4px 22px rgba(0, 0, 0, 0.6),
-    0 0 34px rgba(201, 162, 39, 0.18);
+    linear-gradient(160deg, #fdf6e4, #f0e2c0 55%, var(--q-parchment-deep));
+  outline-color: var(--q-gold);
+  border-color: var(--q-gold-bright);
+  padding-top: 1.15rem;
+  box-shadow: 0 0 0 1px rgba(201, 162, 39, 0.5), 0 6px 30px rgba(0, 0, 0, 0.7),
+    0 0 46px rgba(201, 162, 39, 0.24);
+}
+
+/* The rank marker: only the hero card gets it. */
+body[data-theme="quest"] .primary-action h2 {
+  color: #7a2620;
+  font-size: 0.86rem;
+  letter-spacing: 0.2em;
+  border-bottom-color: rgba(201, 162, 39, 0.65);
 }
 
 body[data-theme="quest"] .primary-action .title {
@@ -759,6 +785,16 @@ body[data-theme="quest"] .capacity-bar {
 body[data-theme="quest"] .capacity-bar > span {
   background: linear-gradient(90deg, var(--q-gold-dim), var(--q-gold), var(--q-gold-bright));
   box-shadow: 0 0 8px rgba(201, 162, 39, 0.5);
+}
+
+body[data-theme="quest"] .capacity-bar[data-pressure="full"] > span {
+  background: linear-gradient(90deg, #9c7c1c, #c98a2a, #dba63e);
+  box-shadow: 0 0 8px rgba(201, 138, 42, 0.5);
+}
+
+body[data-theme="quest"] .capacity-bar[data-pressure="tight"] > span {
+  background: linear-gradient(90deg, #6d211c, var(--q-wax), #b04a3f);
+  box-shadow: 0 0 10px rgba(140, 47, 40, 0.6);
 }
 
 /* --- Risk banners as journal marginalia ------------------------------------ */
@@ -1063,38 +1099,50 @@ body[data-theme="quest"] .campaign-strip-foot {
  * (docs/01-product-brief.md). Reduced motion is handled globally at the top of
  * this file, which clamps the fade to nothing. */
 
+/* Its own material, not a fourth slab of parchment. The critic measured the old banner
+   at (233,218,189) against cards at (233,216,176) — the same surface, differing only by
+   being shorter — and noted its brightest object was the Dismiss button, so the emphasis
+   of the celebration fell on making it go away. This is sealed wax on dark leather:
+   unmistakably a different object, and the title outranks the dismissal. */
 body[data-theme="quest"] .completion-moment {
   border: 1px solid var(--q-gold);
   border-radius: 3px;
-  color: var(--q-ink);
+  color: var(--q-parchment);
   background:
-    radial-gradient(ellipse 80% 120% at 100% 50%, rgba(140, 47, 40, 0.14), transparent 70%),
-    linear-gradient(180deg, var(--q-parchment), var(--q-parchment-deep));
+    radial-gradient(ellipse 60% 140% at 8% 50%, rgba(201, 162, 39, 0.18), transparent 70%),
+    linear-gradient(160deg, #4a1512, #2c0f0d 55%, #1d0f0a);
   box-shadow:
-    inset 0 0 30px rgba(140, 110, 60, 0.22),
-    0 3px 12px rgba(0, 0, 0, 0.5);
+    inset 0 0 0 1px rgba(232, 201, 90, 0.25),
+    0 4px 18px rgba(0, 0, 0, 0.6),
+    0 0 28px rgba(201, 162, 39, 0.12);
 }
 
 body[data-theme="quest"] .completion-title {
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-  font-size: 1.05rem;
-  letter-spacing: 0.05em;
-  color: #4a1f1a;
+  font-size: 1.2rem;
+  letter-spacing: 0.06em;
+  color: var(--q-gold-bright);
+  text-shadow: 0 1px 0 #000;
 }
 
-body[data-theme="quest"] .completion-detail,
+body[data-theme="quest"] .completion-detail {
+  color: #e6d6b2;
+}
+
 body[data-theme="quest"] .completion-note {
-  color: #5b452c;
+  color: #bda887;
 }
 
 body[data-theme="quest"] .completion-detail strong {
-  color: #6b4c0f;
+  color: var(--q-gold-bright);
 }
 
+/* A quiet mark, not the brightest thing on screen. */
 body[data-theme="quest"] .completion-moment button.action {
-  background: linear-gradient(180deg, #f6ecd4, #ded0ac);
-  border: 1px solid #9b7c3c;
-  color: var(--q-ink);
+  background: transparent;
+  border: 1px solid rgba(232, 201, 90, 0.4);
+  color: #d9c69c;
+  font-weight: 500;
 }
 
 /* --- Wax seal counters ------------------------------------------------------ */

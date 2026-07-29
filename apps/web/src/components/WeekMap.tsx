@@ -44,7 +44,10 @@ export function WeekMap({ plan, theme }: { plan: PlanResponse; theme: ThemeName 
           return (
             <div className={`day${date === today ? " is-today" : ""}`} key={date}>
               <h3>
-                {quest && date === today && <span aria-hidden="true">{"⚑ "}</span>}
+                {/* Not ⚑ — that codepoint has an emoji presentation and rendered as a
+                    bright orange-red system glyph, the only saturated colour on a screen
+                    built from gold, oxblood and cream. */}
+                {quest && date === today && <span aria-hidden="true">{"❖ "}</span>}
                 {DAY_NAMES[dayOfWeek]} {Number(date.slice(8, 10))}
                 {date === today && <span className="sr-only"> (today)</span>}
               </h3>

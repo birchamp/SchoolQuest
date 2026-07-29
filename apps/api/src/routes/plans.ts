@@ -131,10 +131,13 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
 
   if (!current) return c.json({ planVersion: null, sessions: [] });
 
-  const sessions = await db
-    .select()
-    .from(workSessions)
-    .where(eq(workSessions.planVersionId, current.id));
+  const sessions = (
+    await db.select().from(workSessions).where(eq(workSessions.planVersionId, current.id))
+  )
+    // Released blocks belonged to work that is already finished. They stay in the table
+    // as history but are no longer part of the plan, so the week map and the forecast
+    // must not go on drawing them.
+    .filter((s) => s.status !== "released");
 
   const snapshot = await loadTermSnapshot(db, termId);
   const summary = JSON.parse(current.summaryJson) as Record<string, unknown>;

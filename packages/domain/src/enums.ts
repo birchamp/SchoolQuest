@@ -52,6 +52,12 @@ export const sessionStatus = z.enum([
   "partial",
   "missed",
   "skipped",
+  /**
+   * The block was never needed: its work item finished early, so the time is the
+   * student's again. Distinct from "skipped", which is a choice not to do the work, and
+   * from "missed", which is a judgement. Nothing about a released block is a failure.
+   */
+  "released",
   "moved",
 ]);
 export type SessionStatus = z.infer<typeof sessionStatus>;

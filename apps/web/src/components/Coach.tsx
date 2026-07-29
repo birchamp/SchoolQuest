@@ -188,20 +188,9 @@ export function Coach({
         {cornerMark({ bottom: 4, left: 6 })}
         {cornerMark({ bottom: 4, right: 6 })}
 
-        <p
-          aria-hidden="true"
-          style={{
-            margin: "0 0 0.7rem",
-            textAlign: "center",
-            fontSize: "0.66rem",
-            fontWeight: 700,
-            letterSpacing: "0.24em",
-            color: "var(--q-wax)",
-          }}
-        >
-          ❖&nbsp;&nbsp;THE GUIDE SPEAKS&nbsp;&nbsp;❖
-        </p>
-
+        {/* No eyebrow here. The card heading already names the guide; a second and third
+            label saying the same words read as a rendering fault rather than a flourish,
+            so the illuminated capital opens the block on its own. */}
         <p
           style={{
             margin: 0,
@@ -287,7 +276,7 @@ export function Coach({
             color: "var(--q-wax)",
           }}
         >
-          ◈&nbsp;&nbsp;ASK THE GUIDE&nbsp;&nbsp;◈
+          ◈&nbsp;&nbsp;OPENING MOVES&nbsp;&nbsp;◈
         </p>
         <div
           style={{
@@ -351,8 +340,10 @@ export function Coach({
           color: questMutedStrong,
         }}
       >
+        {/* A geometric mark, not ⚑ — the flag has emoji presentation in this font stack and
+            rendered as a bright orange system glyph against the gold and oxblood palette. */}
         <span aria-hidden="true" style={{ color: "var(--q-wax)", fontStyle: "normal" }}>
-          ⚑
+          ❖
         </span>
         <span>{GUIDE_CREED}</span>
       </p>
@@ -361,8 +352,11 @@ export function Coach({
 
   // The message area itself is shared between themes; quest wraps it in a parchment
   // card so the chat reads as a framed panel rather than bubbles floating on leather.
+  // The floor exists so the quest panel is a substantial page of parchment rather than a
+  // sliver. Plain has no such frame, so the same floor left a ~200px void between the
+  // intro and the starters — a calm planner must not look broken to look calm.
   const chatArea = (
-    <div className="chat" style={{ minHeight: "18rem" }}>
+    <div className="chat" style={quest ? { minHeight: "18rem" } : undefined}>
       {messages.length === 0 &&
         (quest ? (
           questOpening
@@ -402,56 +396,142 @@ export function Coach({
     </div>
   );
 
+  // --- Composer ---------------------------------------------------------------------
+  // Same form, same accessible name, same tab order under both themes; only the chrome
+  // changes. Under quest it is rendered *inside* the parchment section so it belongs to
+  // the same object as the panel above it — before this it was the one element sitting
+  // bare on the leather, and it read as unstyled. `position: static` retires the sticky
+  // behaviour there, because a footer of the page cannot also float over the page.
+  const composer = (
+    <form
+      className="composer"
+      style={quest ? { position: "static", padding: 0 } : undefined}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void send(draft);
+      }}
+    >
+      <label className="sr-only" htmlFor="coach-input">
+        Ask the planning coach
+      </label>
+      {quest && (
+        // The nib resting beside the slot. Decoration; never announced.
+        <span
+          aria-hidden="true"
+          style={{
+            alignSelf: "center",
+            color: "var(--q-gold-dim)",
+            fontSize: "0.85rem",
+            lineHeight: 1,
+            padding: "0 0.1rem",
+          }}
+        >
+          ✦
+        </span>
+      )}
+      <input
+        id="coach-input"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder={`Ask the ${label("coach", theme).toLowerCase()}…`}
+        disabled={sending}
+        autoComplete="off"
+        style={
+          quest
+            ? {
+                // A slot pressed into the parchment rather than a control laid on top of
+                // it. The parchment fill and brown edge come from the themed .card input
+                // rule; the recess is the part inline styling can add.
+                borderRadius: "3px",
+                padding: "0.6rem 0.75rem",
+                boxShadow:
+                  "inset 0 2px 4px rgba(74, 54, 32, 0.32), inset 0 -1px 0 rgba(255, 252, 244, 0.6)",
+              }
+            : undefined
+        }
+      />
+      <button className="action primary" type="submit" disabled={sending || !draft.trim()}>
+        Send
+      </button>
+    </form>
+  );
+
   return (
     <div>
       {quest ? (
         <section className="card">
-          {/* Themed wording is decoration; the heading a screen reader announces is plain. */}
+          {/* Themed wording is decoration; the heading a screen reader announces is plain.
+              This is the only place the guide is named — see the empty state. */}
           <h2>
             <span aria-hidden="true">⚜ THE {label("coach", theme).toUpperCase()}</span>
             <span className="sr-only">Planning coach</span>
           </h2>
           {chatArea}
+
+          {/* The error belongs to the panel too. --at-risk is tuned for the leather ground
+              and washes out on parchment, so the ink is the seal red the card already uses. */}
+          {error && (
+            <p className="error" style={{ margin: "0.2rem 0 0", color: "var(--q-wax)" }}>
+              {error}
+            </p>
+          )}
+
+          {/* The writing shelf: a double rule echoing the card's own double frame, with the
+              parchment shaded where the desk falls away. */}
+          <div
+            style={{
+              marginTop: "0.3rem",
+              paddingTop: "0.85rem",
+              borderTop: "3px double rgba(138, 111, 31, 0.7)",
+              background: "linear-gradient(180deg, rgba(74, 54, 32, 0.12), transparent 75%)",
+            }}
+          >
+            {composer}
+          </div>
         </section>
       ) : (
-        chatArea
+        <>
+          {chatArea}
+
+          {error && <p className="error">{error}</p>}
+
+          {/* Quest carries the starters inside the parchment panel. Plain lists them as an
+              even set of options: the flex pill row wrapped 3 + 1 and left a ragged shelf,
+              which is the sort of thing a calm planner is judged on. */}
+          {messages.length === 0 && (
+            <div role="group" aria-label="Suggested questions to ask the coach">
+              <p className="muted" style={{ margin: "0 0 0.45rem", fontSize: "0.82rem" }}>
+                Or start with one of these:
+              </p>
+              <div
+                className="suggestions"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 24rem), 1fr))",
+                  gap: "0.5rem",
+                }}
+              >
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s.prompt}
+                    onClick={() => send(s.prompt)}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      borderRadius: "8px",
+                      padding: "0.5rem 0.75rem",
+                    }}
+                  >
+                    {s.prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {composer}
+        </>
       )}
-
-      {error && <p className="error">{error}</p>}
-
-      {/* Quest carries these inside the parchment panel instead; Plain keeps the pill row. */}
-      {!quest && messages.length === 0 && (
-        <div className="suggestions">
-          {SUGGESTIONS.map((s) => (
-            <button key={s.prompt} onClick={() => send(s.prompt)}>
-              {s.prompt}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <form
-        className="composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send(draft);
-        }}
-      >
-        <label className="sr-only" htmlFor="coach-input">
-          Ask the planning coach
-        </label>
-        <input
-          id="coach-input"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={`Ask the ${label("coach", theme).toLowerCase()}…`}
-          disabled={sending}
-          autoComplete="off"
-        />
-        <button className="action primary" type="submit" disabled={sending || !draft.trim()}>
-          Send
-        </button>
-      </form>
     </div>
   );
 }
