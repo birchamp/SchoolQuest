@@ -119,9 +119,10 @@ console.log(`shot ${THEME}-onboarding.png`);
 // one screen. The steps behind it — naming the term and setting study windows — are where
 // most of onboarding's chrome actually lives, so walk into them and shoot each.
 {
-  const themeCard = page
-    .locator("button, [role=button]", { hasText: new RegExp(`^\\s*${THEME}`, "i") })
-    .first();
+  // Addressed by accessible name, not by leading text: each card opens with an
+  // aria-hidden ornament, so an anchored text match silently never fired and every
+  // "onboarding" shot was really the cover screen again.
+  const themeCard = page.getByRole("button", { name: new RegExp(THEME, "i") }).first();
   if ((await themeCard.count()) > 0) {
     await themeCard.click();
     await page.waitForTimeout(900);
