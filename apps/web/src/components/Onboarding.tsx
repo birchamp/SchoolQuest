@@ -66,6 +66,118 @@ const THEME_PREVIEWS: Record<
   },
 };
 
+/* --- Taming the native date/time controls (quest only) ----------------------
+ *
+ * The critic's headline defect: two `input[type=date]` and two `input[type=time]`
+ * shipped their OS chrome straight through the parchment — the grey `mm/dd/yyyy`
+ * placeholder, the black calendar/clock glyph, and worst of all a *system-blue*
+ * highlight on the focused date segment, the single most saturated pixel on a
+ * screen otherwise made of gold, oxblood and cream.
+ *
+ * Replacing them with hand-rolled comboboxes was rejected: a bespoke date control
+ * loses segment-by-segment keyboard entry, `required` validation, the mobile
+ * native picker and the locale-correct field order — a themed control that is
+ * worse to use than the native one is not an improvement. So the native inputs
+ * stay, and every styleable part of them is re-inked:
+ *
+ *   - `::-webkit-calendar-picker-indicator` is repainted with a data-URI SVG
+ *     drawn in gold-dim ink, so the affordance stays a calendar / a clock but in
+ *     the palette (4.6:1 against the cream field — a UI glyph needs 3:1).
+ *   - `::-webkit-datetime-edit-*-field:focus` takes gold-on-leather instead of
+ *     the OS selection blue (7.1:1), and `::selection` is themed to match, which
+ *     also catches the term-name field.
+ *   - the resting `mm/dd/yyyy` is hidden and replaced by the chart's own voice
+ *     ("Not yet marked"). It comes straight back the moment the field is focused,
+ *     so nobody ever has to guess the entry format while typing.
+ *
+ * None of that is expressible as an inline style attribute, and styles.css is not
+ * this component's to edit, so the rules ride in a `<style>` element rendered by
+ * the quest branch only — gated exactly like every other piece of quest chrome,
+ * and scoped under `.sq-quest-onboarding` so it cannot leak into another screen.
+ * Nothing here is loaded from the network: the two icons are data-URI SVG (CSP).
+ */
+
+const CAL_ICON =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'" +
+  " fill='none' stroke='%238a6f1f' stroke-width='1.3'%3E%3Crect x='1.7' y='3.3' width='12.6'" +
+  " height='11' rx='1'/%3E%3Cpath d='M1.7 6.7h12.6M5 1.7v3M11 1.7v3'/%3E%3Cpath" +
+  " d='M8 8.7l1.5 1.7L8 12.1l-1.5-1.7z' fill='%238a6f1f' stroke='none'/%3E%3C/svg%3E\")";
+
+const CLOCK_ICON =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'" +
+  " fill='none' stroke='%238a6f1f' stroke-width='1.3'%3E%3Ccircle cx='8' cy='8' r='6.2'/%3E" +
+  "%3Cpath d='M8 4.2V8l2.7 1.9' stroke-linecap='round'/%3E%3C/svg%3E\")";
+
+const QUEST_FIELD_CSS = `
+.sq-quest-onboarding ::selection { background: #c9a227; color: #241a10; }
+
+.sq-quest-onboarding input[type="date"],
+.sq-quest-onboarding input[type="time"] {
+  color-scheme: light;
+  font-variant-numeric: tabular-nums;
+}
+
+.sq-quest-onboarding input[type="date"]::-webkit-calendar-picker-indicator,
+.sq-quest-onboarding input[type="time"]::-webkit-calendar-picker-indicator {
+  opacity: 1;
+  cursor: pointer;
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  margin: 0 0 0 0.4rem;
+  border-radius: 3px;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+.sq-quest-onboarding input[type="date"]::-webkit-calendar-picker-indicator {
+  background-image: ${CAL_ICON};
+}
+.sq-quest-onboarding input[type="time"]::-webkit-calendar-picker-indicator {
+  background-image: ${CLOCK_ICON};
+}
+.sq-quest-onboarding input[type="date"]::-webkit-calendar-picker-indicator:hover,
+.sq-quest-onboarding input[type="time"]::-webkit-calendar-picker-indicator:hover {
+  background-color: rgba(201, 162, 39, 0.22);
+}
+
+.sq-quest-onboarding input::-webkit-datetime-edit { color: #2a1f14; padding: 0; }
+.sq-quest-onboarding input::-webkit-datetime-edit-text { color: #6b5636; padding: 0 0.1em; }
+.sq-quest-onboarding input::-webkit-datetime-edit-year-field:focus,
+.sq-quest-onboarding input::-webkit-datetime-edit-month-field:focus,
+.sq-quest-onboarding input::-webkit-datetime-edit-day-field:focus,
+.sq-quest-onboarding input::-webkit-datetime-edit-hour-field:focus,
+.sq-quest-onboarding input::-webkit-datetime-edit-minute-field:focus,
+.sq-quest-onboarding input::-webkit-datetime-edit-ampm-field:focus {
+  background: #c9a227;
+  color: #241a10;
+  border-radius: 2px;
+  outline: none;
+}
+
+/* Resting state only: React drops the class the instant the field takes focus,
+   so the real mm/dd/yyyy guides are always there while you are typing. */
+.sq-quest-onboarding input.sq-q-blank::-webkit-datetime-edit { color: transparent; }
+
+/* Seven day chips, seven columns. They used to wrap 6+1 and orphan "Sat". */
+.sq-quest-days fieldset .button-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+@media (max-width: 34rem) {
+  .sq-quest-days fieldset .button-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+`;
+
+/** Quest-only stylesheet for the parts of a native control no inline style reaches. */
+function QuestFieldStyles() {
+  return <style>{QUEST_FIELD_CSS}</style>;
+}
+
 /* --- The campaign chart (quest only) ---------------------------------------
  *
  * QUEST-THEME-LEDGER's backlog asks for "campaign-map onboarding: courses as
@@ -156,9 +268,13 @@ function CampaignChart({ entries }: { entries: ChartEntry[] }) {
     <aside
       aria-label="Campaign summary"
       style={{
-        flex: "1 1 15rem",
+        // Stretches to the form's height instead of stopping 45px short of it —
+        // the near-miss the critic read as sloppy. The footnote below is pinned
+        // to the panel's foot so the extra height lands as margin, not as a gap.
+        flex: "1 1 20rem",
         minWidth: 0,
-        alignSelf: "flex-start",
+        display: "flex",
+        flexDirection: "column",
         position: "relative",
         borderRadius: "6px",
         border: "1px solid rgba(201, 162, 39, 0.42)",
@@ -196,7 +312,7 @@ function CampaignChart({ entries }: { entries: ChartEntry[] }) {
         }}
       />
 
-      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+      <ul style={{ listStyle: "none", margin: "0 0 0.95rem", padding: 0 }}>
         {entries.map((entry, index) => {
           const filled = entry.value !== null;
           const last = index === entries.length - 1;
@@ -260,8 +376,10 @@ function CampaignChart({ entries }: { entries: ChartEntry[] }) {
 
       <p
         style={{
-          margin: "0.95rem 0 0",
-          paddingTop: "0.7rem",
+          // `auto` top margin pins the footnote to the foot of the panel when the
+          // chart is stretched taller than its own contents.
+          margin: "auto 0 0",
+          paddingTop: "0.9rem",
           borderTop: "1px dashed rgba(201, 162, 39, 0.22)",
           fontSize: "0.72rem",
           lineHeight: 1.45,
@@ -277,13 +395,134 @@ function CampaignChart({ entries }: { entries: ChartEntry[] }) {
   );
 }
 
-/** Form on the left, chart on the right; wraps to one column on narrow screens. */
+/**
+ * Form on the left, chart on the right; wraps to one column on narrow screens.
+ * `stretch` rather than `flex-start`: the two panels are meant to read as facing
+ * pages, and facing pages share a bottom edge.
+ */
 const splitLayout: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: "1.35rem",
-  alignItems: "flex-start",
+  alignItems: "stretch",
 };
+
+/** The form column. Wide enough that seven day chips sit on one line. */
+const formColumn: React.CSSProperties = {
+  flex: "1 1 30rem",
+  minWidth: 0,
+  display: "flex",
+};
+
+/** Vertically centres the step in the viewport instead of pinning it to the top. */
+const questPage: React.CSSProperties = {
+  margin: "0 auto",
+  minHeight: "100vh",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  paddingTop: "2.5rem",
+  paddingBottom: "2.5rem",
+};
+
+const INPUT_STYLE: React.CSSProperties = {
+  width: "100%",
+  background: "var(--surface)",
+  color: "var(--text)",
+  border: "1px solid var(--border)",
+  borderRadius: "8px",
+  padding: "0.6rem 0.8rem",
+  font: "inherit",
+  marginBottom: "0.75rem",
+};
+
+/**
+ * A native `input[type=date]` with its label. Under quest the resting placeholder
+ * is the chart's own phrase rather than the OS `mm/dd/yyyy`; the real segmented
+ * field returns on focus, so typing, tabbing between segments, arrow-key
+ * stepping, `required` validation and the value the form posts are all untouched.
+ * Under mission/plain the control is exactly the browser default, as before.
+ */
+function DateField({
+  id,
+  label,
+  value,
+  onChange,
+  quest,
+  hint,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  quest: boolean;
+  hint: string;
+}) {
+  const [focused, setFocused] = useState(false);
+
+  const labelNode = (
+    <label className="muted" htmlFor={id} style={{ fontSize: "0.85rem" }}>
+      {label}
+    </label>
+  );
+
+  if (!quest) {
+    return (
+      <>
+        {labelNode}
+        <input
+          id={id}
+          type="date"
+          required
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          style={INPUT_STYLE}
+        />
+      </>
+    );
+  }
+
+  const blank = value === "" && !focused;
+  return (
+    <>
+      {labelNode}
+      <div style={{ position: "relative", margin: "0.75rem 0" }}>
+        <input
+          id={id}
+          type="date"
+          required
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          className={blank ? "sq-q-blank" : undefined}
+          style={{ ...INPUT_STYLE, display: "block", margin: 0 }}
+        />
+        {blank && (
+          // Decorative stand-in only — the field keeps its own <label>, so this is
+          // never part of the accessible name.
+          <span
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              paddingLeft: "calc(0.8rem + 1px)",
+              paddingRight: "2.4rem",
+              pointerEvents: "none",
+              // #6b5636 on the card's #fffaee field: 6.7:1.
+              color: "#6b5636",
+              fontStyle: "italic",
+            }}
+          >
+            {hint}
+          </span>
+        )}
+      </div>
+    </>
+  );
+}
 
 /**
  * Quest-only step marker. The diamonds are decoration; the words stay plain, so
@@ -420,16 +659,7 @@ export function Onboarding({
     }
   }
 
-  const inputStyle = {
-    width: "100%",
-    background: "var(--surface)",
-    color: "var(--text)",
-    border: "1px solid var(--border)",
-    borderRadius: "8px",
-    padding: "0.6rem 0.8rem",
-    font: "inherit",
-    marginBottom: "0.75rem",
-  } as const;
+  const inputStyle = INPUT_STYLE;
 
   if (step === "theme") {
     return (
@@ -577,7 +807,10 @@ export function Onboarding({
 
   if (step === "term") {
     const termForm = (
-      <div className="card" style={quest ? { marginBottom: 0 } : undefined}>
+      <div
+        className="card"
+        style={quest ? { marginBottom: 0, flex: 1, width: "100%" } : undefined}
+      >
         <form onSubmit={createTerm}>
           <label className="muted" htmlFor="term-name" style={{ fontSize: "0.85rem" }}>
             Term name
@@ -591,28 +824,21 @@ export function Onboarding({
             style={inputStyle}
           />
 
-          <label className="muted" htmlFor="term-start" style={{ fontSize: "0.85rem" }}>
-            First day of classes
-          </label>
-          <input
+          <DateField
             id="term-start"
-            type="date"
-            required
+            label="First day of classes"
             value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            style={inputStyle}
+            onChange={setStartDate}
+            quest={quest}
+            hint="Not yet marked"
           />
-
-          <label className="muted" htmlFor="term-end" style={{ fontSize: "0.85rem" }}>
-            Last day of instruction
-          </label>
-          <input
+          <DateField
             id="term-end"
-            type="date"
-            required
+            label="Last day of instruction"
             value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            style={inputStyle}
+            onChange={setEndDate}
+            quest={quest}
+            hint="Not yet marked"
           />
           <p className="muted" style={{ marginTop: "-0.4rem", fontSize: "0.82rem" }}>
             Finals week after this date is fine — the planner allows for it.
@@ -634,23 +860,30 @@ export function Onboarding({
 
     return (
       <div
-        className="centered"
-        style={{ textAlign: "left", maxWidth: quest ? "820px" : "440px" }}
+        className={quest ? "centered sq-quest-onboarding" : "centered"}
+        style={{
+          textAlign: "left",
+          maxWidth: quest ? "980px" : "440px",
+          ...(quest ? questPage : null),
+        }}
       >
-        {quest && <StepMark step={1} />}
-        <h1>{quest ? "Charter your campaign" : "Set up your semester"}</h1>
-        <p className="muted">
-          {quest
-            ? "Name the campaign and mark the season it runs. Its regions — your courses — are charted after setup."
-            : "Start with the term itself. Courses and syllabi come right after."}
-        </p>
+        {quest && <QuestFieldStyles />}
+        <div>
+          {quest && <StepMark step={1} />}
+          <h1>{quest ? "Charter your campaign" : "Set up your semester"}</h1>
+          <p className="muted">
+            {quest
+              ? "Name the campaign and mark the season it runs. Its regions — your courses — are charted after setup."
+              : "Start with the term itself. Courses and syllabi come right after."}
+          </p>
+        </div>
 
         {/* The form panel is a .card so quest onboarding writes on parchment, not a
             bare form on leather; in mission/plain the card is just a subtle surface.
             Under quest it is paired with the chart, which fills in as it is filled. */}
         {quest ? (
           <div style={splitLayout}>
-            <div style={{ flex: "1 1 21rem", minWidth: 0 }}>{termForm}</div>
+            <div style={formColumn}>{termForm}</div>
             <CampaignChart
               entries={[
                 {
@@ -668,14 +901,17 @@ export function Onboarding({
                   pending: "Borders unmarked",
                 },
                 {
-                  mark: "⚑",
+                  // Not ⚑: that one resolves to a colour-emoji flag in this font
+                  // stack and lands as the only saturated orange on the screen.
+                  mark: "◈",
                   label: "Marching hours",
                   srLabel: "Study windows",
                   value: null,
                   pending: "Set in the next step",
                 },
                 {
-                  mark: "◈",
+                  // ◆ is ◇ inked in — the hollow pending mark filled solid.
+                  mark: "◆",
                   label: "Regions",
                   srLabel: "Courses",
                   value: null,
@@ -698,7 +934,10 @@ export function Onboarding({
       : null;
 
   const availabilityForm = (
-    <div className="card" style={quest ? { marginBottom: 0 } : undefined}>
+    <div
+      className="card"
+      style={quest ? { marginBottom: 0, flex: 1, width: "100%" } : undefined}
+    >
       <form onSubmit={saveAvailability}>
         <DayPicker value={days} onChange={setDays} label="Days you can usually study" />
         <TimeRange
@@ -711,8 +950,16 @@ export function Onboarding({
 
         {error && <p className="error">{error}</p>}
 
-        <button className="action primary" type="submit" disabled={busy}>
-          {busy ? "Saving…" : "Finish setup"}
+        {/* The last button of the flow used to say "Finish setup" in a screen whose
+            other buttons say "Charter it" — admin language at the one moment the
+            campaign actually begins. Plain and mission keep the plain wording. */}
+        <button
+          className="action primary"
+          type="submit"
+          disabled={busy}
+          style={quest ? { marginTop: "0.35rem" } : undefined}
+        >
+          {busy ? (quest ? "Sealing…" : "Saving…") : quest ? "Begin the campaign" : "Finish setup"}
         </button>
       </form>
     </div>
@@ -720,23 +967,30 @@ export function Onboarding({
 
   return (
     <div
-      className="centered"
-      style={{ textAlign: "left", maxWidth: quest ? "820px" : "440px" }}
+      className={quest ? "centered sq-quest-onboarding sq-quest-days" : "centered"}
+      style={{
+        textAlign: "left",
+        maxWidth: quest ? "980px" : "440px",
+        ...(quest ? questPage : null),
+      }}
     >
-      {quest && <StepMark step={2} />}
-      <h1>{quest ? "When does your party march?" : "When can you study?"}</h1>
-      <p className="muted">
-        {quest
-          ? "The planner only schedules quests inside these windows — that is what keeps the campaign honest."
-          : "The planner only places work inside these windows — this is what makes the plan realistic instead of aspirational. Rough is fine; you can refine it any time."}
-      </p>
+      {quest && <QuestFieldStyles />}
+      <div>
+        {quest && <StepMark step={2} />}
+        <h1>{quest ? "When does your party march?" : "When can you study?"}</h1>
+        <p className="muted">
+          {quest
+            ? "The planner only schedules quests inside these windows — that is what keeps the campaign honest."
+            : "The planner only places work inside these windows — this is what makes the plan realistic instead of aspirational. Rough is fine; you can refine it any time."}
+        </p>
+      </div>
 
       {/* Same .card panel as the term step: parchment under quest, quiet surface
           under mission/plain. The chart now carries the term the student just
           chartered, so the last step is visibly the last blank being inked in. */}
       {quest ? (
         <div style={splitLayout}>
-          <div style={{ flex: "1 1 21rem", minWidth: 0 }}>{availabilityForm}</div>
+          <div style={formColumn}>{availabilityForm}</div>
           <CampaignChart
             entries={[
               {
@@ -754,14 +1008,14 @@ export function Onboarding({
                 pending: "Borders unmarked",
               },
               {
-                mark: "⚑",
+                mark: "◈",
                 label: "Marching hours",
                 srLabel: "Study windows",
                 value: hoursLine,
                 pending: "No days marked yet",
               },
               {
-                mark: "◈",
+                mark: "◆",
                 label: "Regions",
                 srLabel: "Courses",
                 value: null,
