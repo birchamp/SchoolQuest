@@ -6,4 +6,5 @@ export * from "./scheduler.js";
 export * from "./progress.js";
 export * from "./session-brief.js";
 export * from "./project-progress.js";
+export * from "./decompose.js";
 export * from "./seed-input.js";

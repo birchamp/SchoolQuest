@@ -164,6 +164,57 @@ export interface SessionBriefView {
   undatedMilestones: UndatedMilestoneView[];
 }
 
+/**
+ * Where a long project stands (packages/planning-engine/src/project-progress.ts).
+ *
+ * Health claims are measured against the student's real weekly capacity, never against how
+ * much the current plan has booked: long work is paced, so a healthy project only ever
+ * holds one horizon's blocks.
+ */
+export type ProjectHealth =
+  | "past_due"
+  | "not_started"
+  | "on_track"
+  | "crowding"
+  | "will_not_fit"
+  | "stalled"
+  | "finished";
+
+export interface ProjectProgressView {
+  workItemId: string;
+  courseId: string;
+  title: string;
+  workType: string;
+  dueAt: string | null;
+  dueConfirmed: boolean;
+  daysAway: number | null;
+  estimatedMinutes: number;
+  /** True when a per-type default stood in because nobody estimated the effort. */
+  effortIsAssumed: boolean;
+  remainingMinutes: number;
+  investedMinutes: number;
+  completionFraction: number;
+  bookedMinutes: number;
+  /** Minutes per week needed from here to land on time; null with no known deadline. */
+  neededPerWeekMinutes: number | null;
+  daysSinceProgress: number | null;
+  health: ProjectHealth;
+  stages: { workItemId: string; title: string; done: boolean; dueAt: string | null }[];
+}
+
+export interface ProjectsSummaryView {
+  investedMinutes: number;
+  sessionsCompleted: number;
+  bookedMinutes: number;
+  projectsTotal: number;
+  projectsFinished: number;
+  projectsWillNotFit: number;
+  projectsCrowding: number;
+  projectsNotStarted: number;
+  projectsStalled: number;
+  projectsPastDue: number;
+}
+
 export interface PlanResponse {
   planVersionId?: string;
   planVersion?: { id: string; versionNumber: number; horizonStart: string; horizonEnd: string } | null;
@@ -181,6 +232,7 @@ export interface PlanResponse {
   progress?: TermProgressView;
   /** Present on saved-plan reads; the generate response does not build one. */
   brief?: SessionBriefView;
+  projects?: { rows: ProjectProgressView[]; summary: ProjectsSummaryView };
 }
 
 export interface CoachActionView {

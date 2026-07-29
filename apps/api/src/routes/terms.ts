@@ -1,7 +1,17 @@
 import { Hono } from "hono";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { COURSE_COLOR_TOKENS, newId, planningPreferences } from "@schoolquest/domain";
+import {
+  COURSE_COLOR_TOKENS,
+  newId,
+  planningPreferences,
+  type WorkItem,
+} from "@schoolquest/domain";
+import {
+  canDecompose,
+  DEFAULT_EFFORT_MINUTES,
+  proposeStages,
+} from "@schoolquest/planning-engine";
 import {
   availabilityRules,
   commitments,
@@ -419,4 +429,133 @@ termsRoute.post("/work-items/:id/dependencies", async (c) => {
   };
   await db.insert(dependencies).values(dependency);
   return c.json({ dependency }, 201);
+});
+
+// --- Breaking a project into stages -------------------------------------------
+
+/**
+ * Proposes stages for a large work item. Writes nothing.
+ *
+ * Separate from the confirm step on purpose: the same discipline the syllabus extraction
+ * follows. The app may suggest a structure, but nothing enters the student's plan until
+ * they have looked at it — a plan that fills itself with work the student did not agree to
+ * is not theirs any more.
+ */
+termsRoute.get("/work-items/:id/stage-proposal", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+
+  const [row] = await db
+    .select({ item: workItems })
+    .from(workItems)
+    .innerJoin(courses, eq(courses.id, workItems.courseId))
+    .innerJoin(terms, eq(terms.id, courses.termId))
+    .where(and(eq(workItems.id, id), eq(terms.userId, c.get("userId"))));
+  if (!row) return c.json({ error: "Work item not found" }, 404);
+
+  const item = row.item as unknown as WorkItem;
+  const effortMinutes =
+    item.estimatedMinutes ??
+    (item.remainingMinutes && item.remainingMinutes > 0 ? item.remainingMinutes : null) ??
+    DEFAULT_EFFORT_MINUTES[item.workType] ??
+    60;
+
+  const existing = await db
+    .select({ id: workItems.id })
+    .from(workItems)
+    .where(eq(workItems.parentWorkItemId, id));
+
+  if (existing.length > 0) {
+    return c.json({ canDecompose: false, reason: "already_has_stages", stages: [], effortMinutes });
+  }
+  if (!canDecompose(item, effortMinutes)) {
+    return c.json({ canDecompose: false, reason: "too_small", stages: [], effortMinutes });
+  }
+
+  return c.json({
+    canDecompose: true,
+    reason: null,
+    effortMinutes,
+    // True when the effort came from a per-type default rather than anyone's estimate, so
+    // the review screen can say the stage sizes rest on an assumption.
+    effortIsAssumed: item.estimatedMinutes === null && !(item.remainingMinutes ?? 0),
+    stages: proposeStages(item, effortMinutes, new Date().toISOString()),
+  });
+});
+
+const stagesBody = z.object({
+  stages: z
+    .array(
+      z.object({
+        title: z.string().min(1),
+        estimatedMinutes: z.number().int().positive(),
+        dueAt: z.string().datetime({ offset: true }).nullable().default(null),
+        cognitiveDemand: z.enum(["low", "medium", "high"]).default("medium"),
+      }),
+    )
+    .min(1)
+    .max(12),
+});
+
+/**
+ * Creates the stages the student accepted.
+ *
+ * The parent keeps its own dates and grading links but stops being scheduled directly — the
+ * scheduler plans a project through its stages once they exist. Its remaining effort is
+ * zeroed for that reason, not because any work was done: leaving it would double-count the
+ * project against itself.
+ */
+termsRoute.post("/work-items/:id/stages", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+
+  const parsed = stagesBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const [row] = await db
+    .select({ item: workItems })
+    .from(workItems)
+    .innerJoin(courses, eq(courses.id, workItems.courseId))
+    .innerJoin(terms, eq(terms.id, courses.termId))
+    .where(and(eq(workItems.id, id), eq(terms.userId, c.get("userId"))));
+  if (!row) return c.json({ error: "Work item not found" }, 404);
+
+  const existing = await db
+    .select({ id: workItems.id })
+    .from(workItems)
+    .where(eq(workItems.parentWorkItemId, id));
+  if (existing.length > 0) {
+    return c.json({ error: "This already has stages." }, 409);
+  }
+
+  const parent = row.item;
+  const created = parsed.data.stages.map((stage) => ({
+    id: newId("workItem"),
+    courseId: parent.courseId,
+    parentWorkItemId: id,
+    title: stage.title,
+    description: null,
+    workType: "milestone" as const,
+    availableAt: null,
+    dueAt: stage.dueAt,
+    // Points and grading category stay on the parent: a stage is a way of doing the work,
+    // not a separately graded thing, and copying the weight down would inflate the course.
+    pointsPossible: null,
+    gradingCategoryId: null,
+    categorySharePercent: null,
+    estimatedMinutes: stage.estimatedMinutes,
+    remainingMinutes: stage.estimatedMinutes,
+    cognitiveDemand: stage.cognitiveDemand,
+    divisibility: "divisible" as const,
+    locationRequirement: parent.locationRequirement,
+    status: "not_started" as const,
+    // The student reviewed and accepted these, which is exactly what confirmed means.
+    sourceConfidence: "confirmed" as const,
+    userPriority: 0,
+  }));
+
+  await insertInChunks(created, 6, (batch) => db.insert(workItems).values(batch));
+  await db.update(workItems).set({ remainingMinutes: 0 }).where(eq(workItems.id, id));
+
+  return c.json({ stages: created }, 201);
 });
