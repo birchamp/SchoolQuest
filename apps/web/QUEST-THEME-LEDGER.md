@@ -76,15 +76,33 @@ orange-red system glyph — the only saturated colour on a screen built from gol
 and cream. Verified safe here: `◆ ◇ ◈ ❖ ✦ ✧ ⚜`. The text-presentation selector is not
 reliable in this container; pick a different codepoint instead.
 
+## Round 6: the gameplay layer
+
+Round 5's verdict — *"a competent web app with brown colours and a fantasy word list"* —
+was about substance, not styling, so round 6 answered it with a design rather than a paint
+pass: `docs/07-session-prep-design.md`. The week is now modelled on what a DM writes when
+prepping a session, because each of those practices maps onto a documented need of the
+target student. Three new surfaces: the **session brief** (spine, day shape, contingencies),
+the **campaign arc** (term landmarks with prep counts), and the week grid rebuilt as
+**beats** instead of one tile per block.
+
+**The checker had a blind spot, and it was the important one.** It exempted `aria-hidden`
+subtrees as decoration — but themed wording in this app is rendered as a visible
+`aria-hidden` span beside an `.sr-only` plain twin, so *every themed string was exempt*,
+which is exactly the text a theme is judged on. It reported zero while a "The crux" label
+sat at 1.11:1. Decoration is now judged by content: a glyph with no letters in it. Turning
+that on surfaced nine real failures immediately.
+
+Corollary worth keeping: **two components copied a sigil chip style from before its contrast
+fix landed.** When a shared visual is fixed, grep for its clones.
+
 ## Open from round 5 (start here next iteration)
 
-1. **"Region Map" is a name, not a design** — a seven-column agenda grid with no terrain,
-   path, or nodes, and four columns of empty parchment because all are forced to the
-   tallest. The clearest remaining instance of spreadsheet-in-costume. Its flavour line
-   promises "fixed banners hold their ground" and nothing on the map is drawn as a banner.
-2. **The heraldic sigils are not heraldic** — a rounded olive-grey square with "BIO" set in
-   it, structurally identical to Plain's chip. The olive-grey is also the only off-palette
-   colour in the build.
+1. **The heraldic sigils could go further** — the Setup shield is a real heater shield with
+   a bordure and a per-bend field; the roster chip is still a rounded square. They agree on
+   letters and colour but not on shape language.
+2. Week columns are still forced to the tallest, leaving ragged empty parchment on light
+   days.
 Items 3, 4 and 5 from this list — the Setup tab's raw admin nouns and chevron-less
 `<select>`, onboarding's native date/time controls, and onboarding's composition — were
 closed in round 5's follow-up. Two lessons from closing them are worth keeping:

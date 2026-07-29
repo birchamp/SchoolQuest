@@ -99,6 +99,28 @@ This is the single highest-value item in the design. Time blindness is not solve
 calendar; it is solved by making the horizon legible and showing whether the approach is
 already under way.
 
+### What building it changed
+
+Two parts of the design above were wrong, and running the engine against the real
+five-course semester rather than fixtures is what showed it:
+
+- **Set pieces were nearly everything.** Classifying on `workType` alone made 12 of 23
+  beats a "set piece" — a half-hour revision block three weeks out ranked with the exam
+  itself. If everything is the climax, nothing is. A set piece is now the day the thing is
+  actually *due*. The same lesson applied to the labels: the default kind is now unlabelled,
+  because printing "Long march" nine times drowned out the beats that differ.
+- **The arc was nearly empty.** Built only from dated work it showed three landmarks for a
+  whole term, because 10 of 13 major items had no date any syllabus stated. Undated majors
+  are reported separately now — and that list immediately surfaced four hours of prep
+  scheduled against a Final Portfolio nobody has dated.
+
+The second one is worth dwelling on, because it is the case the whole design turns out to
+serve best. The three cards were written independently, and together they say: *the week's
+spine is the Final Portfolio, it has no due date on record, and four hours are already
+aimed at it.* Nothing composed that warning — it falls out of three separate derivations of
+the same real data. That is the test of whether a metaphor is doing work: it made the shape
+of the information better, not just its clothes.
+
 ### 4. Threads gone quiet *(designed, not yet built)*
 
 Courses with open work and no completed session in a while. Stated as fact, never as
