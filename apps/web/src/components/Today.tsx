@@ -67,11 +67,32 @@ export function Today({
   function questlineStanding(courseId: string) {
     const course = progress?.courses.find((c) => c.courseId === courseId);
     if (!course || course.itemsTotal === 0) return null;
-    const filled = Math.round(course.completionFraction * 4);
+    // A four-pip scale cannot express an early questline: 2 of 19 rounds to zero filled
+    // pips, and four hollow diamonds read as a glyph that failed to load rather than as
+    // "barely started". A short track shows the same fraction honestly at any size, and
+    // it is the same language the Week roster speaks.
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
-        <span aria-hidden="true" style={{ color: questGold, letterSpacing: "0.15em" }}>
-          {"◆".repeat(filled) + "◇".repeat(4 - filled)}
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}>
+        <span
+          aria-hidden="true"
+          style={{
+            display: "inline-block",
+            width: "3.4rem",
+            height: "6px",
+            borderRadius: "1px",
+            border: `1px solid ${questGold}`,
+            background: "rgba(74, 54, 32, 0.25)",
+            overflow: "hidden",
+          }}
+        >
+          <span
+            style={{
+              display: "block",
+              height: "100%",
+              width: `${Math.max(course.completionFraction * 100, course.itemsDone > 0 ? 4 : 0)}%`,
+              background: questGold,
+            }}
+          />
         </span>
         <span aria-hidden="true">
           {course.basis === "points"
