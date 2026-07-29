@@ -85,14 +85,20 @@ reliable in this container; pick a different codepoint instead.
 2. **The heraldic sigils are not heraldic** — a rounded olive-grey square with "BIO" set in
    it, structurally identical to Plain's chip. The olive-grey is also the only off-palette
    colour in the build.
-3. **The Setup tab abandons the theme** — raw admin nouns, and the syllabus `<select>` had
-   its native chevron stripped without replacement, so it cannot be identified as a control.
-4. **Onboarding's native date and time inputs** render OS placeholders, OS picker glyphs,
-   and an OS-blue selection highlight.
-5. Onboarding composition: content clings to the top-left of the canvas, the chart panel's
-   bottom edge misses the form's by 45px, and day chips wrap 6+1 orphaning "Sat".
+Items 3, 4 and 5 from this list — the Setup tab's raw admin nouns and chevron-less
+`<select>`, onboarding's native date/time controls, and onboarding's composition — were
+closed in round 5's follow-up. Two lessons from closing them are worth keeping:
 
-(3, 4 and 5 are in flight with workers as of this writing.)
+- **"Unstyleable" is usually untested.** The OS-blue focus highlight on a date segment was
+  written off here as a native-control limitation. `::-webkit-datetime-edit-<x>-field:focus`
+  genuinely does not parse from an author sheet, which is what made it look closed — but
+  moving the `:focus` onto the host does land, and beats the UA's `background-color:
+  highlight`. Leave the UA's `color: highlighttext` undeclared so the segment cursor
+  survives; washing every segment gold is simpler and destroys it.
+- **A dead column is worse than an ugly one.** `colorToken` existed so courses could be
+  told apart and was never assigned, so every course chip rendered identically and the
+  "recoloured avatar" critique was really a data bug wearing a styling costume. Check
+  whether a field is populated before redesigning what it renders.
 
 ## Rules that hold regardless of round
 
