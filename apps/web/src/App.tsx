@@ -10,6 +10,7 @@ import { Today } from "./components/Today";
 import { Coach } from "./components/Coach";
 import { WeekMap } from "./components/WeekMap";
 import { Questline } from "./components/Questline";
+import { CampaignArc } from "./components/CampaignArc";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 
 /**
@@ -175,11 +176,19 @@ export function App() {
       ) : (
         <>
           {tab === "today" && <Today plan={plan} theme={theme} onChanged={refreshPlan} />}
+          {/* The week tab reads as one zoom-out: the seven days as beats, then the term's
+              landmarks, then how far each course has come. */}
           {tab === "week" && (
             <>
               <WeekMap plan={plan} theme={theme} brief={plan.brief} />
-              {/* The per-course ledger sits under the week itself: the map shows where the
-                  next seven days go, this shows how far each course has actually come. */}
+              {plan.brief && (
+                <CampaignArc
+                  milestones={plan.brief.milestones}
+                  undatedMilestones={plan.brief.undatedMilestones}
+                  courses={plan.courses}
+                  theme={theme}
+                />
+              )}
               {plan.progress && (
                 <Questline progress={plan.progress} courses={plan.courses} theme={theme} />
               )}
