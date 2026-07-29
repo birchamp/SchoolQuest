@@ -12,6 +12,7 @@ import { WeekMap } from "./components/WeekMap";
 import { Questline } from "./components/Questline";
 import { CampaignArc } from "./components/CampaignArc";
 import { SessionBrief } from "./components/SessionBrief";
+import { Stats } from "./components/Stats";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 
 /**
@@ -23,7 +24,7 @@ import { SyllabusUpload } from "./components/SyllabusUpload";
  * check is false. Emphasis, not enforcement.
  */
 
-type Tab = "today" | "week" | "coach" | "setup";
+type Tab = "today" | "week" | "stats" | "coach" | "setup";
 
 /**
  * Sessions loaded from a saved plan carry startAt/endAt but no precomputed minutes —
@@ -149,6 +150,7 @@ export function App() {
   const tabs: { id: Tab; labelText: string }[] = [
     { id: "today", labelText: "Today" },
     { id: "week", labelText: label("weekMap", theme) },
+    { id: "stats", labelText: label("statsPage", theme) },
     { id: "coach", labelText: label("coach", theme) },
     { id: "setup", labelText: "Setup" },
   ];
@@ -197,6 +199,18 @@ export function App() {
                 <Questline progress={plan.progress} courses={plan.courses} theme={theme} />
               )}
             </>
+          )}
+          {/* Where the big things stand. Its own screen rather than another card on the
+              week: "am I going to make it" is a question about months, and answering it
+              underneath a seven-day grid buries it. */}
+          {tab === "stats" && plan.projects && (
+            <Stats
+              projects={plan.projects}
+              progress={plan.progress}
+              courses={plan.courses}
+              standings={plan.standings}
+              theme={theme}
+            />
           )}
           {tab === "coach" && (
             <Coach termId={term.id} theme={theme} onPlanChanged={refreshPlan} />

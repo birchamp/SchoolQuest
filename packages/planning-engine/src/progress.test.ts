@@ -186,3 +186,33 @@ describe("term progress", () => {
     expect(term.basis).toBe("items");
   });
 });
+
+describe("projects broken into stages", () => {
+  it("counts the stages, not the parent as well", () => {
+    // Decomposing one paper into five stages pushed the test term from 56 tasks to 61,
+    // because the parent stayed in the count beside its own children.
+    const parent = item("c1", "not_started");
+    const stages = [1, 2, 3, 4, 5].map(() => ({
+      ...item("c1", "not_started"),
+      parentWorkItemId: parent.id,
+    }));
+    const [progress] = computeCourseProgress(["c1"], [parent, ...stages]);
+    expect(progress!.itemsTotal).toBe(5);
+  });
+
+  it("reads fully complete when every stage is done", () => {
+    // With the parent counted too, a finished project would have sat at 5 of 6 forever.
+    const parent = item("c1", "not_started");
+    const stages = [1, 2, 3].map(() => ({
+      ...item("c1", "completed" as const),
+      parentWorkItemId: parent.id,
+    }));
+    const [progress] = computeCourseProgress(["c1"], [parent, ...stages]);
+    expect(progress!.completionFraction).toBe(1);
+  });
+
+  it("still counts an undecomposed project normally", () => {
+    const [progress] = computeCourseProgress(["c1"], [item("c1", "not_started")]);
+    expect(progress!.itemsTotal).toBe(1);
+  });
+});

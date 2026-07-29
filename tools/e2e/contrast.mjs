@@ -211,6 +211,7 @@ const MEASURE = () => {
 const TABS = [
   ["today", null],
   ["week", /week|map|board/i],
+  ["stats", /progress|chronicle|readiness/i],
   ["coach", /coach|guide|handler/i],
   ["setup", /setup/i],
 ];

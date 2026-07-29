@@ -91,8 +91,18 @@ export function computeCourseProgress(
   courseIds: readonly string[],
   workItems: readonly WorkItem[],
 ): CourseProgress[] {
+  // A project broken into stages is represented by its stages, never by both. Counting the
+  // parent as well double-counts the work: decomposing one paper into five stages pushed a
+  // 56-task term to 61, and a fully finished project would have shown as 5 of 6 done
+  // forever. This is the same rule the scheduler follows — a project with milestones is
+  // planned through those milestones, never directly.
+  const parentIds = new Set(
+    workItems.filter((w) => w.parentWorkItemId).map((w) => w.parentWorkItemId!),
+  );
+
   const byCourse = new Map<string, WorkItem[]>(courseIds.map((id) => [id, []]));
   for (const item of workItems) {
+    if (parentIds.has(item.id)) continue;
     byCourse.get(item.courseId)?.push(item);
   }
   return courseIds.map((courseId) => progressForItems(courseId, byCourse.get(courseId) ?? []));

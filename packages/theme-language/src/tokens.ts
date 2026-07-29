@@ -24,7 +24,8 @@ export type LabelKey =
   | "coach"
   | "startSession"
   | "planRisk"
-  | "progress";
+  | "progress"
+  | "statsPage";
 
 type LabelSet = Record<ThemeName, string>;
 
@@ -44,6 +45,7 @@ export const LABELS: Record<LabelKey, LabelSet> = {
   startSession: { quest: "Begin encounter", mission: "Begin sortie", plain: "Start session" },
   planRisk: { quest: "Hazard", mission: "Risk", plain: "Planning risk" },
   progress: { quest: "Progress", mission: "Status", plain: "Progress" },
+  statsPage: { quest: "Chronicle", mission: "Readiness", plain: "Progress" },
 };
 
 export function label(key: LabelKey, theme: ThemeName): string {

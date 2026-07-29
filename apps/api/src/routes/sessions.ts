@@ -106,6 +106,25 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
     .set({ remainingMinutes: remaining, status: itemStatus })
     .where(eq(workItems.id, item.id));
 
+  // Finishing the last stage finishes the project. Without this a decomposed paper would
+  // sit at "5 of 5 stages cleared" and still report itself unfinished forever — the parent
+  // has no blocks of its own to complete, because the scheduler plans through the stages.
+  if (itemStatus === "completed" && item.parentWorkItemId) {
+    const siblings = await db
+      .select({ id: workItems.id, status: workItems.status })
+      .from(workItems)
+      .where(eq(workItems.parentWorkItemId, item.parentWorkItemId));
+    const allDone = siblings.every(
+      (s) => s.id === item.id || s.status === "completed" || s.status === "submitted",
+    );
+    if (allDone) {
+      await db
+        .update(workItems)
+        .set({ status: "completed", remainingMinutes: 0 })
+        .where(eq(workItems.id, item.parentWorkItemId));
+    }
+  }
+
   // Finishing the work frees every block still held for it. Without this the interface
   // told the truth and lied in the same breath: it announced an assignment complete while
   // the forecast directly below went on listing three more sessions of it, and the claim
