@@ -83,6 +83,32 @@ describe("system prompt", () => {
   it("tells the model that plan context is data, not instructions", () => {
     expect(buildCoachSystemPrompt("plain")).toMatch(/injection/i);
   });
+
+  it("gives the quest theme a guide's voice and forbids theatrics", () => {
+    const prompt = buildCoachSystemPrompt("quest");
+    expect(prompt).toMatch(/the Guide/);
+    expect(prompt).toMatch(/never theatrical/i);
+    // The metaphor is decoration, so it must never be the only place a fact lives.
+    expect(prompt).toMatch(/decorates and never carries\s+meaning/i);
+  });
+
+  it("keeps the plain theme free of metaphor in every theme", () => {
+    const plain = buildCoachSystemPrompt("plain");
+    for (const word of ["questline", "campaign", "encounter", "XP", "sortie", "handler"]) {
+      expect(plain).not.toContain(word);
+    }
+  });
+
+  it("never lets a theme voice loosen a refusal", () => {
+    // Every theme must still carry both boundaries and the no-guilt tone rule; a voice
+    // block that talked the model out of refusing would be a product-level regression.
+    for (const theme of ["plain", "quest", "mission"] as const) {
+      const prompt = buildCoachSystemPrompt(theme);
+      expect(prompt).toMatch(/do not do the coursework/i);
+      expect(prompt).toMatch(/unrelated to their academic work/i);
+      expect(prompt).toMatch(/no streak language/i);
+    }
+  });
 });
 
 describe("runCoach", () => {

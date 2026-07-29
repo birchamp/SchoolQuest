@@ -1,14 +1,19 @@
 import { Hono } from "hono";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { newId } from "@schoolquest/domain";
-import { generatePlan } from "@schoolquest/planning-engine";
+import { newId, toEpochMinutes } from "@schoolquest/domain";
+import {
+  computeTermProgress,
+  generatePlan,
+  selectRecommendedSessions,
+} from "@schoolquest/planning-engine";
 import { explainRecommendation, explainRisk, explainTradeoff } from "@schoolquest/theme-language";
 import { planVersions, workSessions } from "../db/schema.js";
 import {
   assertTermOwner,
   getDb,
   insertInChunks,
+  loadEffortTotals,
   loadTermSnapshot,
   toPlanningInput,
 } from "../db/repo.js";
@@ -106,7 +111,7 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
     db.insert(workSessions).values(batch),
   );
 
-  return c.json(serializePlan(plan, snapshot), 201);
+  return c.json(serializePlan(plan, snapshot, await loadEffortTotals(db, termId)), 201);
 });
 
 /** Returns the most recent plan version, generating one on first use. */
@@ -134,6 +139,40 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
   const snapshot = await loadTermSnapshot(db, termId);
   const summary = JSON.parse(current.summaryJson) as Record<string, unknown>;
 
+  // Recommendations are recomputed here rather than read out of the plan summary. A plan
+  // version is written once and then read for up to a week, so the baked-in list was still
+  // naming Monday's blocks on Thursday — and went on naming work the student had already
+  // finished. Only sessions still open are eligible, and the same today-else-next-day rule
+  // the scheduler uses picks among them.
+  const itemsById = new Map(snapshot.workItems.map((w) => [w.id, w]));
+  const open = sessions.filter((s) => s.status === "planned" || s.status === "started");
+  const recommendations = selectRecommendedSessions(
+    open,
+    toEpochMinutes(new Date().toISOString()),
+  ).map(
+    (session, index) => {
+      const item = itemsById.get(session.workItemId);
+      const reasonCodes = JSON.parse(session.reasonCodesJson) as string[];
+      const title = item?.title ?? "Study session";
+      return {
+        rank: index,
+        sessionId: session.id,
+        workItemId: session.workItemId,
+        title,
+        courseId: item?.courseId ?? "",
+        durationMinutes: Math.max(
+          0,
+          Math.round((Date.parse(session.endAt) - Date.parse(session.startAt)) / 60_000),
+        ),
+        startAt: session.startAt,
+        reasonCodes,
+        tradeoffCode: session.tradeoffCode,
+        explanation: explainRecommendation(title, reasonCodes),
+        tradeoff: explainTradeoff(session.tradeoffCode),
+      };
+    },
+  );
+
   return c.json({
     planVersion: {
       id: current.id,
@@ -144,6 +183,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
       createdAt: current.createdAt,
     },
     ...summary,
+    recommendations,
     sessions: sessions.map((s) => ({
       ...s,
       reasonCodes: JSON.parse(s.reasonCodesJson) as string[],
@@ -151,6 +191,13 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     courses: snapshot.courses,
     workItems: snapshot.workItems,
     standings: snapshot.standings,
+    progress: {
+      ...computeTermProgress(
+        snapshot.courses.map((course) => course.id),
+        snapshot.workItems,
+      ),
+      ...(await loadEffortTotals(db, termId)),
+    },
   });
 });
 
@@ -177,6 +224,7 @@ plansRoute.post("/plans/:planId/accept", async (c) => {
 function serializePlan(
   plan: ReturnType<typeof generatePlan>,
   snapshot: Awaited<ReturnType<typeof loadTermSnapshot>>,
+  effort: Awaited<ReturnType<typeof loadEffortTotals>>,
 ) {
   return {
     planVersionId: plan.planVersionId,
@@ -194,5 +242,16 @@ function serializePlan(
     courses: snapshot.courses,
     workItems: snapshot.workItems,
     standings: snapshot.standings,
+    // Progress is derived, never stored: it is recomputed from work-item status on every
+    // read so it can never drift from the truth the student sees elsewhere. Effort comes
+    // from the sessions table rather than the engine, which is only ever handed the
+    // sessions inside the current horizon.
+    progress: {
+      ...computeTermProgress(
+        snapshot.courses.map((course) => course.id),
+        snapshot.workItems,
+      ),
+      ...effort,
+    },
   };
 }

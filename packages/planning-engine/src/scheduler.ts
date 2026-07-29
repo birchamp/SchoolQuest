@@ -489,22 +489,15 @@ function buildRecommendations(
   now: number,
 ): PlanRecommendation[] {
   const itemsById = new Map(input.workItems.map((w) => [w.id, w]));
-  const endOfToday = dateToEpochMinutes(epochMinutesToDate(now)) + MINUTES_PER_DAY;
 
-  // A 30-minute grace period keeps a block that just started from vanishing from Today.
-  const upcoming = sessions
-    .filter((s) => toEpochMinutes(s.startAt) >= now - 30)
-    .sort((a, b) => {
-      const aScore = priorityById.get(a.workItemId)?.score ?? 0;
-      const bScore = priorityById.get(b.workItemId)?.score ?? 0;
-      // The next block in the day wins ties — the plan is meant to be followed in order.
-      return a.startAt.localeCompare(b.startAt) || bScore - aScore;
-    });
+  const chosen = selectRecommendedSessions(sessions, now, (a, b) => {
+    const aScore = priorityById.get(a.workItemId)?.score ?? 0;
+    const bScore = priorityById.get(b.workItemId)?.score ?? 0;
+    // The next block in the day wins ties — the plan is meant to be followed in order.
+    return a.startAt.localeCompare(b.startAt) || bScore - aScore;
+  });
 
-  const todays = upcoming.filter((s) => toEpochMinutes(s.startAt) < endOfToday);
-  const chosen = todays.length > 0 ? todays : nextScheduledDay(upcoming);
-
-  return chosen.slice(0, 3).map((session, index) => ({
+  return chosen.map((session, index) => ({
     rank: index,
     sessionId: session.id,
     workItemId: session.workItemId,
@@ -517,8 +510,43 @@ function buildRecommendations(
   }));
 }
 
+/** The minimum a session must expose to be picked as a next action. */
+export interface RecommendableSession {
+  workItemId: string;
+  startAt: string;
+}
+
+/**
+ * Picks the sessions that belong on Today, newest plan or oldest.
+ *
+ * Split out of `buildRecommendations` because a plan version is written once and read for
+ * up to a week afterwards. Baked-in recommendations were therefore still naming Monday's
+ * blocks on Thursday, and went on naming work the student had already finished. Readers
+ * call this against live session rows to get an answer that is current, without re-running
+ * the scheduler — which matters on the Workers free plan, where a request has 10ms of CPU.
+ *
+ * The default comparator orders by start time alone. Priority only ever broke ties between
+ * sessions starting at the same minute, and a reader that has no scores is better served by
+ * a stable, explainable order than by a re-derived one.
+ */
+export function selectRecommendedSessions<T extends RecommendableSession>(
+  sessions: readonly T[],
+  now: number,
+  compare: (a: T, b: T) => number = (a, b) => a.startAt.localeCompare(b.startAt),
+  limit = 3,
+): T[] {
+  const endOfToday = dateToEpochMinutes(epochMinutesToDate(now)) + MINUTES_PER_DAY;
+
+  // A 30-minute grace period keeps a block that just started from vanishing from Today.
+  const upcoming = sessions.filter((s) => toEpochMinutes(s.startAt) >= now - 30).sort(compare);
+  const todays = upcoming.filter((s) => toEpochMinutes(s.startAt) < endOfToday);
+  const chosen = todays.length > 0 ? todays : nextScheduledDay(upcoming);
+
+  return chosen.slice(0, limit);
+}
+
 /** All sessions on the earliest upcoming date, so the fallback reads as one coherent day. */
-function nextScheduledDay(upcoming: PlannedSession[]): PlannedSession[] {
+function nextScheduledDay<T extends RecommendableSession>(upcoming: readonly T[]): T[] {
   const first = upcoming[0];
   if (!first) return [];
   const date = first.startAt.slice(0, 10);

@@ -263,6 +263,104 @@ button.action:disabled {
   background: var(--accent-dim);
 }
 
+/* --- Term progress strip and completion moment ------------------------------
+ * Both are theme-neutral by default: a plain progress readout and a plain
+ * acknowledgment. The Quest theme dresses them up further down the file.
+ * Neither can ever decrease — the numbers behind them only count finished work
+ * (docs/02-prd.md §3 rules out streaks and anything that decays). */
+
+.campaign-strip {
+  margin-bottom: 1rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.campaign-strip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.campaign-strip-title {
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.campaign-strip-count {
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.campaign-strip .campaign-track {
+  margin: 0.5rem 0 0;
+}
+
+.campaign-strip-foot {
+  margin: 0.45rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.completion-moment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--safe);
+  border-radius: 10px;
+  background: var(--surface);
+  /* Fades in once and then holds. It is dismissed by hand, never on a timer:
+     an acknowledgment that vanishes on its own reads as a notification. */
+  animation: completion-settle 260ms ease-out;
+}
+
+@keyframes completion-settle {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.completion-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.completion-detail {
+  margin: 0.15rem 0 0;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+}
+
+.completion-note {
+  margin: 0.3rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.wax-seal {
+  display: inline-block;
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
 .risk {
   display: flex;
   gap: 0.6rem;
@@ -885,6 +983,108 @@ body[data-theme="quest"] .centered input {
   color: var(--q-ink);
   border: 1px solid #9b7c3c;
   font-family: inherit;
+}
+
+/* --- Campaign progress: the XP track (critic round 5) -----------------------
+ * The progression layer. The numbers under it are real graded points from the
+ * syllabus — no invented score, no streak, nothing that falls when a day is
+ * missed. The chrome is allowed to be lavish precisely because the arithmetic
+ * underneath refuses to flatter. */
+
+body[data-theme="quest"] .campaign-strip {
+  border: 1px solid var(--q-gold-dim);
+  border-radius: 4px;
+  padding: 0.75rem 1rem 0.85rem;
+  background:
+    linear-gradient(180deg, rgba(201, 162, 39, 0.08), transparent 60%),
+    linear-gradient(180deg, #241a10, #1c1409);
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 201, 90, 0.12),
+    0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+body[data-theme="quest"] .campaign-strip-title {
+  color: var(--q-gold-bright);
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+}
+
+body[data-theme="quest"] .campaign-strip-count {
+  color: var(--q-parchment);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* Taller than the stamina bar and notched, so the two never read as the same
+   measurement at a glance. */
+body[data-theme="quest"] .campaign-strip .campaign-track {
+  height: 13px;
+  border-radius: 2px;
+  border: 1px solid var(--q-gold-dim);
+  background:
+    repeating-linear-gradient(90deg, transparent 0 24px, rgba(201, 162, 39, 0.28) 24px 25px),
+    linear-gradient(180deg, #120c07, #241a10);
+}
+
+body[data-theme="quest"] .campaign-strip .campaign-track > span {
+  background: linear-gradient(180deg, var(--q-gold-bright), var(--q-gold) 45%, #9c7c1c);
+  box-shadow: 0 0 10px rgba(232, 201, 90, 0.45);
+}
+
+body[data-theme="quest"] .campaign-strip-foot {
+  color: #c0ad83;
+  letter-spacing: 0.02em;
+}
+
+/* --- The completion moment -------------------------------------------------
+ * One quiet beat when a piece of work is genuinely finished. A wax-sealed strip
+ * of parchment, not a burst of confetti: the brief's tone is trust, not dopamine
+ * (docs/01-product-brief.md). Reduced motion is handled globally at the top of
+ * this file, which clamps the fade to nothing. */
+
+body[data-theme="quest"] .completion-moment {
+  border: 1px solid var(--q-gold);
+  border-radius: 3px;
+  color: var(--q-ink);
+  background:
+    radial-gradient(ellipse 80% 120% at 100% 50%, rgba(140, 47, 40, 0.14), transparent 70%),
+    linear-gradient(180deg, var(--q-parchment), var(--q-parchment-deep));
+  box-shadow:
+    inset 0 0 30px rgba(140, 110, 60, 0.22),
+    0 3px 12px rgba(0, 0, 0, 0.5);
+}
+
+body[data-theme="quest"] .completion-title {
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-size: 1.05rem;
+  letter-spacing: 0.05em;
+  color: #4a1f1a;
+}
+
+body[data-theme="quest"] .completion-detail,
+body[data-theme="quest"] .completion-note {
+  color: #5b452c;
+}
+
+body[data-theme="quest"] .completion-detail strong {
+  color: #6b4c0f;
+}
+
+body[data-theme="quest"] .completion-moment button.action {
+  background: linear-gradient(180deg, #f6ecd4, #ded0ac);
+  border: 1px solid #9b7c3c;
+  color: var(--q-ink);
+}
+
+/* --- Wax seal counters ------------------------------------------------------ */
+
+body[data-theme="quest"] .wax-seal {
+  background: radial-gradient(circle at 35% 30%, #a83f36, var(--q-wax) 60%, #6d211c);
+  color: #f6ead2;
+  border: 1px solid #5d1c18;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 1px 3px rgba(0, 0, 0, 0.5);
+  letter-spacing: 0.03em;
 }
 
 /* --- The book cover ---------------------------------------------------------

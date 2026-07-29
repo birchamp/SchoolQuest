@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { seedPlanningInput, SEED_NOW } from "./seed-input.js";
 import { toEpochMinutes, type WorkItem, type WorkSession } from "@schoolquest/domain";
-import { generatePlan } from "./scheduler.js";
+import { generatePlan, selectRecommendedSessions } from "./scheduler.js";
 import { scoreWorkItems } from "./priority.js";
 import { buildCapacityWindows } from "./capacity.js";
 import type { PlanningInput } from "./types.js";
@@ -321,5 +321,47 @@ describe("priority model", () => {
 
     expect(after.score).toBeGreaterThan(before.score);
     expect(after.reasonCodes).toContain("USER_PRIORITIZED");
+  });
+});
+
+describe("selecting today's next actions", () => {
+  const plan = planFor();
+
+  it("moves with the calendar instead of freezing on the generation day", () => {
+    // A plan version is written once and read all week. Asking on a later day has to
+    // return that day's blocks, not the ones that were next when the plan was built.
+    const day1 = selectRecommendedSessions(plan.sessions, toEpochMinutes(SEED_NOW));
+    const later = selectRecommendedSessions(
+      plan.sessions,
+      toEpochMinutes(SEED_NOW) + 3 * 24 * 60,
+    );
+
+    expect(day1.length).toBeGreaterThan(0);
+    expect(later.length).toBeGreaterThan(0);
+    expect(later.map((s) => s.id)).not.toEqual(day1.map((s) => s.id));
+    for (const session of later) {
+      expect(toEpochMinutes(session.startAt)).toBeGreaterThan(toEpochMinutes(SEED_NOW));
+    }
+  });
+
+  it("never offers a session the caller has already filtered out", () => {
+    const [first] = selectRecommendedSessions(plan.sessions, toEpochMinutes(SEED_NOW));
+    const remaining = plan.sessions.filter((s) => s.id !== first!.id);
+    const next = selectRecommendedSessions(remaining, toEpochMinutes(SEED_NOW));
+    expect(next.map((s) => s.id)).not.toContain(first!.id);
+  });
+
+  it("falls back to the next scheduled day rather than coming back empty", () => {
+    // Every session sits in the future, so "today" holds nothing and the fallback must
+    // produce a coherent day instead of an empty Today screen.
+    const wellBefore = toEpochMinutes(SEED_NOW) - 30 * 24 * 60;
+    const chosen = selectRecommendedSessions(plan.sessions, wellBefore);
+    expect(chosen.length).toBeGreaterThan(0);
+    const dates = new Set(chosen.map((s) => s.startAt.slice(0, 10)));
+    expect(dates.size).toBe(1);
+  });
+
+  it("returns nothing when there is genuinely nothing left", () => {
+    expect(selectRecommendedSessions([], toEpochMinutes(SEED_NOW))).toEqual([]);
   });
 });

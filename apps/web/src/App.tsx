@@ -9,6 +9,7 @@ import { CourseManager } from "./components/CourseManager";
 import { Today } from "./components/Today";
 import { Coach } from "./components/Coach";
 import { WeekMap } from "./components/WeekMap";
+import { Questline } from "./components/Questline";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 
 /**
@@ -174,7 +175,16 @@ export function App() {
       ) : (
         <>
           {tab === "today" && <Today plan={plan} theme={theme} onChanged={refreshPlan} />}
-          {tab === "week" && <WeekMap plan={plan} theme={theme} />}
+          {tab === "week" && (
+            <>
+              <WeekMap plan={plan} theme={theme} />
+              {/* The per-course ledger sits under the week itself: the map shows where the
+                  next seven days go, this shows how far each course has actually come. */}
+              {plan.progress && (
+                <Questline progress={plan.progress} courses={plan.courses} theme={theme} />
+              )}
+            </>
+          )}
           {tab === "coach" && (
             <Coach termId={term.id} theme={theme} onPlanChanged={refreshPlan} />
           )}

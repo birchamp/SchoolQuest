@@ -108,23 +108,26 @@ export function WeekMap({ plan, theme }: { plan: PlanResponse; theme: ThemeName 
           </p>
           {groupUnscheduledByCourse(plan).map((group) => (
             <details key={group.key} open={group.items.length <= 5}>
+              {/* The count is stated once per theme, never twice: quest carries it on the
+                  wax seal, plain spells it out in the summary line. */}
               <summary style={{ cursor: "pointer", padding: "0.25rem 0" }}>
-                {group.name} — {group.items.length}{" "}
-                {group.items.length === 1 ? "item" : "items"}{" "}
+                {group.name}
                 {quest ? (
-                  <span
-                    style={{
-                      background: "#8c2f28",
-                      color: "#f2ead6",
-                      borderRadius: 999,
-                      padding: "0.05rem 0.6rem",
-                      fontSize: "0.72rem",
-                    }}
-                  >
-                    {group.items.length} unclaimed
-                  </span>
+                  <>
+                    {" "}
+                    <span className="wax-seal">
+                      <span aria-hidden="true">{group.items.length} unclaimed</span>
+                      <span className="sr-only">
+                        {group.items.length} {group.items.length === 1 ? "item" : "items"} not
+                        scheduled
+                      </span>
+                    </span>
+                  </>
                 ) : (
-                  null
+                  <>
+                    {" — "}
+                    {group.items.length} {group.items.length === 1 ? "item" : "items"}
+                  </>
                 )}
               </summary>
               <ul className="alternatives" style={{ margin: "0.25rem 0 0.5rem" }}>

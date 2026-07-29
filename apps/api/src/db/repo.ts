@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import {
   computeCourseStanding,
@@ -68,6 +68,37 @@ export async function assertTermOwner(db: Db, termId: string, userId: string): P
     .from(terms)
     .where(and(eq(terms.id, termId), eq(terms.userId, userId)));
   return Boolean(row);
+}
+
+/**
+ * Total focused time actually logged against this term, and how many sessions produced it.
+ *
+ * This is the one progression number that is always available. Point values are rare in
+ * real syllabi — one work item in fifty-six carried a `pointsPossible` across the five-course
+ * test semester — but a student who sat down and worked has always earned the minutes, and
+ * the figure only ever goes up. Summed in SQL rather than in the Worker: the free plan
+ * allows 10ms of CPU per request, and D1 does aggregation for free.
+ */
+export async function loadEffortTotals(
+  db: Db,
+  termId: string,
+): Promise<{ effortMinutes: number; sessionsCompleted: number }> {
+  const [row] = await db
+    .select({
+      // `actualMinutes` is null for sessions completed before it was recorded; those
+      // still count as sessions, they just contribute no time.
+      effortMinutes: sql<number>`coalesce(sum(${workSessions.actualMinutes}), 0)`,
+      sessionsCompleted: sql<number>`count(*)`,
+    })
+    .from(workSessions)
+    .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
+    .innerJoin(courses, eq(courses.id, workItems.courseId))
+    .where(and(eq(courses.termId, termId), eq(workSessions.status, "completed")));
+
+  return {
+    effortMinutes: Math.round(Number(row?.effortMinutes ?? 0)),
+    sessionsCompleted: Number(row?.sessionsCompleted ?? 0),
+  };
 }
 
 export interface TermSnapshot {

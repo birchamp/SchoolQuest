@@ -40,6 +40,45 @@ export interface CourseStandingView {
   confidence: string;
 }
 
+/**
+ * Derived progress for one course. Mirrors `CourseProgress` in the planning engine —
+ * points are only ever real `pointsPossible` values, and `basis` says which measure the
+ * number came from so the UI never implies precision it does not have.
+ */
+export interface CourseProgressView {
+  courseId: string;
+  itemsTotal: number;
+  itemsDone: number;
+  pointsTotal: number;
+  pointsDone: number;
+  pointsCoverage: number;
+  completionFraction: number;
+  /**
+   * Which measure `completionFraction` came from. Never print a points figure when this
+   * is `"items"`: that course's syllabus stated too few point values for one to mean
+   * anything, and the engine has already refused to use them.
+   */
+  basis: "points" | "items";
+}
+
+export interface TermProgressView {
+  courses: CourseProgressView[];
+  itemsTotal: number;
+  itemsDone: number;
+  pointsTotal: number;
+  pointsDone: number;
+  pointsCoverage: number;
+  completionFraction: number;
+  basis: "points" | "items";
+  /**
+   * Focused minutes actually logged across the whole term, and the number of sessions
+   * that produced them. Unlike points, these exist for every student from the first
+   * completed block, and they only ever rise.
+   */
+  effortMinutes: number;
+  sessionsCompleted: number;
+}
+
 export interface PlanResponse {
   planVersionId?: string;
   planVersion?: { id: string; versionNumber: number; horizonStart: string; horizonEnd: string } | null;
@@ -53,6 +92,8 @@ export interface PlanResponse {
   courses: Course[];
   workItems: WorkItem[];
   standings: Record<string, CourseStandingView>;
+  /** Absent only from the "no plan yet" response, which carries no courses either. */
+  progress?: TermProgressView;
 }
 
 export interface CoachActionView {

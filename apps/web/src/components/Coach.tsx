@@ -13,12 +13,31 @@ import type { CoachActionView, CoachMessageView, CoachReplyResponse } from "../l
  *  - Every action button is executed by the student's click, never by the model.
  */
 
-const SUGGESTIONS = [
-  "What should I work on now?",
-  "I only have 25 minutes",
-  "I missed yesterday, fix my week",
-  "Why this instead of my reading?",
+/**
+ * Conversation starters. Every one is a *planning* question — what to work on, when, in
+ * what order (packages/ai/src/guardrail.ts draws the same line). The `kicker` is quest
+ * decoration only: it is rendered aria-hidden, so the accessible name of each chip stays
+ * the plain question underneath it.
+ */
+const SUGGESTIONS: { prompt: string; kicker: string }[] = [
+  { prompt: "What should I work on now?", kicker: "RIGHT NOW" },
+  { prompt: "I only have 25 minutes", kicker: "A SHORT WINDOW" },
+  { prompt: "I missed yesterday, fix my week", kicker: "A MISSED DAY" },
+  { prompt: "Why this instead of my reading?", kicker: "THE REASONING" },
 ];
+
+/**
+ * The quest-theme opening. This exists because the coach panel was a large empty slab of
+ * parchment before the first message — the fix is to have the guide set the scene, the way
+ * a game master opens a session, and to move the starters inside the panel where the eye
+ * already is. Wording carries no streak, no decay and no implication of being behind
+ * (docs/02-prd.md §3), and it states the boundary the coach actually enforces.
+ */
+const GUIDE_OPENING =
+  "The map is drawn and the week lies open. Tell me what stands in front of you, and I will say where to begin, how long it should take, and what is safe to leave for later.";
+const GUIDE_CODA = "No day is lost by resting — the plan simply redraws itself around you.";
+const GUIDE_CREED =
+  "The guide counsels on order and timing: what to begin, what to protect, and how to redraw a week. It will not write, solve, or answer the work itself.";
 
 export function Coach({
   termId,
@@ -125,17 +144,235 @@ export function Coach({
 
   const quest = theme === "quest";
 
+  // --- Quest-theme empty state ------------------------------------------------------
+  // Inline styles only: the stylesheet is shared and owned elsewhere. Colours come from
+  // the quest custom properties, which are defined on body[data-theme="quest"] and so
+  // resolve for anything rendered inside this branch.
+  const questEdge = "#9b7c3c";
+  const questMuted = "#6b5636";
+  const questMutedStrong = "#4a3620";
+
+  /** One corner mark of the illuminated frame. Decoration; never announced. */
+  const cornerMark = (pos: { top?: number; bottom?: number; left?: number; right?: number }) => (
+    <span
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        ...pos,
+        fontSize: "0.5rem",
+        lineHeight: 1,
+        color: "rgba(138, 111, 31, 0.75)",
+      }}
+    >
+      ◆
+    </span>
+  );
+
+  const questOpening = (
+    <div style={{ maxWidth: "46rem", margin: "0.2rem auto 0", width: "100%" }}>
+      {/* 1. The illuminated block: the guide sets the scene. */}
+      <div
+        style={{
+          position: "relative",
+          padding: "1.15rem 1.35rem 1.05rem",
+          borderRadius: "4px",
+          border: `1px solid ${questEdge}`,
+          background:
+            "linear-gradient(165deg, rgba(255, 250, 238, 0.85), rgba(228, 212, 176, 0.5))",
+          boxShadow:
+            "inset 0 1px 0 rgba(255, 252, 244, 0.8), inset 0 0 34px rgba(139, 106, 44, 0.13)",
+        }}
+      >
+        {cornerMark({ top: 4, left: 6 })}
+        {cornerMark({ top: 4, right: 6 })}
+        {cornerMark({ bottom: 4, left: 6 })}
+        {cornerMark({ bottom: 4, right: 6 })}
+
+        <p
+          aria-hidden="true"
+          style={{
+            margin: "0 0 0.7rem",
+            textAlign: "center",
+            fontSize: "0.66rem",
+            fontWeight: 700,
+            letterSpacing: "0.24em",
+            color: "var(--q-wax)",
+          }}
+        >
+          ❖&nbsp;&nbsp;THE GUIDE SPEAKS&nbsp;&nbsp;❖
+        </p>
+
+        <p
+          style={{
+            margin: 0,
+            fontSize: "1.02rem",
+            lineHeight: 1.55,
+            color: "var(--q-ink)",
+          }}
+        >
+          <span className="sr-only">{GUIDE_OPENING}</span>
+          <span aria-hidden="true">
+            <span
+              style={{
+                float: "left",
+                fontSize: "3.1rem",
+                lineHeight: 0.8,
+                fontWeight: 700,
+                margin: "0.1rem 0.3rem 0 0",
+                color: "var(--q-wax)",
+                textShadow: "0 1px 0 rgba(255, 252, 244, 0.85)",
+              }}
+            >
+              {GUIDE_OPENING.slice(0, 1)}
+            </span>
+            {GUIDE_OPENING.slice(1)}
+          </span>
+        </p>
+
+        <p
+          style={{
+            clear: "both",
+            margin: "0.75rem 0 0",
+            fontStyle: "italic",
+            fontSize: "0.9rem",
+            lineHeight: 1.5,
+            color: questMutedStrong,
+          }}
+        >
+          {GUIDE_CODA}
+        </p>
+      </div>
+
+      {/* 2. A rule beneath, the way a chapter break is set in a rulebook. */}
+      <div
+        aria-hidden="true"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.7rem",
+          margin: "1.15rem 0 0.9rem",
+        }}
+      >
+        <span
+          style={{
+            flex: 1,
+            height: "1px",
+            background:
+              "linear-gradient(90deg, transparent, rgba(138, 111, 31, 0.75) 70%, rgba(138, 111, 31, 0.85))",
+          }}
+        />
+        <span style={{ color: "var(--q-gold-dim)", fontSize: "0.75rem", letterSpacing: "0.3em" }}>
+          ✦
+        </span>
+        <span
+          style={{
+            flex: 1,
+            height: "1px",
+            background:
+              "linear-gradient(270deg, transparent, rgba(138, 111, 31, 0.75) 70%, rgba(138, 111, 31, 0.85))",
+          }}
+        />
+      </div>
+
+      {/* 3. The starters, as seals set into the page rather than pills floating below it. */}
+      <div role="group" aria-label="Suggested questions to ask the coach">
+        <p
+          aria-hidden="true"
+          style={{
+            margin: "0 0 0.6rem",
+            textAlign: "center",
+            fontSize: "0.64rem",
+            fontWeight: 700,
+            letterSpacing: "0.22em",
+            color: "var(--q-wax)",
+          }}
+        >
+          ◈&nbsp;&nbsp;ASK THE GUIDE&nbsp;&nbsp;◈
+        </p>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 19rem), 1fr))",
+            gap: "0.55rem",
+          }}
+        >
+          {SUGGESTIONS.map((s) => (
+            <button
+              key={s.prompt}
+              type="button"
+              onClick={() => void send(s.prompt)}
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                font: "inherit",
+                cursor: "pointer",
+                padding: "0.55rem 0.75rem 0.6rem",
+                borderRadius: "4px",
+                border: `1px solid ${questEdge}`,
+                background:
+                  "linear-gradient(165deg, rgba(255, 250, 238, 0.92), rgba(228, 212, 176, 0.7))",
+                color: "var(--q-ink)",
+                boxShadow: "inset 0 1px 0 rgba(255, 252, 244, 0.85), 0 1px 3px rgba(0, 0, 0, 0.18)",
+              }}
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  display: "block",
+                  marginBottom: "0.15rem",
+                  fontSize: "0.6rem",
+                  fontWeight: 700,
+                  letterSpacing: "0.16em",
+                  color: questMuted,
+                }}
+              >
+                <span style={{ color: "var(--q-gold-dim)" }}>✧</span> {s.kicker}
+              </span>
+              <span style={{ fontSize: "0.93rem", lineHeight: 1.35 }}>{s.prompt}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 4. The boundary, stated plainly and quietly. */}
+      <p
+        style={{
+          display: "flex",
+          gap: "0.55rem",
+          alignItems: "baseline",
+          margin: "1rem 0 0",
+          padding: "0.6rem 0.8rem",
+          borderLeft: "3px solid var(--q-wax)",
+          background: "rgba(74, 54, 32, 0.08)",
+          fontSize: "0.82rem",
+          lineHeight: 1.5,
+          fontStyle: "italic",
+          color: questMutedStrong,
+        }}
+      >
+        <span aria-hidden="true" style={{ color: "var(--q-wax)", fontStyle: "normal" }}>
+          ⚑
+        </span>
+        <span>{GUIDE_CREED}</span>
+      </p>
+    </div>
+  );
+
   // The message area itself is shared between themes; quest wraps it in a parchment
   // card so the chat reads as a framed panel rather than bubbles floating on leather.
   const chatArea = (
     <div className="chat" style={{ minHeight: "18rem" }}>
-      {messages.length === 0 && (
-        <div className="bubble assistant">
-          I help you decide what to work on and when. I will not do the assignments
-          themselves, and I stick to your coursework — ask me what is worth starting, how to
-          break something down, or how to recover a day you lost.
-        </div>
-      )}
+      {messages.length === 0 &&
+        (quest ? (
+          questOpening
+        ) : (
+          <div className="bubble assistant">
+            I help you decide what to work on and when. I will not do the assignments themselves,
+            and I stick to your coursework — ask me what is worth starting, how to break something
+            down, or how to recover a day you lost.
+          </div>
+        ))}
 
       {messages.map((m) => (
         <div
@@ -169,7 +406,11 @@ export function Coach({
     <div>
       {quest ? (
         <section className="card">
-          <h2>{label("coach", theme)} — your guide</h2>
+          {/* Themed wording is decoration; the heading a screen reader announces is plain. */}
+          <h2>
+            <span aria-hidden="true">⚜ THE {label("coach", theme).toUpperCase()}</span>
+            <span className="sr-only">Planning coach</span>
+          </h2>
           {chatArea}
         </section>
       ) : (
@@ -178,11 +419,12 @@ export function Coach({
 
       {error && <p className="error">{error}</p>}
 
-      {messages.length === 0 && (
+      {/* Quest carries these inside the parchment panel instead; Plain keeps the pill row. */}
+      {!quest && messages.length === 0 && (
         <div className="suggestions">
           {SUGGESTIONS.map((s) => (
-            <button key={s} onClick={() => send(s)}>
-              {s}
+            <button key={s.prompt} onClick={() => send(s.prompt)}>
+              {s.prompt}
             </button>
           ))}
         </div>

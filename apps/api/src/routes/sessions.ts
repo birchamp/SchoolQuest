@@ -94,17 +94,16 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
     remaining = Math.max(0, remaining - actualMinutes);
   }
 
+  const itemStatus =
+    remaining === 0
+      ? "completed"
+      : item.status === "not_started"
+        ? "in_progress"
+        : item.status;
+
   await db
     .update(workItems)
-    .set({
-      remainingMinutes: remaining,
-      status:
-        remaining === 0
-          ? "completed"
-          : item.status === "not_started"
-            ? "in_progress"
-            : item.status,
-    })
+    .set({ remainingMinutes: remaining, status: itemStatus })
     .where(eq(workItems.id, item.id));
 
   await db.insert(auditEvents).values({
@@ -119,7 +118,17 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
     createdAt: new Date().toISOString(),
   });
 
-  return c.json({ ok: true, status });
+  // Reported so the interface can acknowledge the finish immediately instead of waiting
+  // on a replan. It is only ever the item's real `pointsPossible`, and only on the call
+  // that actually finished the item — completing a second session of already-finished
+  // work banks nothing, because nothing new was earned.
+  const completedNow = itemStatus === "completed" && item.status !== "completed";
+  return c.json({
+    ok: true,
+    status,
+    workItemStatus: itemStatus,
+    pointsBanked: completedNow ? item.pointsPossible : null,
+  });
 });
 
 const moveBody = z.object({

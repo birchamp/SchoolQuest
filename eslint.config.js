@@ -14,6 +14,21 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // The e2e harness is plain Node ESM, not app code: it has no tsconfig and lives
+    // outside every workspace package, so it was picking up the default browser-less
+    // globals and failing on `process`, `console`, and `fetch`.
+    files: ["tools/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        fetch: "readonly",
+        URL: "readonly",
+        localStorage: "readonly",
+      },
+    },
+  },
+  {
     rules: {
       "@typescript-eslint/no-unused-vars": [
         "error",

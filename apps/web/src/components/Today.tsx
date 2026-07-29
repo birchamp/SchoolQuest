@@ -4,6 +4,22 @@ import { explainRisk, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import type { PlanResponse } from "../lib/types";
 
+/** "95" -> "1h 35m". Minutes alone stop being legible somewhere past a couple of hours. */
+function formatEffort(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+}
+
+/** What the server reports back when a session outcome is recorded. */
+interface CompleteResult {
+  status: string;
+  workItemStatus: string;
+  /** The item's real `pointsPossible`, and only on the call that finished it. */
+  pointsBanked: number | null;
+}
+
 /**
  * The Today view (docs/02-prd.md FR-11).
  *
@@ -19,8 +35,12 @@ export function Today({
   theme: ThemeName;
   onChanged: () => void;
 }) {
+  const progress = plan.progress;
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [finished, setFinished] = useState<
+    { title: string; points: number | null; minutes: number } | null
+  >(null);
 
   const [primary, ...alternatives] = plan.recommendations;
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
@@ -60,11 +80,23 @@ export function Today({
     }
   }
 
-  async function complete(sessionId: string, outcome: string) {
+  /**
+   * Records an outcome and, when that outcome actually finished a piece of work, marks the
+   * moment. This is the one celebratory beat in the app and it stays deliberately quiet:
+   * an acknowledgment the student can dismiss, never a modal, never a sound, never a
+   * score that can later go down.
+   */
+  async function complete(sessionId: string, outcome: string, title: string, minutes: number) {
     setBusy(sessionId + outcome);
     setError(null);
     try {
-      await api.post(`/api/work-sessions/${sessionId}/complete`, { outcome });
+      const result = await api.post<CompleteResult>(
+        `/api/work-sessions/${sessionId}/complete`,
+        { outcome },
+      );
+      if (result.workItemStatus === "completed") {
+        setFinished({ title, points: result.pointsBanked, minutes });
+      }
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
@@ -92,6 +124,112 @@ export function Today({
   return (
     <div>
       {error && <p className="error">{error}</p>}
+
+      {progress && progress.itemsTotal > 0 && (
+        <section className="campaign-strip" aria-label={`${label("progress", theme)} this term`}>
+          <div className="campaign-strip-head">
+            <span className="campaign-strip-title">
+              {quest && <span aria-hidden="true">{"⚜ "}</span>}
+              {quest ? "Campaign progress" : "Term progress"}
+            </span>
+            {/* Points are only ever shown when the engine says they are the real measure.
+                Most syllabi state category weights rather than per-item points, and in
+                that case the honest count is how many pieces of work are finished. */}
+            <span className="campaign-strip-count">
+              <span aria-hidden="true">
+                {quest && <span style={{ color: questGold }}>{"✦ "}</span>}
+                {progress.basis === "points"
+                  ? `${Math.round(progress.pointsDone).toLocaleString()} / ${Math.round(
+                      progress.pointsTotal,
+                    ).toLocaleString()} ${quest ? "XP" : "pts"}`
+                  : `${progress.itemsDone} / ${progress.itemsTotal} ${quest ? "quests" : "tasks"}`}
+              </span>
+              <span className="sr-only">
+                {progress.basis === "points"
+                  ? `${Math.round(progress.pointsDone)} of ${Math.round(
+                      progress.pointsTotal,
+                    )} points completed`
+                  : `${progress.itemsDone} of ${progress.itemsTotal} assignments completed`}
+              </span>
+            </span>
+          </div>
+          <div
+            className="capacity-bar campaign-track"
+            role="meter"
+            aria-valuenow={Math.round(progress.completionFraction * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={
+              progress.basis === "points"
+                ? "Share of this term's points already earned"
+                : "Share of this term's assignments already finished"
+            }
+          >
+            <span style={{ width: `${progress.completionFraction * 100}%` }} />
+          </div>
+          {progress.sessionsCompleted > 0 && (
+            <p className="campaign-strip-foot">
+              {quest && (
+                <span aria-hidden="true" style={{ color: questGold }}>
+                  {"◆ "}
+                </span>
+              )}
+              {quest ? "Time at the table: " : "Focused time logged: "}
+              {formatEffort(progress.effortMinutes)} across {progress.sessionsCompleted}{" "}
+              {progress.sessionsCompleted === 1 ? "session" : "sessions"}
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* The one celebratory beat in the app. It reports what was actually banked and
+          nothing more — no streak, no multiplier, nothing that can be lost tomorrow. */}
+      {finished && (
+        <div className="completion-moment" role="status">
+          <div>
+            <p className="completion-title">
+              {quest && (
+                <span aria-hidden="true" style={{ color: questGold }}>
+                  {"◈ "}
+                </span>
+              )}
+              {quest ? "Quest complete" : "Marked done"}
+            </p>
+            {/* Points when the syllabus gave any, banked time otherwise. Most items carry
+                no point value at all, and "+0 XP" would be both wrong and dispiriting —
+                the minutes actually worked are always true. */}
+            <p className="completion-detail">
+              {finished.title}
+              {" · "}
+              <strong>
+                {finished.points !== null ? (
+                  <>
+                    <span aria-hidden="true">
+                      +{Math.round(finished.points)} {quest ? "XP" : "pts"}
+                    </span>
+                    <span className="sr-only">{Math.round(finished.points)} points recorded</span>
+                  </>
+                ) : (
+                  <>
+                    <span aria-hidden="true">
+                      {formatEffort(finished.minutes)} {quest ? "at the table" : "logged"}
+                    </span>
+                    <span className="sr-only">{finished.minutes} minutes of work recorded</span>
+                  </>
+                )}
+              </strong>
+            </p>
+            <p className="completion-note">
+              {quest
+                ? "Banked. The week redraws itself around what is left."
+                : "Recorded. Your plan has been updated around what remains."}
+            </p>
+          </div>
+          <button className="action" onClick={() => setFinished(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {primary ? (
         <section className="card primary-action" aria-labelledby="primary-heading">
@@ -164,14 +302,28 @@ export function Today({
             <button
               className="action"
               disabled={busy !== null}
-              onClick={() => complete(primary.sessionId, "completed")}
+              onClick={() =>
+                complete(
+                  primary.sessionId,
+                  "completed",
+                  primary.title,
+                  primary.durationMinutes,
+                )
+              }
             >
               Mark done
             </button>
             <button
               className="action"
               disabled={busy !== null}
-              onClick={() => complete(primary.sessionId, "needs_another_session")}
+              onClick={() =>
+                complete(
+                  primary.sessionId,
+                  "needs_another_session",
+                  primary.title,
+                  primary.durationMinutes,
+                )
+              }
             >
               Needs more time
             </button>
