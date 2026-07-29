@@ -200,9 +200,13 @@ function CourseSigil({ course }: { course: SnapshotCourse }) {
           paddingBottom: 5,
           clipPath: SHIELD,
           background:
-            `linear-gradient(180deg, ${Q.goldBright} 0 4px, ${Q.goldEdge} 4px 5px, transparent 5px),` +
-            " linear-gradient(107deg, rgba(255, 255, 255, 0.15) 0 46%, rgba(0, 0, 0, 0.26) 46%)," +
+            // The chief and the per-bend sheen both lifted the field under the letters —
+            // cream on the gold chief measures 1.26:1. The gold band is now a border-top on
+            // its own, outside the charge's box, and the bend is darkening only, so the
+            // whole lettered area stays at the tincture's own value.
+            `linear-gradient(107deg, rgba(0, 0, 0, 0.06) 0 46%, rgba(0, 0, 0, 0.3) 46%),` +
             ` ${tincture}`,
+          borderTop: `4px solid ${Q.goldBright}`,
           color: Q.cream,
           fontSize: "0.56rem",
           fontWeight: 700,

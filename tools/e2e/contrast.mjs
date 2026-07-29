@@ -150,11 +150,6 @@ const MEASURE = () => {
   const results = [];
   for (const el of document.querySelectorAll("body *")) {
     if (el.closest(".sr-only") || el.classList.contains("sr-only")) continue;
-    // Ancestor, not just self: an ornament nested inside an aria-hidden kicker is
-    // decoration too, and holding decoration to the text floor would push the theme
-    // toward flat, high-contrast marks that look worse and help nobody.
-    if (el.closest('[aria-hidden="true"]')) continue;
-
     // Only elements that paint text themselves, not containers of other elements.
     const text = [...el.childNodes]
       .filter((n) => n.nodeType === 3)
@@ -162,6 +157,20 @@ const MEASURE = () => {
       .join(" ")
       .trim();
     if (!text) continue;
+
+    // Decoration is judged by content, not by aria-hidden.
+    //
+    // Exempting aria-hidden subtrees was wrong here, and quietly so. This codebase renders
+    // themed wording as a visible `aria-hidden` span beside an `.sr-only` plain-language
+    // twin, so *every themed string in the app* sits inside an aria-hidden subtree — which
+    // is exactly the text the theme is judged on. The old rule made the checker blind to
+    // it, and it passed a "THE CRUX" label sitting at roughly 1.1:1.
+    //
+    // What is genuinely decorative is a glyph with no words in it. That is testable
+    // directly, so it is tested directly.
+    const isGlyphOnly = !/[a-z0-9]/i.test(text);
+    if (isGlyphOnly) continue;
+
 
     const style = getComputedStyle(el);
     if (style.visibility === "hidden" || style.display === "none" || style.opacity === "0") continue;

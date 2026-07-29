@@ -457,6 +457,42 @@ button.action:disabled {
   display: block;
 }
 
+/* --- Beats, day load, and flags (docs/07-session-prep-design.md) -------------
+ * The week renders one beat per piece of work per day rather than one tile per
+ * scheduled block. `.beat-kind` names what sort of work it is — the derived kind
+ * from the planning engine — so a tile says something before its title is read. */
+
+.beat-kind {
+  display: block;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  margin-bottom: 0.1rem;
+}
+
+/* Load is carried on the day, not just on a colour strip: the strip is a summary
+   and the word beside it is the actual statement. */
+.day[data-load="heavy"] {
+  border-color: var(--at-risk);
+}
+.day[data-load="steady"] {
+  border-color: var(--watch);
+}
+
+.day-flag {
+  margin: 0 0 0.35rem;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--at-risk);
+}
+
+.day-flag-crux {
+  color: var(--watch);
+}
+
 /* --- Coach --- */
 
 .chat {
@@ -1214,4 +1250,11 @@ html:has(.book-cover) {
   background: linear-gradient(180deg, #3a2b19, #241a10);
   border: 1px solid #8a6f1f;
   color: #efe3c8;
+}
+
+/* The crux marker was --watch, which under quest resolves to gold-bright and put the
+   label at 1.11:1 on parchment. Caught only after the contrast checker stopped exempting
+   aria-hidden subtrees — which is where every themed string in this app lives. */
+body[data-theme="quest"] .day-flag-crux {
+  color: #6b4c0f;
 }

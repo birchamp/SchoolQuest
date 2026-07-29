@@ -177,7 +177,7 @@ export function App() {
           {tab === "today" && <Today plan={plan} theme={theme} onChanged={refreshPlan} />}
           {tab === "week" && (
             <>
-              <WeekMap plan={plan} theme={theme} />
+              <WeekMap plan={plan} theme={theme} brief={plan.brief} />
               {/* The per-course ledger sits under the week itself: the map shows where the
                   next seven days go, this shows how far each course has actually come. */}
               {plan.progress && (

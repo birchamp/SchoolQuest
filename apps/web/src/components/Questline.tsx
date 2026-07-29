@@ -464,12 +464,16 @@ export function Questline({
                     fontSize: "0.66rem",
                     fontWeight: 700,
                     letterSpacing: "0.03em",
+                    // The white highlight was lifting the field to rgb(94,132,99) and
+                    // putting cream letters at 3.56:1. A tincture chip carrying pale text
+                    // has to stay dark across its whole face, so the sheen is a dark
+                    // gradient only.
                     background: quest
-                      ? `linear-gradient(160deg, rgba(255, 255, 255, 0.16), rgba(0, 0, 0, 0.3)), ${tincture}`
+                      ? `linear-gradient(160deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.34)), ${tincture}`
                       : "var(--surface-2)",
                     border: quest ? `1px solid ${Q.goldDim}` : "1px solid var(--border)",
                     color: quest ? "#f4ead2" : "var(--text-dim)",
-                    boxShadow: quest ? "inset 0 1px 0 rgba(255, 255, 255, 0.15)" : undefined,
+                    boxShadow: quest ? "inset 0 1px 0 rgba(255, 255, 255, 0.12)" : undefined,
                   }}
                 >
                   {initialsFor(course, cp.courseId)}
