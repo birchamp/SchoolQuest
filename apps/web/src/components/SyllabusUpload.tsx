@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { Course } from "@schoolquest/domain";
+import type { Course, ThemeName } from "@schoolquest/domain";
+import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { extractPdfText } from "../lib/pdf-text";
 import type { ExtractionResponse } from "../lib/extraction-types";
@@ -14,6 +15,9 @@ import { ExtractionReview } from "./ExtractionReview";
  * split: the Cloudflare Workers free plan gives 10ms of CPU per request, which cannot
  * parse a PDF, while any client machine barely notices. The Worker only waits on the
  * model, which is I/O and costs no CPU budget.
+ *
+ * Quest chrome is presentation only. The file that gets uploaded, the course it is filed
+ * against, and every request made here are identical under all three themes.
  */
 
 type Phase =
@@ -21,15 +25,109 @@ type Phase =
   | { name: "reading"; progress: string }
   | { name: "extracting" }
   | { name: "review"; documentId: string; filename: string; result: ExtractionResponse }
-  | { name: "done"; summary: string };
+  | {
+      name: "done";
+      created: { workItems: number; categories: number; meetingPatterns: number };
+    };
+
+/**
+ * The Setup tab is mounted by App without a `theme` prop, and threading one through would
+ * mean editing App.tsx. The active theme is already published on the document — App writes
+ * `document.body.dataset.theme` on every render — so it is read from there instead. The
+ * observer is not optional: the theme switcher lives on this very screen.
+ *
+ * Duplicated from CourseManager rather than shared, because a shared home for it would be
+ * a new module in lib/ and this pass owns only the two Setup components.
+ *
+ * `override` is the seam for wiring a real prop through later; nothing passes it today.
+ */
+function useBodyTheme(override?: ThemeName): ThemeName {
+  const [theme, setTheme] = useState<ThemeName>(
+    () => (document.body.dataset["theme"] as ThemeName | undefined) ?? "plain",
+  );
+
+  useEffect(() => {
+    const read = () =>
+      setTheme((document.body.dataset["theme"] as ThemeName | undefined) ?? "plain");
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(document.body, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+
+  return override ?? theme;
+}
+
+/** Themed wording on screen, plain wording for assistive technology. */
+function Themed({ visible, plain }: { visible: string; plain: string }) {
+  if (visible === plain) return <>{visible}</>;
+  return (
+    <>
+      <span aria-hidden="true">{visible}</span>
+      <span className="sr-only">{plain}</span>
+    </>
+  );
+}
+
+const Q = {
+  gold: "#c9a227",
+  goldBright: "#e8c95a",
+  goldDim: "#8a6f1f",
+  goldEdge: "#6d5718",
+  wax: "#8c2f28",
+} as const;
+
+/**
+ * The course picker rendered as a cream rectangle with a hairline border and no arrow:
+ * the Quest theme sets `appearance: none` on selects, and a background shorthand higher
+ * in the cascade wipes out the chevron the stylesheet tries to paint. Nothing inline can
+ * beat an `!important` shorthand, so the affordance is drawn as a sibling overlay — a
+ * gold pull-tab with a chevron, `pointer-events: none` so clicks fall through to the
+ * select. Data-URI SVG only; the CSP forbids external assets.
+ */
+const CHEVRON =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E" +
+  "%3Cpath d='M1.5 1.5l4.5 4.5 4.5-4.5' fill='none' stroke='%232a1f14' stroke-width='2' " +
+  "stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")";
+
+function SelectChevron({ dim }: { dim?: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        top: 1,
+        right: 1,
+        bottom: 1,
+        width: "1.7rem",
+        pointerEvents: "none",
+        borderRadius: "0 3px 3px 0",
+        borderLeft: `1px solid ${Q.goldEdge}`,
+        background: `${CHEVRON} no-repeat center / 12px 8px, linear-gradient(180deg, ${Q.goldBright}, ${Q.gold} 55%, ${Q.goldDim})`,
+        boxShadow: "inset 0 1px 0 rgba(255, 244, 205, 0.6)",
+        opacity: dim ? 0.45 : 1,
+      }}
+    />
+  );
+}
 
 export function SyllabusUpload({
   courses,
   onPlanChanged,
+  theme: themeProp,
 }: {
   courses: Course[];
   onPlanChanged: () => void;
+  /** Optional. Omitted by the current call site, which is why the theme is read off body. */
+  theme?: ThemeName;
 }) {
+  const theme = useBodyTheme(themeProp);
+  const quest = theme === "quest";
+  // "Questline" / "Course" / "Theater", and "Task" / "Assignment" — the wording lives in
+  // @schoolquest/theme-language rather than in synonyms hard-coded here.
+  const courseNoun = label("course", theme);
+  const workNoun = label("assignment", theme).toLowerCase();
+
   const [courseId, setCourseId] = useState(courses[0]?.id ?? "");
   const [phase, setPhase] = useState<Phase>({ name: "idle" });
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +141,7 @@ export function SyllabusUpload({
 
   async function handleFile(file: File) {
     if (!courseId) {
-      setError("Add a course first.");
+      setError(`Add a ${courseNoun.toLowerCase()} first.`);
       return;
     }
 
@@ -98,14 +196,10 @@ export function SyllabusUpload({
         filename={phase.filename}
         initial={phase.result}
         onCancel={() => setPhase({ name: "idle" })}
+        // Counts are kept rather than a finished sentence, so the summary can be worded
+        // for the active theme at render time and still read plainly to a screen reader.
         onConfirmed={(created) => {
-          setPhase({
-            name: "done",
-            summary:
-              `Added ${created.workItems} assignment${created.workItems === 1 ? "" : "s"}` +
-              `${created.categories ? `, ${created.categories} grading categories` : ""}` +
-              `${created.meetingPatterns ? `, ${created.meetingPatterns} class meetings` : ""}.`,
-          });
+          setPhase({ name: "done", created });
           onPlanChanged();
         }}
       />
@@ -114,35 +208,91 @@ export function SyllabusUpload({
 
   const working = phase.name === "reading" || phase.name === "extracting";
 
+  function summarize(noun: string): string {
+    if (phase.name !== "done") return "";
+    const { workItems, categories, meetingPatterns } = phase.created;
+    return (
+      `Added ${workItems} ${noun}${workItems === 1 ? "" : "s"}` +
+      `${categories ? `, ${categories} grading categories` : ""}` +
+      `${meetingPatterns ? `, ${meetingPatterns} class meetings` : ""}.`
+    );
+  }
+
   return (
     <section className="card">
-      <h2>Syllabus upload</h2>
+      <h2>
+        {quest && (
+          <span aria-hidden="true" style={{ color: Q.goldDim }}>
+            {"⚜ "}
+          </span>
+        )}
+        <Themed visible={quest ? "Chart a questline" : "Syllabus upload"} plain="Syllabus upload" />
+      </h2>
 
-      <label className="sr-only" htmlFor="upload-course">
-        Course
-      </label>
-      <select
-        id="upload-course"
-        value={courseId}
-        onChange={(e) => setCourseId(e.target.value)}
-        disabled={working}
+      {/* The Plain card opens straight into the picker; the quest one says what a syllabus
+          is for here, because "Chart a questline" alone does not name the document. */}
+      {quest && (
+        <p className="muted" style={{ marginTop: 0 }}>
+          <Themed
+            visible="A syllabus is the chart a questline is drawn from. Choose the PDF and its dates, weights, and tasks are read straight off it."
+            plain="Upload a course syllabus PDF and its dates, grading weights, and assignments are read out of it."
+          />
+        </p>
+      )}
+
+      {/* Quest gets a visible label as well as the accessible one: with the native arrow
+          suppressed, an unlabelled cream box beside a button reads as decoration. */}
+      {quest ? (
+        <label
+          htmlFor="upload-course"
+          style={{
+            display: "block",
+            fontSize: "0.7rem",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: Q.wax,
+            marginBottom: "0.3rem",
+          }}
+        >
+          <Themed visible={courseNoun} plain="Course" />
+        </label>
+      ) : (
+        <label className="sr-only" htmlFor="upload-course">
+          Course
+        </label>
+      )}
+
+      <span
         style={{
-          background: "var(--surface-2)",
-          color: "var(--text)",
-          border: "1px solid var(--border)",
-          borderRadius: "8px",
-          padding: "0.5rem 0.7rem",
-          font: "inherit",
-          marginBottom: "0.75rem",
+          position: "relative",
+          display: "block",
           width: "100%",
+          marginBottom: "0.75rem",
         }}
       >
-        {courses.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}
-          </option>
-        ))}
-      </select>
+        <select
+          id="upload-course"
+          value={courseId}
+          onChange={(e) => setCourseId(e.target.value)}
+          disabled={working}
+          style={{
+            background: "var(--surface-2)",
+            color: "var(--text)",
+            border: "1px solid var(--border)",
+            borderRadius: "8px",
+            padding: "0.5rem 0.7rem",
+            font: "inherit",
+            width: "100%",
+          }}
+        >
+          {courses.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        {quest && <SelectChevron dim={working} />}
+      </span>
 
       {/* The native file input's "No file chosen" strip cannot be styled, so the input
           is visually hidden behind a real label-button. Keyboard and screen-reader flow
@@ -155,7 +305,10 @@ export function SyllabusUpload({
           opacity: working || courses.length === 0 ? 0.5 : 1,
         }}
       >
-        Choose a syllabus PDF…
+        <Themed
+          visible={quest ? "Chart from a syllabus PDF…" : "Choose a syllabus PDF…"}
+          plain="Choose a syllabus PDF…"
+        />
         <input
           type="file"
           accept="application/pdf"
@@ -176,14 +329,31 @@ export function SyllabusUpload({
       )}
       {phase.name === "extracting" && (
         <p className="muted" aria-live="polite">
-          Finding assignments, dates, and grading weights…
+          <Themed
+            visible={
+              quest
+                ? "Reading the syllabus for tasks, dates, and grading weights…"
+                : "Finding assignments, dates, and grading weights…"
+            }
+            plain="Finding assignments, dates, and grading weights…"
+          />
         </p>
       )}
       {phase.name === "done" && (
         <>
-          <p className="notice">{phase.summary}</p>
+          <p className="notice">
+            {quest && (
+              <span aria-hidden="true" style={{ color: Q.goldDim }}>
+                {"✦ "}
+              </span>
+            )}
+            <Themed visible={summarize(workNoun)} plain={summarize("assignment")} />
+          </p>
           <button className="action" onClick={() => setPhase({ name: "idle" })}>
-            Upload another
+            <Themed
+              visible={quest ? "Chart another" : "Upload another"}
+              plain="Upload another"
+            />
           </button>
         </>
       )}
@@ -191,8 +361,14 @@ export function SyllabusUpload({
       {error && <p className="error">{error}</p>}
 
       <p className="muted" style={{ marginBottom: 0 }}>
-        The PDF is read on this computer. Nothing extracted from it changes your plan until you
-        review and confirm it.
+        <Themed
+          visible={
+            quest
+              ? "The PDF is read on this computer. Nothing found in it is written to your questlines until you have reviewed and confirmed it."
+              : "The PDF is read on this computer. Nothing extracted from it changes your plan until you review and confirm it."
+          }
+          plain="The PDF is read on this computer. Nothing extracted from it changes your plan until you review and confirm it."
+        />
       </p>
     </section>
   );
