@@ -25,7 +25,9 @@ export type LabelKey =
   | "startSession"
   | "planRisk"
   | "progress"
-  | "statsPage";
+  | "statsPage"
+  | "courseTable"
+  | "sharedTime";
 
 type LabelSet = Record<ThemeName, string>;
 
@@ -46,6 +48,13 @@ export const LABELS: Record<LabelKey, LabelSet> = {
   planRisk: { quest: "Hazard", mission: "Risk", plain: "Planning risk" },
   progress: { quest: "Progress", mission: "Status", plain: "Progress" },
   statsPage: { quest: "Chronicle", mission: "Readiness", plain: "Progress" },
+  /**
+   * The student runs every course at once out of one week — they are the DM of five
+   * campaigns, not a player in one. These two keys name that surface and the pool it
+   * divides.
+   */
+  courseTable: { quest: "The table", mission: "Theaters", plain: "Your courses" },
+  sharedTime: { quest: "Table time", mission: "Available hours", plain: "Study time" },
 };
 
 export function label(key: LabelKey, theme: ThemeName): string {

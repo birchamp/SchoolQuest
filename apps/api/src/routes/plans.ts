@@ -4,6 +4,7 @@ import { z } from "zod";
 import { newId, toEpochMinutes } from "@schoolquest/domain";
 import {
   buildSessionBrief,
+  computeCourseLoad,
   computeProjectProgress,
   computeTermProgress,
   generatePlan,
@@ -198,6 +199,21 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     // how much this horizon happens to hold.
     weeklyCapacityMinutes: isCapacity(summary["capacity"]) ? summary["capacity"].availableMinutes : 0,
   });
+  // One pool of time, divided across every course. The division is the decision: a student
+  // who cannot see that History already holds four of this week's twelve hours cannot make an
+  // informed choice about Biology.
+  const courseLoad = computeCourseLoad({
+    courseIds: snapshot.courses.map((course) => course.id),
+    workItems: snapshot.workItems,
+    // This week's blocks, not the term's — the share being divided is the current plan.
+    booked: open.map((s) => ({ workItemId: s.workItemId, minutes: minutesOf(s) })),
+    completed: snapshot.existingSessions
+      .filter((s) => s.status === "completed" || s.status === "partial")
+      .map((s) => ({ workItemId: s.workItemId, endAt: s.endAt, minutes: minutesOf(s) })),
+    capacityMinutes: isCapacity(summary["capacity"]) ? summary["capacity"].availableMinutes : 0,
+    now: new Date().toISOString(),
+  });
+
   const projects = {
     rows: projectRows,
     summary: summarizeProjects(projectRows, {
@@ -245,6 +261,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
         : {}),
     }),
     projects,
+    courseLoad,
     sessions: sessions.map((s) => ({
       ...s,
       reasonCodes: JSON.parse(s.reasonCodesJson) as string[],

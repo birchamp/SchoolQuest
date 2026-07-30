@@ -7,4 +7,5 @@ export * from "./progress.js";
 export * from "./session-brief.js";
 export * from "./project-progress.js";
 export * from "./decompose.js";
+export * from "./course-load.js";
 export * from "./seed-input.js";

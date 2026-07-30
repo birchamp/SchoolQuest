@@ -217,3 +217,52 @@ export function explainDayLoad(load: string, theme: ThemeName): string {
 export function plainDayLoad(load: string): string {
   return DAY_LOAD_TEXT[load]?.plain ?? load;
 }
+
+/**
+ * Upkeep — whether a course's routine work is being kept up.
+ *
+ * Deliberately not a score and not a streak: a course returns to "current" the instant its
+ * overdue routine work is done, so there is nothing here to lose and nothing to protect. The
+ * wording carries that; "slipping" is a description of two unfinished posts, not a verdict on
+ * the student.
+ */
+const UPKEEP_TEXT: Record<string, Record<ThemeName, { label: string; hint: string }>> = {
+  no_routine: {
+    quest: { label: "No upkeep", hint: "This questline has no recurring work." },
+    mission: { label: "No standing tasks", hint: "Nothing recurring in this theater." },
+    plain: { label: "No recurring work", hint: "This course has no repeating assignments." },
+  },
+  current: {
+    quest: { label: "Upkeep held", hint: "The recurring work of this questline is current." },
+    mission: { label: "Standing tasks current", hint: "Recurring work is up to date." },
+    plain: { label: "Recurring work current", hint: "Nothing repeating is overdue." },
+  },
+  slipping: {
+    quest: { label: "Upkeep slipping", hint: "One piece of recurring work is past its date." },
+    mission: { label: "One standing task late", hint: "One recurring item is past its date." },
+    plain: { label: "One repeat overdue", hint: "One repeating assignment is past its date." },
+  },
+  behind: {
+    quest: {
+      label: "Upkeep behind",
+      hint: "Several pieces of recurring work are past their dates. They are usually short.",
+    },
+    mission: {
+      label: "Standing tasks behind",
+      hint: "Several recurring items are past their dates. They are usually short.",
+    },
+    plain: {
+      label: "Repeats overdue",
+      hint: "Several repeating assignments are past their dates. They are usually short.",
+    },
+  },
+};
+
+export function explainUpkeep(
+  status: string,
+  theme: ThemeName,
+): { label: string; hint: string; plainLabel: string } {
+  const entry = UPKEEP_TEXT[status];
+  if (!entry) return { label: status, hint: "", plainLabel: status };
+  return { ...entry[theme], plainLabel: entry.plain.label };
+}

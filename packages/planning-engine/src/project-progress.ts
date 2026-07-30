@@ -19,7 +19,7 @@ import { DEFAULT_EFFORT_MINUTES } from "./scheduler.js";
  */
 
 /** Work large or weighty enough that "how is it going" is a real question. */
-const PROJECT_MINUTES = 120;
+export const PROJECT_MINUTES = 120;
 
 /**
  * A project needing more than this share of *all* the student's study time each week is
@@ -183,10 +183,12 @@ function isProject(item: WorkItem, childrenByParent: Map<string, WorkItem[]>): b
  * Total effort for an item, from the best source available.
  *
  * Mirrors the scheduler's own fallback deliberately: if the plan books 240 minutes for a
- * paper because that is the default, the stats page must measure against the same 240 or the
- * two screens will quietly disagree about the same project.
+ * paper because that is the default, every other screen must measure against the same 240 or
+ * they will quietly disagree about the same project. Exported for exactly that reason — a
+ * second copy of this rule immediately drifted, and the course table reported zero projects
+ * for a term the Chronicle showed seven in.
  */
-function effortOf(item: WorkItem): { minutes: number; assumed: boolean } {
+export function effortOf(item: WorkItem): { minutes: number; assumed: boolean } {
   if (item.estimatedMinutes !== null) return { minutes: item.estimatedMinutes, assumed: false };
   if (item.remainingMinutes !== null && item.remainingMinutes > 0) {
     return { minutes: item.remainingMinutes, assumed: false };

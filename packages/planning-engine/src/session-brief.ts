@@ -206,15 +206,20 @@ function isOpen(status: string): boolean {
  * Titles that recur across a course — a weekly log, a discussion post. Trailing numbers are
  * stripped so "Lab Notebook 3" and "Lab Notebook 7" count as the same routine.
  */
-function findRecurringTitles(items: readonly WorkItem[]): Set<string> {
+export function findRecurringTitles(items: readonly WorkItem[]): Set<string> {
   const counts = new Map<string, number>();
   for (const item of items) {
-    const key = `${item.courseId}:${normalizeTitle(item.title)}`;
+    const key = routineKeyOf(item);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return new Set(
     [...counts.entries()].filter(([, n]) => n >= RECURRING_THRESHOLD).map(([key]) => key),
   );
+}
+
+/** The key a recurring set shares: course plus title with its numbering stripped. */
+export function routineKeyOf(item: WorkItem): string {
+  return `${item.courseId}:${normalizeTitle(item.title)}`;
 }
 
 function normalizeTitle(title: string): string {
@@ -293,7 +298,7 @@ function classify(
 
   if (group.blocks >= 3 || (dueCountByDate.get(group.date) ?? 0) >= 3) return "back_to_back";
 
-  if (item && recurringTitles.has(`${item.courseId}:${normalizeTitle(item.title)}`)) {
+  if (item && recurringTitles.has(routineKeyOf(item))) {
     return "recurring";
   }
 

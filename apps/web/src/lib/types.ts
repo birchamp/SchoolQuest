@@ -215,6 +215,37 @@ export interface ProjectsSummaryView {
   projectsPastDue: number;
 }
 
+/**
+ * One pool of time, divided across every course
+ * (packages/planning-engine/src/course-load.ts).
+ */
+export type UpkeepStatus = "no_routine" | "current" | "slipping" | "behind";
+
+export interface CourseLoadView {
+  courseId: string;
+  bookedMinutes: number;
+  /** Share of everything booked this week, 0..1. */
+  shareOfBooked: number;
+  blocks: number;
+  investedMinutes: number;
+  openItems: number;
+  openProjects: number;
+  nextDueAt: string | null;
+  nextDueTitle: string | null;
+  upkeep: UpkeepStatus;
+  upkeepOverdue: number;
+  daysSinceProgress: number | null;
+}
+
+export interface TermLoadView {
+  courses: CourseLoadView[];
+  bookedMinutes: number;
+  capacityMinutes: number;
+  /** Capacity not yet spoken for. Room, never debt. */
+  unbookedMinutes: number;
+  coursesWithNothingBooked: number;
+}
+
 export interface PlanResponse {
   planVersionId?: string;
   planVersion?: { id: string; versionNumber: number; horizonStart: string; horizonEnd: string } | null;
@@ -233,6 +264,7 @@ export interface PlanResponse {
   /** Present on saved-plan reads; the generate response does not build one. */
   brief?: SessionBriefView;
   projects?: { rows: ProjectProgressView[]; summary: ProjectsSummaryView };
+  courseLoad?: TermLoadView;
 }
 
 export interface CoachActionView {
