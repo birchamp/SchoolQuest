@@ -49,9 +49,10 @@ export const LABELS: Record<LabelKey, LabelSet> = {
   progress: { quest: "Progress", mission: "Status", plain: "Progress" },
   statsPage: { quest: "Chronicle", mission: "Readiness", plain: "Progress" },
   /**
-   * The student runs every course at once out of one week — they are the DM of five
-   * campaigns, not a player in one. These two keys name that surface and the pool it
-   * divides.
+   * The student runs every course at once out of one week — they are the DM of as many
+   * campaigns as they are enrolled in, not a player in one. These two keys name that
+   * surface and the pool it divides. Nothing anywhere may assume how many there are: three
+   * courses and seven are both ordinary.
    */
   courseTable: { quest: "The table", mission: "Theaters", plain: "Your courses" },
   sharedTime: { quest: "Table time", mission: "Available hours", plain: "Study time" },

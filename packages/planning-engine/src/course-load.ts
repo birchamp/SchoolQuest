@@ -6,8 +6,10 @@ import { findRecurringTitles, routineKeyOf } from "./session-brief.js";
 /**
  * One pool of time, divided across every course.
  *
- * A student is not a player working through one campaign — they are running five at once,
- * each with its own arc and its own deadlines, out of a single week that does not grow. That
+ * A student is not a player working through one campaign — they are running one per course,
+ * all at once, each with its own arc and its own deadlines, out of a single week that does
+ * not grow. How many there are is never assumed: three courses and seven are both ordinary,
+ * and every figure here is derived from the course list it is handed. That
  * is the fact this module exists to state, because it is the fact the interface kept
  * implying was false: every screen so far shows one course's work at a time, or the week as
  * an undifferentiated whole, and neither shows the division.

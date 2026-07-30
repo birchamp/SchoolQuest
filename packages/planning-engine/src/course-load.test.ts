@@ -184,3 +184,57 @@ describe("upkeep", () => {
     expect(term.courses[0]!.upkeep).toBe("no_routine");
   });
 });
+
+describe("any number of courses", () => {
+  // A student might carry three courses or seven. Nothing here may assume a count, and the
+  // shares must still describe a whole week however many ways it is cut.
+  function termOf(count: number) {
+    const ids = Array.from({ length: count }, (_, i) => `c${i}`);
+    const items = ids.map((id) => item(id));
+    return load(
+      ids,
+      items,
+      items.map((i) => ({ workItemId: i.id, minutes: 60 })),
+    );
+  }
+
+  for (const count of [1, 2, 3, 5, 7, 9]) {
+    it(`divides the week across ${count} course${count === 1 ? "" : "s"}`, () => {
+      const term = termOf(count);
+      expect(term.courses).toHaveLength(count);
+      expect(term.bookedMinutes).toBe(60 * count);
+      // Shares always sum to the whole, whatever the count.
+      expect(term.courses.reduce((sum, c) => sum + c.shareOfBooked, 0)).toBeCloseTo(1);
+      // And each is an equal cut here, so none is silently dropped or double-counted.
+      for (const course of term.courses) {
+        expect(course.shareOfBooked).toBeCloseTo(1 / count);
+      }
+    });
+  }
+
+  it("gives a single course the whole week without dividing by zero elsewhere", () => {
+    const term = termOf(1);
+    expect(term.courses[0]!.shareOfBooked).toBe(1);
+    expect(term.coursesWithNothingBooked).toBe(0);
+  });
+
+  it("handles a term with no courses at all", () => {
+    const term = load([], []);
+    expect(term.courses).toEqual([]);
+    expect(term.bookedMinutes).toBe(0);
+    expect(term.unbookedMinutes).toBe(900);
+  });
+
+  it("keeps every course's row when only some have work booked", () => {
+    const ids = Array.from({ length: 7 }, (_, i) => `c${i}`);
+    const items = ids.map((id) => item(id));
+    // Only two of the seven have anything booked this week.
+    const term = load(ids, items, [
+      { workItemId: items[0]!.id, minutes: 120 },
+      { workItemId: items[3]!.id, minutes: 60 },
+    ]);
+    expect(term.courses).toHaveLength(7);
+    expect(term.coursesWithNothingBooked).toBe(5);
+    expect(term.courses.reduce((sum, c) => sum + c.shareOfBooked, 0)).toBeCloseTo(1);
+  });
+});
