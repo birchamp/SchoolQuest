@@ -9,21 +9,34 @@ import {
   toEpochMinutes,
   type Interval,
 } from "@schoolquest/domain";
+import { planMealBreaks, reservedIntervals, type MealBreak } from "./meals.js";
 import type { PlanningInput, CapacityWindow } from "./types.js";
+
+/** Free time to work in, plus the meal time that was held out of it. */
+export interface Capacity {
+  windows: CapacityWindow[];
+  meals: MealBreak[];
+}
 
 /**
  * Turns availability rules into concrete free windows by subtracting everything the
- * student has already committed to: class meetings, recurring commitments, and any
- * locked sessions carried over from the previous plan.
+ * student has already committed to: class meetings, recurring commitments, any locked
+ * sessions carried over from the previous plan, and customary meal time.
  *
  * Optional commitments are NOT subtracted — they are movable by definition, so treating
  * them as busy would hide real capacity.
  */
-export function buildCapacityWindows(input: PlanningInput): CapacityWindow[] {
+export function buildCapacity(input: PlanningInput): Capacity {
   const horizonStart = dateToEpochMinutes(input.horizonStart);
   const horizonEnd = horizonStart + input.horizonDays * MINUTES_PER_DAY;
   const now = toEpochMinutes(input.now);
-  const busy = collectBusyIntervals(input, horizonStart, input.horizonDays);
+  const committed = collectBusyIntervals(input, horizonStart, input.horizonDays);
+
+  // Meals are worked out against exactly the same busy set the windows are cut from, so the
+  // held lunch and the capacity around it can never disagree about what is already taken.
+  const meals = planMealBreaks(input, committed);
+  const busy = mergeIntervals([...committed, ...reservedIntervals(meals)]);
+
   const protectedDays = new Set(input.preferences.protectedDaysOfWeek);
 
   const windows: CapacityWindow[] = [];
@@ -59,7 +72,12 @@ export function buildCapacityWindows(input: PlanningInput): CapacityWindow[] {
     }
   }
 
-  return windows.sort((a, b) => a.start - b.start || a.end - b.end);
+  return { windows: windows.sort((a, b) => a.start - b.start || a.end - b.end), meals };
+}
+
+/** The windows alone, for callers that do not care how the day was shaped. */
+export function buildCapacityWindows(input: PlanningInput): CapacityWindow[] {
+  return buildCapacity(input).windows;
 }
 
 function collectBusyIntervals(

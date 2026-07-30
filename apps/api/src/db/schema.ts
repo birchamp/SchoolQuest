@@ -320,6 +320,46 @@ export const coachMessages = sqliteTable(
   (t) => [index("coach_messages_user_idx").on(t.userId, t.createdAt)],
 );
 
+/**
+ * What took the time instead, and what the student decided to do about it.
+ *
+ * One table carries two kinds of row, because they are two halves of the same conversation.
+ * A `reported` row is the student naming something that displaced a block. A `resolution`
+ * row is their answer about a repeating slot — one-off, not free, or made into a commitment
+ * — and exists so the same question is never asked twice.
+ *
+ * `slotKey` is what ties them to the pattern the planning engine finds: weekday plus start
+ * time, e.g. "4:17:00". `occurrences` records how many times the slot had come up when the
+ * answer was given, so a slot dismissed as a one-off can be raised again if it keeps
+ * happening — the answer was about that week, not a promise about the term.
+ */
+export const interruptions = sqliteTable(
+  "interruptions",
+  {
+    id: text("id").primaryKey(),
+    termId: text("term_id")
+      .notNull()
+      .references(() => terms.id, { onDelete: "cascade" }),
+    /** "reported" — the student named it. "resolution" — the student answered about a slot. */
+    kind: text("kind").notNull(),
+    slotKey: text("slot_key").notNull(),
+    /** Set when the interruption displaced a specific block. */
+    workSessionId: text("work_session_id"),
+    title: text("title"),
+    commitmentType: text("commitment_type"),
+    startAt: text("start_at"),
+    endAt: text("end_at"),
+    /** The student's own answer to "does this happen every week?", when they gave one. */
+    recurring: integer("recurring", { mode: "boolean" }),
+    /** For resolution rows: "one_off" | "promoted" | "dismissed". */
+    resolution: text("resolution"),
+    occurrences: integer("occurrences").notNull().default(0),
+    promotedCommitmentId: text("promoted_commitment_id"),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [index("interruptions_term_idx").on(t.termId, t.slotKey)],
+);
+
 export const auditEvents = sqliteTable(
   "audit_events",
   {

@@ -41,13 +41,44 @@ export const user = z.object({
 });
 export type User = z.infer<typeof user>;
 
+/**
+ * When a meal normally happens, and how much of it to hold open.
+ *
+ * `earliest`/`latest` bound the hour it could reasonably move to on a busy day; `anchor` is
+ * where it lands when nothing is in the way. Keeping the window separate from the anchor is
+ * what lets the scheduler slide lunch to 13:10 on the day of a noon lab instead of either
+ * cancelling it or planning over the top of the lab.
+ *
+ * These are defaults, not assertions about this student. A meal the student has actually
+ * entered as a commitment always takes precedence, and removing a window here is how "I do
+ * not stop for breakfast" is said.
+ */
+export const mealWindow = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  earliest: timeOfDay,
+  latest: timeOfDay,
+  anchor: timeOfDay,
+  minutes: z.number().int().positive(),
+});
+export type MealWindow = z.infer<typeof mealWindow>;
+
+export const DEFAULT_MEAL_WINDOWS: MealWindow[] = [
+  { key: "breakfast", label: "Breakfast", earliest: "06:30", latest: "09:30", anchor: "08:00", minutes: 20 },
+  { key: "lunch", label: "Lunch", earliest: "11:00", latest: "14:00", anchor: "12:15", minutes: 40 },
+  { key: "dinner", label: "Dinner", earliest: "17:00", latest: "20:00", anchor: "18:15", minutes: 45 },
+];
+
 export const planningPreferences = z.object({
   /** Hard ceiling on scheduled academic minutes in a single day. */
   maxDailyAcademicMinutes: z.number().int().positive().default(300),
   preferredSessionMinutes: z.number().int().positive().default(45),
   minSessionMinutes: z.number().int().positive().default(20),
   maxSessionMinutes: z.number().int().positive().default(120),
+  /** Recovery time held after each block. Zero packs the day back-to-back. */
   breakMinutes: z.number().int().nonnegative().default(10),
+  /** Meal times the scheduler holds open. An empty list opts out of all of them. */
+  mealWindows: z.array(mealWindow).default(DEFAULT_MEAL_WINDOWS),
   /** Days the scheduler must leave empty unless the user explicitly overrides. */
   protectedDaysOfWeek: z.array(dayOfWeek).default([]),
   /** Days of slack the scheduler reserves before a high-value deadline. */

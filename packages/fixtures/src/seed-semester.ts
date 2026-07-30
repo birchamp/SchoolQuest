@@ -1,3 +1,4 @@
+import { DEFAULT_MEAL_WINDOWS } from "@schoolquest/domain";
 import type {
   AvailabilityRule,
   Commitment,
@@ -57,6 +58,7 @@ export function buildSeedSemester(userId = "usr_seed"): SeedSemester {
       minSessionMinutes: 20,
       maxSessionMinutes: 90,
       breakMinutes: 10,
+      mealWindows: DEFAULT_MEAL_WINDOWS,
       protectedDaysOfWeek: [],
       deadlineBufferDays: 1,
     },

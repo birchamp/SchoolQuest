@@ -19,6 +19,7 @@ export const ID_PREFIXES = {
   extractionClaim: "clm",
   auditEvent: "aud",
   coachMessage: "msg",
+  interruption: "int",
   session: "sess",
 } as const;
 

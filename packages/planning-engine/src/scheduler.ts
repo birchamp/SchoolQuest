@@ -7,7 +7,7 @@ import {
   toEpochMinutes,
   type WorkItem,
 } from "@schoolquest/domain";
-import { buildCapacityWindows, totalCapacityMinutes } from "./capacity.js";
+import { buildCapacity, totalCapacityMinutes } from "./capacity.js";
 import { isSchedulable, scoreWorkItems } from "./priority.js";
 import type { ReasonCode, RiskCode } from "./reason-codes.js";
 import type {
@@ -59,7 +59,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
   const horizonStartMinutes = dateToEpochMinutes(input.horizonStart);
   const horizonEndMinutes = horizonStartMinutes + input.horizonDays * MINUTES_PER_DAY;
 
-  const windows = buildCapacityWindows(input);
+  const { windows, meals } = buildCapacity(input);
   const priorities = scoreWorkItems(input);
   const priorityById = new Map(priorities.map((p) => [p.workItemId, p]));
 
@@ -74,7 +74,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
   const carried = carryOverSessions(input, horizonStartMinutes, horizonEndMinutes);
   for (const session of carried) {
     sessions.push(session);
-    consume(remainingWindows, toEpochMinutes(session.startAt), toEpochMinutes(session.endAt));
+    consumeWithBreak(remainingWindows, toEpochMinutes(session.startAt), toEpochMinutes(session.endAt), input);
     addDaily(dailyMinutes, session.startAt, session.minutes);
   }
 
@@ -203,7 +203,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
         movementCost: 0.2,
       });
 
-      consume(remainingWindows, placement.start, placement.end);
+      consumeWithBreak(remainingWindows, placement.start, placement.end, input);
       addDaily(dailyMinutes, fromEpochMinutes(placement.start), placement.end - placement.start);
       work.minutesRemaining -= placement.end - placement.start;
       lastEnd = Math.max(lastEnd, placement.end);
@@ -236,6 +236,9 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
     horizonEnd: epochMinutesToDate(horizonEndMinutes),
     sessions,
     recommendations: buildRecommendations(sessions, input, priorityById, now),
+    // Reported, not silent. Time the engine held on the student's behalf has to be
+    // inspectable, or it is indistinguishable from time the engine lost.
+    meals,
     risks,
     unscheduledWorkItemIds: unscheduled,
     capacity: { usedMinutes, availableMinutes },
@@ -635,6 +638,27 @@ function nextScheduledDay<T extends RecommendableSession>(upcoming: readonly T[]
 
 function mergeReasonCodes(a: ReasonCode[], b: ReasonCode[]): ReasonCode[] {
   return [...new Set([...a, ...b])];
+}
+
+/**
+ * Removes a placed block, plus the recovery time after it, from the remaining free space.
+ *
+ * `breakMinutes` was declared in the preferences, written by the seeder, and read by nothing
+ * — so the scheduler packed blocks end to end: a 90-minute problem set finishing at 15:00
+ * and the next block starting at 15:00 exactly, three or four times in an afternoon. For a
+ * student whose whole difficulty is starting and stopping tasks, a plan with no seam between
+ * them is a plan that fails at the first transition and then reads as a personal failure.
+ *
+ * The break is held out of the free space but never counted as academic time, so the daily
+ * ceiling and the capacity readout both still mean what they say.
+ */
+function consumeWithBreak(
+  windows: CapacityWindow[],
+  start: number,
+  end: number,
+  input: PlanningInput,
+): void {
+  consume(windows, start, end + Math.max(0, input.preferences.breakMinutes));
 }
 
 /** Removes a placed block from the remaining free space. */

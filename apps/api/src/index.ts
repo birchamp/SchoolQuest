@@ -11,6 +11,7 @@ import { coachRoute } from "./routes/coach.js";
 import { documentsRoute } from "./routes/documents.js";
 import { extractionRoute } from "./routes/extraction.js";
 import { plansRoute } from "./routes/plans.js";
+import { reviewRoute } from "./routes/review.js";
 import { sessionsRoute } from "./routes/sessions.js";
 import { termsRoute } from "./routes/terms.js";
 import type { AppBindings } from "./env.js";
@@ -110,6 +111,7 @@ app.patch("/api/me", async (c) => {
 app.route("/api", termsRoute);
 app.route("/api", plansRoute);
 app.route("/api", sessionsRoute);
+app.route("/api", reviewRoute);
 app.route("/api", coachRoute);
 app.route("/api", documentsRoute);
 app.route("/api", extractionRoute);

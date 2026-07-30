@@ -13,6 +13,7 @@ import type {
   WorkItem,
   WorkSession,
 } from "@schoolquest/domain";
+import type { MealBreak } from "./meals.js";
 import type { ReasonCode, RiskCode, TradeoffCode } from "./reason-codes.js";
 
 /**
@@ -114,6 +115,8 @@ export interface PlanningResult {
   horizonEnd: string;
   sessions: PlannedSession[];
   recommendations: PlanRecommendation[];
+  /** Where each meal falls, including the ones the engine held open itself. */
+  meals: MealBreak[];
   risks: PlanRisk[];
   unscheduledWorkItemIds: string[];
   /** Minutes of capacity used vs available across the horizon. */

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { newId, toEpochMinutes } from "@schoolquest/domain";
 import {
@@ -21,6 +21,7 @@ import {
   loadTermSnapshot,
   toPlanningInput,
 } from "../db/repo.js";
+import { loadReview } from "./review.js";
 import type { AppBindings } from "../env.js";
 
 const generateBody = z.object({
@@ -35,6 +36,9 @@ export const plansRoute = new Hono<AppBindings>();
 
 /** Rows per INSERT; keeps bound parameters under D1's per-statement ceiling. */
 const SESSION_INSERT_BATCH = 8;
+
+/** Ids per UPDATE ... WHERE id IN (...). One bound parameter each, so it can be wider. */
+const SUPERSEDE_BATCH = 50;
 
 /**
  * Generates a new plan version.
@@ -88,6 +92,10 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
       risks: plan.risks,
       unscheduledWorkItemIds: plan.unscheduledWorkItemIds,
       recommendations: plan.recommendations,
+      // Time the engine held for meals is part of the plan's reasoning, so it is stored with
+      // the plan rather than recomputed on read — the student must be able to see the same
+      // day shape the scheduler worked against, not a fresh guess at it.
+      meals: plan.meals,
     }),
     createdAt: now,
   });
@@ -113,6 +121,25 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
   // A full week is easily 20+ sessions; 12 columns each would blow D1's parameter cap.
   await insertInChunks(rows, SESSION_INSERT_BATCH, (batch) =>
     db.insert(workSessions).values(batch),
+  );
+
+  // Retire the blocks this plan replaces.
+  //
+  // Nothing did this before, so every replan left its predecessor's blocks in the table
+  // saying "planned" forever. Three generations of one term left 83 live blocks where 26
+  // were real. They were counted as time already booked when judging whether a project would
+  // fit, and — once the weekly review started reading history — as time the student had let
+  // slip. Neither was true: a block replaced by a replan is not a block anyone missed.
+  //
+  // Only the future is retired. A block whose time has already passed is the record of what
+  // was planned for that hour, and superseding today's plan cannot change yesterday.
+  const keptIds = new Set(plan.sessions.map((s) => s.id));
+  const superseded = snapshot.existingSessions
+    .filter((s) => s.status === "planned" && s.startAt >= now && !keptIds.has(s.id))
+    .map((s) => s.id);
+
+  await insertInChunks(superseded, SUPERSEDE_BATCH, (batch) =>
+    db.update(workSessions).set({ status: "moved" }).where(inArray(workSessions.id, batch)),
   );
 
   return c.json(serializePlan(plan, snapshot, await loadEffortTotals(db, termId)), 201);
@@ -262,6 +289,10 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     }),
     projects,
     courseLoad,
+    // What the weeks that already happened have to say about the week being planned. Asked
+    // here rather than on its own screen because the answer changes the plan, and a question
+    // the student has to go looking for is a question nobody answers.
+    review: await loadReview(db, termId),
     sessions: sessions.map((s) => ({
       ...s,
       reasonCodes: JSON.parse(s.reasonCodesJson) as string[],
@@ -324,6 +355,7 @@ function serializePlan(
     horizonEnd: plan.horizonEnd,
     capacity: plan.capacity,
     sessions: plan.sessions,
+    meals: plan.meals,
     recommendations: plan.recommendations.map((r) => ({
       ...r,
       explanation: explainRecommendation(r.title, r.reasonCodes),
