@@ -101,6 +101,29 @@ export function buildCoachContext(input: CoachContextInput): CoachContext {
     `CAPACITY THIS WEEK: ${usedMinutes} of ${availableMinutes} available minutes are scheduled.`,
   );
 
+  // How that one pool is divided. Without this the coach can be told to name what more time
+  // on one course costs elsewhere, and have no way to honour it — it would either stay vague
+  // or invent a figure. With it, "History already holds a quarter of your week" is a fact it
+  // can read off rather than guess at.
+  const minutesByCourse = new Map<string, number>();
+  for (const session of input.plan.sessions) {
+    const courseId = itemsById.get(session.workItemId)?.courseId;
+    if (!courseId) continue;
+    minutesByCourse.set(courseId, (minutesByCourse.get(courseId) ?? 0) + session.minutes);
+  }
+  if (minutesByCourse.size > 0) {
+    const totalBooked = [...minutesByCourse.values()].reduce((sum, m) => sum + m, 0);
+    lines.push("HOW THIS WEEK IS DIVIDED (one pool of time, every course drawing on it):");
+    for (const course of input.courses) {
+      const minutes = minutesByCourse.get(course.id) ?? 0;
+      const share = totalBooked > 0 ? Math.round((minutes / totalBooked) * 100) : 0;
+      lines.push(
+        `  ${course.name}: ${minutes} minutes (${share}% of what is booked)` +
+          (minutes === 0 ? " — nothing booked this week" : ""),
+      );
+    }
+  }
+
   if (input.plan.risks.length > 0) {
     lines.push("PLANNING RISKS:");
     for (const risk of input.plan.risks.slice(0, 6)) {

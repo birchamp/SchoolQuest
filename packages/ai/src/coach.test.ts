@@ -84,6 +84,16 @@ describe("system prompt", () => {
     expect(buildCoachSystemPrompt("plain")).toMatch(/injection/i);
   });
 
+  it("frames the student as running every course at once, out of one shared week", () => {
+    // The user's own reframe, and a better one than "player in a campaign": a student is
+    // the DM of five tables. The duty that follows is the point — time spent on one course
+    // is time taken from another, and advice that ignores that is not advice.
+    const prompt = buildCoachSystemPrompt("quest");
+    expect(prompt).toMatch(/one per course/i);
+    expect(prompt).toMatch(/single week that does not grow/i);
+    expect(prompt).toMatch(/say what it costs\s+elsewhere/i);
+  });
+
   it("gives the quest theme a guide's voice and forbids theatrics", () => {
     const prompt = buildCoachSystemPrompt("quest");
     expect(prompt).toMatch(/the Guide/);
@@ -243,5 +253,31 @@ describe("action pruning", () => {
     expect(
       pruneInvalidActions([{ type: "SHOW_WEEK", label: "Show week", payload: {} }], known),
     ).toHaveLength(1);
+  });
+});
+
+describe("the shared week in the coach's context", () => {
+  it("shows how the one pool of time is divided across courses", () => {
+    // The prompt tells the coach to name what more time on one course costs elsewhere.
+    // Without the division in front of it, it could only be vague or invent a number.
+    expect(context.text).toContain("HOW THIS WEEK IS DIVIDED");
+    for (const course of input.courses) {
+      expect(context.text).toContain(course.name);
+    }
+    expect(context.text).toMatch(/% of what is booked/);
+  });
+
+  it("says plainly when a course has nothing booked, rather than omitting it", () => {
+    const quiet = buildCoachContext({
+      now: input.now,
+      timezone: "America/New_York",
+      plan: { ...plan, sessions: [] },
+      workItems: input.workItems,
+      courses: input.courses,
+      standings: input.courseStandings,
+    });
+    // With no sessions at all there is no division to report; the section is absent rather
+    // than showing five courses at 0%, which would read as a plan that had failed.
+    expect(quiet.text).not.toContain("HOW THIS WEEK IS DIVIDED");
   });
 });
