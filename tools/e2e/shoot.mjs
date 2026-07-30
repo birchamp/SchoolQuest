@@ -24,7 +24,7 @@ async function api(path, method = "GET", body, token) {
 }
 
 // Sign in as the seeded semester account and set the theme under test.
-const login = await api("/api/auth/login", "POST", { email: "semester-test@example.edu" });
+const login = await api("/api/auth/login", "POST", { email: process.env.SQ_EMAIL ?? "semester-test@example.edu" });
 const loginToken = new URL(login.devLoginUrl).searchParams.get("token");
 const { sessionToken } = await api("/api/auth/callback", "POST", { token: loginToken });
 await api("/api/me", "PATCH", { theme: THEME }, sessionToken);

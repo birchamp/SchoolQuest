@@ -246,6 +246,54 @@ export interface TermLoadView {
   coursesWithNothingBooked: number;
 }
 
+/** Where each meal falls (packages/planning-engine/src/meals.ts). */
+export type MealStatus = "planned" | "reserved" | "squeezed" | "no_gap";
+
+export interface MealBreakView {
+  date: string;
+  key: string;
+  label: string;
+  status: MealStatus;
+  /** Epoch minutes. Null for "planned" (the student's own) and "no_gap". */
+  start: number | null;
+  end: number | null;
+  minutes: number;
+}
+
+/** What the weeks that already happened have to say (planning-engine/interruptions.ts). */
+export interface ReviewOccurrenceView {
+  date: string;
+  minutes: number;
+  sessionIds: string[];
+  cause: string | null;
+}
+
+export interface CommitmentProposalView {
+  title: string;
+  commitmentType: string;
+  daysOfWeek: number[];
+  startTime: string;
+  endTime: string;
+  named: boolean;
+}
+
+export interface ReviewQuestionView {
+  slotKey: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  weeks: number;
+  minutesLost: number;
+  occurrences: ReviewOccurrenceView[];
+  proposal: CommitmentProposalView | null;
+}
+
+export interface WeeklyReviewView {
+  questions: ReviewQuestionView[];
+  minutesLost: number;
+  unanswered: number;
+}
+
 export interface PlanResponse {
   planVersionId?: string;
   planVersion?: { id: string; versionNumber: number; horizonStart: string; horizonEnd: string } | null;
@@ -265,6 +313,10 @@ export interface PlanResponse {
   brief?: SessionBriefView;
   projects?: { rows: ProjectProgressView[]; summary: ProjectsSummaryView };
   courseLoad?: TermLoadView;
+  /** Absent on plans generated before the engine started reporting the day's shape. */
+  meals?: MealBreakView[];
+  /** Present on saved-plan reads only; generating a plan does not look backwards. */
+  review?: WeeklyReviewView;
 }
 
 export interface CoachActionView {
@@ -292,12 +344,36 @@ export interface CoachReplyResponse {
   refused: boolean;
 }
 
+export interface MealWindowView {
+  key: string;
+  label: string;
+  /** Earliest and latest the meal could move to on a busy day. */
+  earliest: string;
+  latest: string;
+  /** Where it lands when nothing is in the way. */
+  anchor: string;
+  minutes: number;
+}
+
+export interface PlanningPreferencesView {
+  maxDailyAcademicMinutes: number;
+  preferredSessionMinutes: number;
+  minSessionMinutes: number;
+  maxSessionMinutes: number;
+  breakMinutes: number;
+  mealWindows: MealWindowView[];
+  protectedDaysOfWeek: number[];
+  deadlineBufferDays: number;
+}
+
 export interface Term {
   id: string;
   name: string;
   startDate: string;
   endDate: string;
   status: string;
+  /** Absent from older payloads that predate preferences being returned. */
+  planningPreferences?: PlanningPreferencesView;
 }
 
 export interface Me {

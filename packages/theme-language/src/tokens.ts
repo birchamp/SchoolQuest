@@ -27,7 +27,10 @@ export type LabelKey =
   | "progress"
   | "statsPage"
   | "courseTable"
-  | "sharedTime";
+  | "sharedTime"
+  | "dayShape"
+  | "mealBreak"
+  | "weekReview";
 
 type LabelSet = Record<ThemeName, string>;
 
@@ -56,6 +59,15 @@ export const LABELS: Record<LabelKey, LabelSet> = {
    */
   courseTable: { quest: "The table", mission: "Theaters", plain: "Your courses" },
   sharedTime: { quest: "Table time", mission: "Available hours", plain: "Study time" },
+  /**
+   * The hours around the work, and the look back at the weeks that already happened. The
+   * quest wording stays on the DM's side of the table — a session has breaks in it and a
+   * campaign has a recap — because the alternative reads as the app grading the student's
+   * week, which is exactly what this must never be (docs/01-product-brief.md §3).
+   */
+  dayShape: { quest: "How the day runs", mission: "Day profile", plain: "Your day" },
+  mealBreak: { quest: "Break in play", mission: "Meal window", plain: "Meal" },
+  weekReview: { quest: "Last session's recap", mission: "After-action review", plain: "How last week went" },
 };
 
 export function label(key: LabelKey, theme: ThemeName): string {

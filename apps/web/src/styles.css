@@ -467,6 +467,19 @@ button.action:disabled {
   display: block;
 }
 
+/* Time held clear for a meal, sitting in the day's sequence where it actually falls.
+ *
+ * Distinguished by border style rather than by dimming. The obvious move — `opacity` — was
+ * already caught making the future-work list unreadable at 3.25:1 while the contrast checker
+ * looked straight past it, so nothing in this file de-emphasises with transparency again.
+ * A dashed edge and no accent colour say "not work" without touching a single measured
+ * foreground value. */
+.block.rest {
+  background: transparent;
+  border-left: 3px dashed var(--border);
+  font-style: italic;
+}
+
 /* --- Beats, day load, and flags (docs/07-session-prep-design.md) -------------
  * The week renders one beat per piece of work per day rather than one tile per
  * scheduled block. `.beat-kind` names what sort of work it is — the derived kind
@@ -479,6 +492,11 @@ button.action:disabled {
   letter-spacing: 0.1em;
   font-weight: 700;
   margin-bottom: 0.1rem;
+  /* Seven columns across 1280px leaves each one narrower than "RECONNAISSANCE" set at this
+     tracking, and the overflow ran out past the parchment edge rather than wrapping. The
+     word is the tile's first line and the one that says what sort of work this is, so it
+     has to survive a narrow column intact. */
+  overflow-wrap: anywhere;
 }
 
 /* Load is carried on the day, not just on a colour strip: the strip is a summary
@@ -909,6 +927,14 @@ body[data-theme="quest"] .block {
 }
 
 body[data-theme="quest"] .block .time { color: #6b5636; }
+
+/* On parchment the dashed edge is drawn in dimmed gold, which is decoration only — the
+   words inside keep the measured ink, never the gold (1.6:1 on this ground). */
+body[data-theme="quest"] .block.rest {
+  background: transparent;
+  border-left: 3px dashed rgba(138, 111, 31, 0.55);
+  color: #5b4930;
+}
 
 /* --- Forms & inputs on parchment cards ------------------------------------- */
 

@@ -281,3 +281,87 @@ describe("the shared week in the coach's context", () => {
     expect(quiet.text).not.toContain("HOW THIS WEEK IS DIVIDED");
   });
 });
+
+describe("the day's shape and the weeks behind it", () => {
+  it("tells the coach which minutes are held for meals", () => {
+    // The seed student has a dinner commitment of their own but no lunch, so the engine
+    // holds lunch and leaves dinner alone — both halves of the rule in one fixture.
+    expect(context.text).toContain("MEAL TIME (held clear; not available for study)");
+    expect(context.text).toContain("Lunch");
+  });
+
+  it("says nothing about meals when the student has opted out of every window", () => {
+    const bare = { ...input, preferences: { ...input.preferences, mealWindows: [] } };
+    const quiet = buildCoachContext({
+      now: bare.now,
+      timezone: "UTC",
+      plan: generatePlan(bare, "plan_nomeals"),
+      workItems: bare.workItems,
+      courses: bare.courses,
+    });
+    expect(quiet.text).not.toContain("MEAL TIME");
+  });
+
+  it("carries a repeating lost slot as a fact about the calendar", () => {
+    const withReview = buildCoachContext({
+      now: input.now,
+      timezone: "UTC",
+      plan,
+      workItems: input.workItems,
+      courses: input.courses,
+      review: {
+        minutesLost: 270,
+        unanswered: 2,
+        questions: [
+          {
+            slotKey: "4:17:00",
+            dayOfWeek: 4,
+            startTime: "17:00",
+            endTime: "18:40",
+            weeks: 3,
+            minutesLost: 270,
+            occurrences: [
+              { date: "2026-09-10", minutes: 90, sessionIds: [], cause: "Youth group" },
+              { date: "2026-09-17", minutes: 90, sessionIds: [], cause: "Youth group" },
+              { date: "2026-09-24", minutes: 90, sessionIds: [], cause: "Youth group" },
+            ],
+            proposal: {
+              title: "Youth group",
+              commitmentType: "worship",
+              daysOfWeek: [4],
+              startTime: "17:00",
+              endTime: "18:40",
+              named: true,
+            },
+          },
+        ],
+      },
+    });
+    expect(withReview.text).toContain("TIME THE PLAN KEEPS BOOKING THAT DOES NOT GET USED");
+    expect(withReview.text).toContain("Thursday 17:00-18:40");
+    expect(withReview.text).toContain("Youth group");
+    expect(withReview.text).toContain("worth adding to their standing week");
+    // The evidence is about the plan, never a count of what the student failed to do.
+    expect(withReview.text).not.toMatch(/missed/i);
+  });
+
+  it("omits the section entirely when the weeks went to plan", () => {
+    const clean = buildCoachContext({
+      now: input.now,
+      timezone: "UTC",
+      plan,
+      workItems: input.workItems,
+      courses: input.courses,
+      review: { questions: [], minutesLost: 0, unanswered: 0 },
+    });
+    expect(clean.text).not.toContain("TIME THE PLAN KEEPS BOOKING");
+  });
+
+  it("forbids the coach from tallying misses, in every theme", () => {
+    for (const theme of ["quest", "mission", "plain"] as const) {
+      const prompt = buildCoachSystemPrompt(theme);
+      expect(prompt).toContain("Never count, tally, or characterise missed work");
+      expect(prompt).toContain("do not offer to take it from a meal");
+    }
+  });
+});

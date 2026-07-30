@@ -12,6 +12,8 @@ import { WeekMap } from "./components/WeekMap";
 import { Questline } from "./components/Questline";
 import { CampaignArc } from "./components/CampaignArc";
 import { SessionBrief } from "./components/SessionBrief";
+import { WeeklyReview } from "./components/WeeklyReview";
+import { MealWindows } from "./components/MealWindows";
 import { Stats } from "./components/Stats";
 import { CampaignTable } from "./components/CampaignTable";
 import { SyllabusUpload } from "./components/SyllabusUpload";
@@ -109,12 +111,23 @@ export function App() {
     if (term) void loadPlan(term.id);
   }, [term, loadPlan]);
 
-  async function regenerate() {
+  /**
+   * Builds a new plan, then reads it back the way every other screen reads it.
+   *
+   * The generate response is the scheduler's own output and carries none of the derived
+   * views the week is built from — no session brief, no campaign table, no term arc, no
+   * weekly review. Setting it directly as the plan therefore quietly gutted the Week tab
+   * every time anything triggered a rebuild: answering "yes, put it in my week" replanned
+   * correctly and then left the student looking at a stripped page with the rest of their
+   * questions gone. One extra read costs a request and keeps every screen whole.
+   */
+  const regenerate = useCallback(async () => {
     if (!term) return;
-    setPlan(await api.post<PlanResponse>(`/api/terms/${term.id}/plans/generate`, {
+    await api.post<PlanResponse>(`/api/terms/${term.id}/plans/generate`, {
       reason: "manual_refresh",
-    }));
-  }
+    });
+    await loadPlan(term.id);
+  }, [term, loadPlan]);
 
   async function changeTheme(next: ThemeName) {
     const { user } = await api.patch<{ user: Me }>("/api/me", { theme: next });
@@ -188,6 +201,18 @@ export function App() {
               landmarks, then how far each course has come. */}
           {tab === "week" && (
             <>
+              {/* Before the week ahead, what the weeks behind have to say about it. First
+                  because its answers change the plan below it, and a question the student
+                  has to scroll to find is a question nobody answers. It renders nothing at
+                  all when the weeks went as planned. */}
+              {plan.review && (
+                <WeeklyReview
+                  review={plan.review}
+                  termId={term.id}
+                  theme={theme}
+                  onAnswered={regenerate}
+                />
+              )}
               {plan.brief && (
                 <SessionBrief brief={plan.brief} courses={plan.courses} theme={theme} />
               )}
@@ -238,6 +263,7 @@ export function App() {
           {tab === "setup" && (
             <>
               <CourseManager termId={term.id} onChanged={refreshPlan} />
+              <MealWindows term={term} onChanged={regenerate} />
               <SyllabusUpload courses={plan.courses} onPlanChanged={regenerate} />
               <section className="card">
                 <h2>Preferences</h2>

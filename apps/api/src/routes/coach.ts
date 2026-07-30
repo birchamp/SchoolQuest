@@ -11,6 +11,7 @@ import {
 import { generatePlan } from "@schoolquest/planning-engine";
 import { coachMessages, users } from "../db/schema.js";
 import { assertTermOwner, getDb, loadTermSnapshot, toPlanningInput } from "../db/repo.js";
+import { loadReview } from "./review.js";
 import type { AppBindings } from "../env.js";
 
 const messageBody = z.object({
@@ -62,6 +63,9 @@ coachRoute.post("/coach/messages", async (c) => {
     workItems: snapshot.workItems,
     courses: snapshot.courses,
     standings: snapshot.standings,
+    // The coach is the natural place to ask "why does Thursday never work?", and it cannot
+    // answer that from a plan alone — the evidence is entirely in the weeks behind it.
+    review: await loadReview(db, parsed.data.termId),
   });
 
   // Recent turns give continuity; the plan context carries the actual state.

@@ -1,6 +1,8 @@
 import type { Course, CourseStanding, WorkItem } from "@schoolquest/domain";
-import type { PlanningResult } from "@schoolquest/planning-engine";
+import type { PlanningResult, WeeklyReview } from "@schoolquest/planning-engine";
 import { explainReason, explainRisk } from "@schoolquest/theme-language";
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 /**
  * Renders the current plan into the compact text block the coach reasons over.
@@ -17,6 +19,8 @@ export interface CoachContextInput {
   workItems: WorkItem[];
   courses: Course[];
   standings?: Record<string, CourseStanding>;
+  /** What the weeks that already happened say about this one. Absent means "not looked up". */
+  review?: WeeklyReview;
 }
 
 export interface CoachContext {
@@ -120,6 +124,43 @@ export function buildCoachContext(input: CoachContextInput): CoachContext {
       lines.push(
         `  ${course.name}: ${minutes} minutes (${share}% of what is booked)` +
           (minutes === 0 ? " — nothing booked this week" : ""),
+      );
+    }
+  }
+
+  // The hours around the work. Without these the coach can be told that held meal time is
+  // not spare capacity and have no way to honour it — it would either stay vague or offer to
+  // study through a lunch the scheduler deliberately kept clear.
+  const held = input.plan.meals.filter((m) => m.status === "reserved" || m.status === "squeezed");
+  const noGap = input.plan.meals.filter((m) => m.status === "no_gap");
+  if (held.length > 0 || noGap.length > 0) {
+    lines.push("MEAL TIME (held clear; not available for study):");
+    for (const meal of held.slice(0, 6)) {
+      lines.push(
+        `  ${meal.date} ${meal.label}: ${meal.minutes} minutes held` +
+          (meal.status === "squeezed" ? " — less than a full break, the day is tight" : ""),
+      );
+    }
+    for (const meal of noGap.slice(0, 4)) {
+      lines.push(`  ${meal.date}: no gap for ${meal.label.toLowerCase()} at all on this day.`);
+    }
+  }
+
+  // What the weeks that already happened say about the week being planned. Stated as facts
+  // about the calendar; the prompt forbids turning any of it into a tally.
+  if (input.review && input.review.questions.length > 0) {
+    lines.push("");
+    lines.push("TIME THE PLAN KEEPS BOOKING THAT DOES NOT GET USED:");
+    for (const question of input.review.questions) {
+      const cause = question.occurrences.map((o) => o.cause).find(Boolean);
+      lines.push(
+        `  ${DAY_NAMES[question.dayOfWeek]} ${question.startTime}-${question.endTime}: ` +
+          `booked across ${question.weeks} ${question.weeks === 1 ? "week" : "different weeks"}, ` +
+          `${question.minutesLost} minutes total` +
+          (cause ? `. The student said this was "${cause}"` : "") +
+          (question.proposal
+            ? ". This is repeating enough to be worth adding to their standing week."
+            : "."),
       );
     }
   }

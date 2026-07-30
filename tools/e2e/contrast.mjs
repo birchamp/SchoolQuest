@@ -34,7 +34,8 @@ async function api(path, method = "GET", body, token) {
   return res.json();
 }
 
-const login = await api("/api/auth/login", "POST", { email: "semester-test@example.edu" });
+const EMAIL = process.env.SQ_EMAIL ?? "semester-test@example.edu";
+const login = await api("/api/auth/login", "POST", { email: EMAIL });
 const { sessionToken } = await api("/api/auth/callback", "POST", {
   token: new URL(login.devLoginUrl).searchParams.get("token"),
 });

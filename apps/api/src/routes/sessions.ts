@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, gt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { newId, outcomeCode } from "@schoolquest/domain";
 import { auditEvents, courses, terms, workItems, workSessions } from "../db/schema.js";
@@ -139,6 +139,13 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
           eq(workSessions.workItemId, item.id),
           eq(workSessions.status, "planned"),
           ne(workSessions.id, id),
+          // Only time that is still ahead. Releasing means "this time is yours again", which
+          // is a statement about the future — yesterday cannot be given back. Without the
+          // bound, finishing a paper today rewrote every block the plan had held for it in
+          // weeks gone by, and the record of what those hours actually did was gone. The
+          // weekly review reads exactly that record, and a Tuesday afternoon that had plainly
+          // not been used disappeared out of it the moment an unrelated item was ticked off.
+          gt(workSessions.startAt, new Date().toISOString()),
         ),
       )
       .returning({ id: workSessions.id });

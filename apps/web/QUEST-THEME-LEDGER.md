@@ -118,6 +118,35 @@ closed in round 5's follow-up. Two lessons from closing them are worth keeping:
   "recoloured avatar" critique was really a data bug wearing a styling costume. Check
   whether a field is populated before redesigning what it renders.
 
+## Round 6 — meals and the weekly review
+
+Four bugs in this round, and three of them were only findable by looking at real data
+through the running app.
+
+- **A default that is only ever right for the fixture is not a default.** Meals were
+  honoured if and only if the student had typed them in as commitments. The seeded semester
+  has Lunch and Dinner, so every screenshot for five rounds looked correct while a real
+  student with no meal entries got blocks planned straight through noon every day. When a
+  feature reads from a table, check what the table looks like when it is *empty*, not just
+  what it looks like in the fixture.
+- **A preference nothing reads is a lie the settings screen tells.** `breakMinutes` was
+  declared, seeded, and never consulted, so the scheduler packed blocks end to end. This is
+  the second time this round shape has appeared here — `colorToken` was the first. Grep for
+  the reader before trusting the writer.
+- **Deriving from history means auditing what history contains.** No replan had ever retired
+  its predecessor's blocks, so three generations of one term left 83 live sessions where 26
+  were real. They had been inflating "booked minutes" in project health for weeks with
+  nobody noticing, because nothing had ever *asked* the sessions table a question about the
+  past before.
+- **Completing work must not rewrite the past.** Finishing an item released every block
+  still held for it, with no lower time bound, so a Tuesday afternoon that had plainly gone
+  unused vanished from the record the moment an unrelated item was ticked off. "This time is
+  yours again" is a statement about the future.
+
+One rule the tooling now encodes: `.beat-kind` and `.block.rest` both de-emphasise without
+`opacity`, because the contrast checker still measures colour and a transparent element is
+invisible to it. Every new quiet thing in this app is quiet by hierarchy, never by alpha.
+
 ## Rules that hold regardless of round
 
 - Everything scoped under `body[data-theme="quest"]` (plus the shared pre-theme book

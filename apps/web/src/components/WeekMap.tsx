@@ -1,6 +1,11 @@
 import { type Course, type ThemeName } from "@schoolquest/domain";
 import { explainBlockKind, explainDayLoad, label, plainDayLoad } from "@schoolquest/theme-language";
-import type { EncounterGroupView, PlanResponse, SessionBriefView } from "../lib/types";
+import type {
+  EncounterGroupView,
+  MealBreakView,
+  PlanResponse,
+  SessionBriefView,
+} from "../lib/types";
 import { courseTincture } from "../lib/course-colour";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -95,6 +100,11 @@ export function WeekMap({
   const days = brief?.days ?? fallbackDays(start);
   const beats = brief?.encounters ?? fallbackEncounters(plan);
   const encountersByDate = groupByDate(beats);
+  const mealsByDate = groupMealsByDate(plan.meals ?? []);
+  // Time the engine held on the student's behalf has to be visible somewhere, or it is
+  // indistinguishable from time the engine lost. The note appears only when there is
+  // something assumed to own up to.
+  const heldAny = (plan.meals ?? []).some((m) => m.status === "reserved" || m.status === "squeezed");
 
   /**
    * The lens only switches on when it has something to say.
@@ -141,11 +151,24 @@ export function WeekMap({
         </p>
       )}
 
+      {heldAny && (
+        <p className="muted" style={{ margin: "0 0 0.6rem", fontSize: "0.82rem" }}>
+          Time marked <span style={{ fontStyle: "italic" }}>held</span> is kept clear for
+          meals. Nothing is booked over it. If you eat at a different hour, change it under
+          Setup and the week will redraw around you.
+        </p>
+      )}
+
       <div className="week">
         {days.map((day) => {
           const dayBeats = (encountersByDate.get(day.date) ?? []).sort((a, b) =>
             a.startAt.localeCompare(b.startAt),
           );
+          const dayMeals = mealsByDate.get(day.date) ?? [];
+          const noGap = dayMeals.filter((m) => m.status === "no_gap");
+          // Beats and held meal time are one sequence: the useful fact is that lunch sits
+          // *between* two blocks, which a separate list underneath cannot show.
+          const timeline = interleave(dayBeats, dayMeals);
           const isCrux = brief?.crux?.date === day.date;
 
           return (
@@ -207,12 +230,53 @@ export function WeekMap({
                 </p>
               )}
 
-              {dayBeats.length === 0 ? (
+              {/* A day with no room to eat. Said plainly rather than solved silently:
+                  the planner cannot conjure a gap out of a solid morning of class, but a
+                  student who can see it coming can bring something with them. */}
+              {noGap.length > 0 && (
+                <p className="day-flag day-flag-crux">
+                  <span aria-hidden="true">
+                    No gap · {noGap.map((m) => m.label.toLowerCase()).join(", ")}
+                  </span>
+                  <span className="sr-only">
+                    No gap for {noGap.map((m) => m.label.toLowerCase()).join(" or ")} on this
+                    day
+                  </span>
+                </p>
+              )}
+
+              {timeline.length === 0 ? (
                 <p className="muted" style={{ fontSize: "0.75rem", margin: 0 }}>
                   {quest ? "Clear road" : "Open"}
                 </p>
               ) : (
-                dayBeats.map((beat) => {
+                timeline.map((entry) => {
+                  if (entry.type === "meal") {
+                    const meal = entry.meal;
+                    return (
+                      <div className="block rest" key={`meal-${meal.date}-${meal.key}`}>
+                        <span aria-hidden="true">
+                          {meal.label}
+                          {meal.status === "squeezed" ? " (short)" : ""}
+                        </span>
+                        <span className="sr-only">
+                          {meal.minutes} minutes held for {meal.label.toLowerCase()}
+                          {meal.status === "squeezed"
+                            ? ", which is less than a full break"
+                            : ""}
+                        </span>
+                        <span className="time">
+                          {new Date(meal.start! * 60_000).toLocaleTimeString(undefined, {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                          {" · "}
+                          {formatMinutes(meal.minutes)} held
+                        </span>
+                      </div>
+                    );
+                  }
+                  const beat = entry.beat;
                   const course = coursesById.get(beat.courseId);
                   const kind = explainBlockKind(beat.kind, theme);
                   const tincture = tinctureFor(beat.courseId, course);
@@ -345,6 +409,39 @@ function courseLabel(course: Course): string {
   return course.code && !course.name.includes(course.code)
     ? `${course.name} (${course.code})`
     : course.name;
+}
+
+function groupMealsByDate(meals: MealBreakView[]): Map<string, MealBreakView[]> {
+  const byDate = new Map<string, MealBreakView[]>();
+  for (const meal of meals) {
+    // "planned" means the student's own commitment already covers it, which the week map has
+    // no business restating — they wrote it down, they know it is there.
+    if (meal.status === "planned") continue;
+    byDate.set(meal.date, [...(byDate.get(meal.date) ?? []), meal]);
+  }
+  return byDate;
+}
+
+/** Beats and held meal time, in the order the day happens. */
+type TimelineEntry =
+  | { type: "beat"; startAt: string; beat: EncounterGroupView }
+  | { type: "meal"; startAt: string; meal: MealBreakView };
+
+function interleave(beats: EncounterGroupView[], meals: MealBreakView[]): TimelineEntry[] {
+  const entries: TimelineEntry[] = beats.map((beat) => ({
+    type: "beat",
+    startAt: beat.startAt,
+    beat,
+  }));
+  for (const meal of meals) {
+    if (meal.start === null) continue; // "no_gap" has no time to place; it flags the day.
+    entries.push({
+      type: "meal",
+      startAt: new Date(meal.start * 60_000).toISOString(),
+      meal,
+    });
+  }
+  return entries.sort((a, b) => a.startAt.localeCompare(b.startAt));
 }
 
 function groupByDate(encounters: EncounterGroupView[]): Map<string, EncounterGroupView[]> {

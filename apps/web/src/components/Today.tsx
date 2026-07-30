@@ -40,6 +40,8 @@ export function Today({
   const progress = plan.progress;
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Session id whose "what came up?" prompt is open, or null. */
+  const [interrupting, setInterrupting] = useState<string | null>(null);
   const [finished, setFinished] = useState<
     { title: string; points: number | null; minutes: number; released: number } | null
   >(null);
@@ -107,6 +109,23 @@ export function Today({
         </span>
       </span>
     );
+  }
+
+  /** Records what took the time instead, and skips the block in the same call. */
+  async function report(
+    sessionId: string,
+    body: { title: string; commitmentType: string; recurring: boolean | null },
+  ) {
+    setBusy(sessionId + "interrupted");
+    setError(null);
+    try {
+      await api.post(`/api/work-sessions/${sessionId}/interrupted`, body);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not work.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function act(sessionId: string, action: "start" | "skip" | "lock", body?: unknown) {
@@ -424,11 +443,30 @@ export function Today({
             <button
               className="action"
               disabled={busy !== null}
-              onClick={() => act(primary.sessionId, "skip")}
+              onClick={() => setInterrupting(primary.sessionId)}
             >
               Not now
             </button>
           </div>
+
+          {/* "Not now" used to record `did_not_start` and stop there, throwing away the one
+              fact worth having: not that the block did not happen, but what was there
+              instead. Naming it is optional and takes one tap to decline — but when the same
+              thing takes the same hour three weeks running, this is where the planner learns
+              it, and the weekly review can offer to put it in the calendar for good. */}
+          {interrupting === primary.sessionId && (
+            <InterruptionPrompt
+              busy={busy !== null}
+              onSkip={() => {
+                setInterrupting(null);
+                void act(primary.sessionId, "skip");
+              }}
+              onReport={(body) => {
+                setInterrupting(null);
+                void report(primary.sessionId, body);
+              }}
+            />
+          )}
         </section>
       ) : (
         <section className="card">
@@ -544,5 +582,95 @@ export function Today({
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * "What came up?" — asked once, answered in one tap, and never insisted on.
+ *
+ * The whole value of this prompt is the *pattern* it makes possible: the same answer at the
+ * same hour three weeks running is a standing commitment nobody wrote down, and the weekly
+ * review can then offer to put it in the calendar so the planner stops booking over it.
+ *
+ * It is worded to make declining as ordinary as answering. "Skip it" is the plain first
+ * option and carries no consequence — the block is recorded as not done either way, exactly
+ * as it always was. Nothing here counts, scores, or remembers a miss (docs/01 §3); the
+ * question is about the calendar, not about the student.
+ */
+const INTERRUPTION_KINDS: { value: string; label: string }[] = [
+  { value: "work", label: "Work" },
+  { value: "class", label: "Class or campus" },
+  { value: "club", label: "Club or team" },
+  { value: "worship", label: "Worship or service" },
+  { value: "appointment", label: "Appointment" },
+  { value: "exercise", label: "Exercise" },
+  { value: "commute", label: "Travel" },
+  { value: "other", label: "Something else" },
+];
+
+function InterruptionPrompt({
+  busy,
+  onSkip,
+  onReport,
+}: {
+  busy: boolean;
+  onSkip: () => void;
+  onReport: (body: { title: string; commitmentType: string; recurring: boolean | null }) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [kind, setKind] = useState("other");
+
+  return (
+    <form
+      style={{
+        marginTop: "0.75rem",
+        paddingTop: "0.75rem",
+        borderTop: "1px solid var(--border)",
+      }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        const named = title.trim();
+        if (named.length === 0) onSkip();
+        else onReport({ title: named, commitmentType: kind, recurring: null });
+      }}
+    >
+      <p className="muted" style={{ margin: "0 0 0.5rem" }}>
+        Anything take this time instead? Saying so helps the planner stop booking an hour you
+        are never free for. Leave it blank if you would rather not.
+      </p>
+      <div
+        style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "flex-end" }}
+      >
+        <label style={{ display: "grid", gap: "0.2rem", flex: "1 1 12rem" }}>
+          <span className="sr-only">What came up?</span>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Shift, practice, ride home…"
+            autoFocus
+          />
+        </label>
+        <label style={{ display: "grid", gap: "0.2rem" }}>
+          <span className="sr-only">What kind of thing was it?</span>
+          <select value={kind} onChange={(e) => setKind(e.target.value)}>
+            {INTERRUPTION_KINDS.map((k) => (
+              <option key={k.value} value={k.value}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="button-row" style={{ marginTop: "0.6rem" }}>
+        <button className="action primary" type="submit" disabled={busy}>
+          {title.trim().length > 0 ? "Save and move on" : "Skip it"}
+        </button>
+        {title.trim().length > 0 && (
+          <button className="action" type="button" disabled={busy} onClick={onSkip}>
+            Rather not say
+          </button>
+        )}
+      </div>
+    </form>
   );
 }
