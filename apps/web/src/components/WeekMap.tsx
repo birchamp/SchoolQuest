@@ -1,4 +1,4 @@
-import { colorTokenFor, type CourseColorToken, type ThemeName } from "@schoolquest/domain";
+import { colorTokenFor, type Course, type CourseColorToken, type ThemeName } from "@schoolquest/domain";
 import { explainBlockKind, explainDayLoad, label, plainDayLoad } from "@schoolquest/theme-language";
 import type { EncounterGroupView, PlanResponse, SessionBriefView } from "../lib/types";
 
@@ -19,6 +19,12 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * for is still the day's event.
  *
  * Course colour is always paired with the course name; colour is never the only signal.
+ *
+ * One optional lens sits on top of all of this: `selectedCourseId` isolates a single course
+ * *on the shared surface* rather than giving each course a map of its own. Separate maps
+ * would hide the only thing this view exists to show — that Wednesday is already full of
+ * History before Chemistry asks for an hour — so the other courses recede rather than
+ * disappear. See `recede` below for what "recede" is allowed to touch, and what it is not.
  */
 
 /** Matches the tinctures in Questline.tsx and CourseManager.tsx — one colour per course. */
@@ -30,6 +36,36 @@ const TINCTURES: Record<CourseColorToken, string> = {
   violet: "#5a3b6b",
   sable: "#241a10",
 };
+
+/**
+ * The single colour lookup for this file. Every use site goes through here so the palette
+ * (which today has fewer tokens than a nine-course student has courses) can be swapped in
+ * one place rather than hunted for at each call.
+ */
+function tinctureFor(courseId: string, course: Course | undefined): string {
+  return TINCTURES[colorTokenFor(courseId, course?.colorToken)];
+}
+
+/**
+ * The recessed ink, for beats outside the lens.
+ *
+ * This is deliberately the value the tile's own `.time` line already uses — `--text-dim`,
+ * which `.card` re-points to the parchment-safe #6b5636 under the quest theme. Two reasons,
+ * and the second is the load-bearing one:
+ *
+ * 1. A receded tile flattens to a single tone instead of keeping a dark title over dim
+ *    metadata, so it stops competing for attention as a *shape*, not just as a colour.
+ * 2. Its contrast is already measured and passing on every ground this file paints on
+ *    (5.22:1 on the quest beat tile, 6.00:1 plain light, 6.63:1 plain dark). Dimming with
+ *    `opacity` would have been simpler to write and would have been a lie in the report:
+ *    tools/e2e/contrast.mjs reads `color` and composites backgrounds, so element opacity is
+ *    invisible to it and a dimmed-with-opacity tile would pass the check without the check
+ *    ever having looked at the colour a reader actually sees.
+ *
+ * No transition accompanies it: the review scores a still frame, and a reduced-motion
+ * reader must get the identical result.
+ */
+const RECESSED_INK = "var(--text-dim)";
 
 /** Load → the tile-strip tint. Paired with the load's name, never used alone. */
 const LOAD_TINT: Record<string, string> = {
@@ -50,10 +86,13 @@ export function WeekMap({
   plan,
   theme,
   brief,
+  selectedCourseId,
 }: {
   plan: PlanResponse;
   theme: ThemeName;
   brief?: SessionBriefView;
+  /** Optional course lens; see the note at the top of the file. Absent or null = no lens. */
+  selectedCourseId?: string | null;
 }) {
   const quest = theme === "quest";
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
@@ -63,11 +102,32 @@ export function WeekMap({
   // Falling back to the raw sessions keeps this view working against a plan payload that
   // predates the brief, rather than rendering an empty week.
   const days = brief?.days ?? fallbackDays(start);
-  const encountersByDate = groupByDate(brief?.encounters ?? fallbackEncounters(plan));
+  const beats = brief?.encounters ?? fallbackEncounters(plan);
+  const encountersByDate = groupByDate(beats);
+
+  /**
+   * The lens only switches on when it has something to say.
+   *
+   * A student carrying one course, or a week whose beats all happen to belong to the
+   * selected course, would otherwise get a banner announcing an isolation that isolates
+   * nothing — and, worse, a screen on which every single tile is receded because there is
+   * no tile left to hold at full strength. An unknown id is treated the same way: naming a
+   * course the plan does not carry would be a worse answer than showing the plain week.
+   */
+  const lensCourse = selectedCourseId ? coursesById.get(selectedCourseId) : undefined;
+  const lens =
+    lensCourse && beats.some((b) => b.courseId !== lensCourse.id) ? lensCourse : undefined;
+  const lensName = lens ? courseLabel(lens) : "";
 
   return (
-    <section className="card">
-      <h2>{label("weekMap", theme)}</h2>
+    <section
+      className="card"
+      // Named only while a lens is on, so a screen-reader user meets the highlighted course
+      // as part of the region rather than having to find the sentence inside it. Without a
+      // lens the section stays unnamed, exactly as it renders today.
+      aria-labelledby={lens ? "week-map-heading week-map-lens" : undefined}
+    >
+      <h2 id="week-map-heading">{label("weekMap", theme)}</h2>
       {quest && (
         <p className="muted" style={{ fontStyle: "italic", margin: "0 0 0.75rem" }}>
           Seven days, laid out as they will be played. The load on each day counts effort,
@@ -75,9 +135,24 @@ export function WeekMap({
         </p>
       )}
 
+      {/* The lens, stated plainly so the state is never something the reader has to infer
+          from the styling. No `Themed` wrapper and no quest flavour: this is a sentence
+          about the control, and the second half of it is a promise about the numbers that
+          has to read the same under every theme. */}
+      {lens && (
+        <p
+          id="week-map-lens"
+          className="muted"
+          style={{ margin: "0 0 0.6rem", fontSize: "0.82rem" }}
+        >
+          Showing {lensName} at full strength. Other courses are dimmed, not removed — the
+          day loads, the busiest-day mark and every count below still cover the whole week.
+        </p>
+      )}
+
       <div className="week">
         {days.map((day) => {
-          const beats = (encountersByDate.get(day.date) ?? []).sort((a, b) =>
+          const dayBeats = (encountersByDate.get(day.date) ?? []).sort((a, b) =>
             a.startAt.localeCompare(b.startAt),
           );
           const isCrux = brief?.crux?.date === day.date;
@@ -88,6 +163,12 @@ export function WeekMap({
               key={day.date}
               data-load={day.load}
             >
+              {/* Everything from here down to the beats is a property of the *whole week*
+                  and so is deliberately untouched by the lens: the strip, the load word,
+                  the minutes, the set-piece flag and the crux. A Wednesday carrying four
+                  hours of History is a heavy Wednesday while you are looking at Chemistry,
+                  and a lens that lightened it would be answering a different question than
+                  the one the student asked. */}
               {/* The load strip: the day's weight before a single title is read. */}
               <span
                 aria-hidden="true"
@@ -135,30 +216,55 @@ export function WeekMap({
                 </p>
               )}
 
-              {beats.length === 0 ? (
+              {dayBeats.length === 0 ? (
                 <p className="muted" style={{ fontSize: "0.75rem", margin: 0 }}>
                   {quest ? "Clear road" : "Open"}
                 </p>
               ) : (
-                beats.map((beat) => {
+                dayBeats.map((beat) => {
                   const course = coursesById.get(beat.courseId);
                   const kind = explainBlockKind(beat.kind, theme);
-                  const tincture = TINCTURES[colorTokenFor(beat.courseId, course?.colorToken)];
+                  const tincture = tinctureFor(beat.courseId, course);
+                  // Outside the lens the tile keeps every word it had and loses only its
+                  // pull: one flat dim tone in place of dark-title-over-dim-metadata, and a
+                  // neutral edge in place of the course's colour. Nothing is filtered out,
+                  // because the point of the shared surface is that a full Wednesday still
+                  // looks full while you are reading Chemistry.
+                  const recede = lens !== undefined && beat.courseId !== lens.id;
                   return (
-                    <div className="block" key={`${beat.workItemId}-${beat.date}`}>
+                    <div
+                      className="block"
+                      key={`${beat.workItemId}-${beat.date}`}
+                      style={
+                        recede
+                          ? {
+                              color: RECESSED_INK,
+                              borderLeftColor: quest
+                                ? "rgba(138, 111, 31, 0.4)"
+                                : "var(--border)",
+                            }
+                          : undefined
+                      }
+                    >
                       {/* `sustained` is the default — ordinary work. Labelling it made
                           "LONG MARCH" appear nine times in one week and drowned out the
                           beats that actually differ. The same reason the engine stopped
                           calling every prep block a set piece: if everything is named,
                           no name means anything. */}
                       {beat.kind !== "sustained" && (
-                        <span className="beat-kind" style={{ color: tincture }}>
+                        <span
+                          className="beat-kind"
+                          // The kind label is kept, not dropped: a receded midterm is still
+                          // a midterm, and removing the word would make the lens delete
+                          // information rather than rank it. Only the tincture goes.
+                          style={{ color: recede ? RECESSED_INK : tincture }}
+                        >
                           <span aria-hidden="true">{kind.name}</span>
                           <span className="sr-only">{kind.plainName}:</span>
                         </span>
                       )}
                       {beat.title}
-                      <span className="time">
+                      <span className="time" style={recede ? { color: RECESSED_INK } : undefined}>
                         {new Date(beat.startAt).toLocaleTimeString(undefined, {
                           hour: "numeric",
                           minute: "2-digit",
@@ -168,7 +274,9 @@ export function WeekMap({
                         {/* The count that replaced three identical tiles. */}
                         {beat.blocks > 1 && ` · ${beat.blocks} blocks`}
                       </span>
-                      <span className="time">{course?.name}</span>
+                      <span className="time" style={recede ? { color: RECESSED_INK } : undefined}>
+                        {course?.name}
+                      </span>
                     </div>
                   );
                 })
@@ -178,6 +286,11 @@ export function WeekMap({
         })}
       </div>
 
+      {/* The unclaimed list is left outside the lens on purpose. It is already grouped by
+          course, so isolating one adds nothing a reader cannot see; and every group header
+          carries a count. Receding a count is the one thing that would make it ambiguous
+          whether the number is the term's or the lens's, and an ambiguous number is worse
+          than an unstyled one. */}
       {plan.unscheduledWorkItemIds.length > 0 && (
         <div style={{ marginTop: "1rem" }}>
           <h2>
@@ -230,6 +343,17 @@ export function WeekMap({
       )}
     </section>
   );
+}
+
+/**
+ * Course names sometimes already carry the code ("General Biology I (BIO 240)"); appending
+ * it again produced "(BIO 240) (BIO 240)" in group headers, and would do the same in the
+ * lens line.
+ */
+function courseLabel(course: Course): string {
+  return course.code && !course.name.includes(course.code)
+    ? `${course.name} (${course.code})`
+    : course.name;
 }
 
 function groupByDate(encounters: EncounterGroupView[]): Map<string, EncounterGroupView[]> {
@@ -296,13 +420,7 @@ function groupUnscheduledByCourse(plan: PlanResponse): {
     const item = itemsById.get(id);
     const course = item ? coursesById.get(item.courseId) : undefined;
     const key = course?.id ?? "other";
-    // Course names sometimes already carry the code ("General Biology I (BIO 240)");
-    // appending it again produced "(BIO 240) (BIO 240)" in group headers.
-    const name = course
-      ? course.code && !course.name.includes(course.code)
-        ? `${course.name} (${course.code})`
-        : course.name
-      : "Other";
+    const name = course ? courseLabel(course) : "Other";
     const group = groups.get(key) ?? { key, name, items: [] };
     group.items.push({ id, title: item?.title ?? id });
     groups.set(key, group);

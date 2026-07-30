@@ -244,8 +244,18 @@ button.action:disabled {
 }
 
 /* Protected-later list: visible but deliberately quiet (principle 3). */
+/* Quiet by hierarchy, not by transparency.
+ *
+ * This used `opacity: 0.72`, which put the whole future-work list at 3.25:1 in the Plain
+ * theme — including the sentence "This work is accounted for. You are not choosing to drop
+ * it", which is one of the most reassuring things the product says and was rendering below
+ * the readable floor. The contrast checker could not see it either, because it ignored
+ * opacity until it was taught otherwise.
+ *
+ * De-emphasis now comes from the muted colour and smaller type the card already uses. Text
+ * that is hard to read is not the same as text that is politely in the background. */
 .protected {
-  opacity: 0.72;
+  border-style: dashed;
 }
 
 .protected li {

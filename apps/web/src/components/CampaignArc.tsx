@@ -27,6 +27,11 @@ import type { MilestoneView, UndatedMilestoneView } from "../lib/types";
  * Quest chrome is presentation only: every count, date and distance reads identically once
  * the flavour is stripped, and the plain shell is a calm planner readout carrying no
  * metaphor at all.
+ *
+ * `selectedCourseId` adds an optional lens over all of it. The arc is the *term's* arc, so
+ * the lens changes rank and nothing else: the ordering, the banding, the month runs and
+ * every figure in the summary band are identical with a lens on and off. Rows outside the
+ * lens recede — they keep every word, and lose colour and weight. See `recessedInk`.
  */
 
 /**
@@ -68,6 +73,35 @@ const HERALDRY: Record<CourseColorToken, string> = {
   violet: "#5a3b6b",
   sable: "#241a10",
 };
+
+/**
+ * The single colour lookup for this file. Every use site goes through here so the palette
+ * (which today has fewer tokens than a nine-course student has courses) can be swapped in
+ * one place rather than hunted for at each call.
+ */
+function tinctureFor(courseId: string, course: Course | undefined): string {
+  return HERALDRY[colorTokenFor(courseId, course?.colorToken)];
+}
+
+/**
+ * The ink a receded row is painted in — the row's rank dropped, not its legibility.
+ *
+ * The values are the two dim inks this card already trusts: `Q.inkDim` measures 5.88:1 on
+ * the bare parchment stop and 5.39:1 through the 6% wax wash under the undated block, and
+ * `--text-dim` is the plain theme's own dim token in both colour schemes. Nothing here
+ * introduces a new colour, so nothing here introduces a new contrast risk.
+ *
+ * Dimming with `opacity` was the obvious alternative and was rejected as dishonest rather
+ * than as ugly: tools/e2e/contrast.mjs reads `color` and composites backgrounds, so element
+ * opacity is invisible to it — an opacity-dimmed arc would pass the check without the check
+ * ever having measured what a reader sees. A colour the checker can read is the only kind
+ * of dimming that can be reported as verified. No transition, for the same reason the rest
+ * of this card has none: the review scores a still frame and reduced-motion readers must
+ * get the identical one.
+ */
+function recessedInk(quest: boolean): string {
+  return quest ? Q.inkDim : "var(--text-dim)";
+}
 
 /**
  * Distance bands.
@@ -193,9 +227,27 @@ function Themed({ visible, plain }: { visible: string; plain: string }) {
   );
 }
 
-/** The course mark. Tincture in quest, a neutral chip carrying the code in plain. */
-function Sigil({ course, courseId, quest }: { course: Course | undefined; courseId: string; quest: boolean }) {
-  const tincture = HERALDRY[colorTokenFor(courseId, course?.colorToken)];
+/**
+ * The course mark. Tincture in quest, a neutral chip carrying the code in plain.
+ *
+ * A receded sigil is emptied rather than tinted-down: a washed-out version of a course
+ * colour is still a colour competing for the eye, and with seven courses on screen six
+ * washed sigils are a wall of pastel. Hollowing it leaves the lettering — the part that
+ * actually says which course this is — and gives the one tinted sigil on screen nothing to
+ * compete with.
+ */
+function Sigil({
+  course,
+  courseId,
+  quest,
+  recede = false,
+}: {
+  course: Course | undefined;
+  courseId: string;
+  quest: boolean;
+  recede?: boolean;
+}) {
+  const tincture = tinctureFor(courseId, course);
   return (
     <span
       aria-hidden="true"
@@ -209,15 +261,23 @@ function Sigil({ course, courseId, quest }: { course: Course | undefined; course
         fontSize: "0.66rem",
         fontWeight: 700,
         letterSpacing: "0.03em",
-        background: quest
-          // Darkening only. A white sheen lifted verdant to rgb(94,132,99) and put the
-          // cream lettering at 3.56:1 — the same defect the roster chip had, since this
-          // copied it before that fix landed.
-          ? `linear-gradient(160deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.34)), ${tincture}`
-          : "var(--surface-2)",
-        border: quest ? `1px solid ${Q.goldDim}` : "1px solid var(--border)",
-        color: quest ? "#f4ead2" : "var(--text-dim)",
-        boxShadow: quest ? "inset 0 1px 0 rgba(255, 255, 255, 0.12)" : undefined,
+        background: recede
+          ? "transparent"
+          : quest
+            // Darkening only. A white sheen lifted verdant to rgb(94,132,99) and put the
+            // cream lettering at 3.56:1 — the same defect the roster chip had, since this
+            // copied it before that fix landed.
+            ? `linear-gradient(160deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.34)), ${tincture}`
+            : "var(--surface-2)",
+        border: recede
+          ? quest
+            ? "1px solid rgba(138, 111, 31, 0.4)"
+            : "1px solid var(--border)"
+          : quest
+            ? `1px solid ${Q.goldDim}`
+            : "1px solid var(--border)",
+        color: recede ? recessedInk(quest) : quest ? "#f4ead2" : "var(--text-dim)",
+        boxShadow: quest && !recede ? "inset 0 1px 0 rgba(255, 255, 255, 0.12)" : undefined,
       }}
     >
       {initialsFor(course, courseId)}
@@ -237,10 +297,18 @@ function PrepChip({
   blocks,
   minutes,
   quest,
+  recede = false,
 }: {
   blocks: number;
   minutes: number;
   quest: boolean;
+  /**
+   * Outside the lens the chip gives up its fill and keeps all three of the signals that
+   * tell the two states apart — the filled or hollow glyph, the solid or dashed edge, and
+   * the words. Emptying the *prepared* chip is the only change: it is the loudest thing on
+   * the card, and a receded row full of gold leaf is not a receded row.
+   */
+  recede?: boolean;
 }) {
   const prepared = blocks > 0;
   const blockWord = blocks === 1 ? "block" : "blocks";
@@ -267,27 +335,33 @@ function PrepChip({
         fontWeight: 700,
         fontVariantNumeric: "tabular-nums",
         ...(prepared
-          ? quest
+          ? recede
             ? {
-                background: `linear-gradient(180deg, ${Q.goldBright}, ${Q.gold})`,
-                border: "1px solid #6d5718",
-                color: Q.onGold,
+                background: "transparent",
+                border: quest ? `1px solid ${Q.goldDim}` : "1px solid var(--border)",
+                color: recessedInk(quest),
               }
-            : {
-                background: "var(--surface-2)",
-                border: "1px solid var(--border)",
-                color: "var(--text)",
-              }
+            : quest
+              ? {
+                  background: `linear-gradient(180deg, ${Q.goldBright}, ${Q.gold})`,
+                  border: "1px solid #6d5718",
+                  color: Q.onGold,
+                }
+              : {
+                  background: "var(--surface-2)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text)",
+                }
           : quest
             ? {
                 background: "transparent",
                 border: `1px dashed ${Q.goldDim}`,
-                color: Q.ink,
+                color: recede ? recessedInk(quest) : Q.ink,
               }
             : {
                 background: "transparent",
                 border: "1px dashed var(--text-dim)",
-                color: "var(--text)",
+                color: recede ? recessedInk(quest) : "var(--text)",
               }),
       }}
     >
@@ -397,6 +471,7 @@ function DatedRow({
   markInferred,
   first,
   last,
+  recede = false,
 }: {
   milestone: MilestoneView;
   course: Course | undefined;
@@ -404,9 +479,11 @@ function DatedRow({
   markInferred: boolean;
   first: boolean;
   last: boolean;
+  recede?: boolean;
 }) {
   const name = courseLabel(course, m.courseId);
   const prepared = m.prepBlocks > 0;
+  const ink = recede ? recessedInk(quest) : undefined;
 
   // Distance: the numeral is the scale, because the layout deliberately is not one.
   const distanceVisible =
@@ -450,27 +527,33 @@ function DatedRow({
           top: "0.72rem",
           fontSize: "0.72rem",
           lineHeight: 1,
-          color: prepared
+          // The node keeps its shape when receded — the hollow-node scan is a property of
+          // the whole arc — and gives up only its colour.
+          color: recede
             ? quest
-              ? Q.goldDim
-              : "var(--text-dim)"
-            : quest
-              ? Q.wax
-              : "var(--accent)",
+              ? "rgba(138, 111, 31, 0.55)"
+              : "var(--border)"
+            : prepared
+              ? quest
+                ? Q.goldDim
+                : "var(--text-dim)"
+              : quest
+                ? Q.wax
+                : "var(--accent)",
         }}
       >
         {prepared ? "◆" : "◇"}
       </span>
 
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-        <Sigil course={course} courseId={m.courseId} quest={quest} />
+        <Sigil course={course} courseId={m.courseId} quest={quest} recede={recede} />
         <span
           style={{
             flex: "1 1 12rem",
             minWidth: 0,
             fontWeight: 600,
             fontSize: "0.98rem",
-            color: quest ? Q.ink : "var(--text)",
+            color: ink ?? (quest ? Q.ink : "var(--text)"),
           }}
         >
           {m.title}
@@ -482,7 +565,10 @@ function DatedRow({
             fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
             textAlign: "right",
-            color: quest ? (m.daysAway < 0 ? Q.wax : Q.ink) : "var(--text)",
+            // A receded overdue row gives up the wax red with everything else. The date is
+            // still past, and the band heading it sits under says so in words — colour was
+            // never the only signal here, which is exactly what makes it safe to spend.
+            color: ink ?? (quest ? (m.daysAway < 0 ? Q.wax : Q.ink) : "var(--text)"),
           }}
         >
           <Themed visible={distanceVisible} plain={distancePlain} />
@@ -516,7 +602,12 @@ function DatedRow({
             </>
           )}
         </p>
-        <PrepChip blocks={m.prepBlocks} minutes={m.prepMinutes} quest={quest} />
+        <PrepChip
+          blocks={m.prepBlocks}
+          minutes={m.prepMinutes}
+          quest={quest}
+          recede={recede}
+        />
       </div>
     </li>
   );
@@ -559,11 +650,14 @@ export function CampaignArc({
   undatedMilestones,
   courses,
   theme,
+  selectedCourseId,
 }: {
   milestones: MilestoneView[];
   undatedMilestones: UndatedMilestoneView[];
   courses: Course[];
   theme: ThemeName;
+  /** Optional course lens; see the note at the top of the file. Absent or null = no lens. */
+  selectedCourseId?: string | null;
 }): JSX.Element {
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
@@ -627,8 +721,26 @@ export function CampaignArc({
   const datedHeading = quest ? "Set pieces with a date" : "Dated";
   const undatedHeading = quest ? "Set pieces with no date yet" : "Not dated yet";
 
+  /**
+   * The lens only switches on when it has something to isolate.
+   *
+   * A single-course student, or a term whose major work happens to sit entirely in the
+   * selected course, would otherwise get a banner announcing a separation that separates
+   * nothing — and every row on the card receded, with nothing left at full strength for
+   * them to recede *from*. An id no course matches is treated the same way: silently
+   * showing the ordinary arc beats naming a course that is not there.
+   */
+  const lensCourse = selectedCourseId ? coursesById.get(selectedCourseId) : undefined;
+  const lens = lensCourse && all.some((m) => m.courseId !== lensCourse.id) ? lensCourse : undefined;
+  const recedes = (courseId: string) => lens !== undefined && courseId !== lens.id;
+
   return (
-    <section className="card" aria-labelledby="campaign-arc-heading">
+    <section
+      className="card"
+      // The lens line joins the heading in naming the region, so a screen-reader user meets
+      // the highlighted course on arrival instead of having to find the sentence inside.
+      aria-labelledby={lens ? "campaign-arc-heading campaign-arc-lens" : "campaign-arc-heading"}
+    >
       <h2 id="campaign-arc-heading">
         {quest && <span aria-hidden="true">{"⚜ "}</span>}
         {heading}
@@ -639,6 +751,22 @@ export function CampaignArc({
         <p className="muted" style={{ fontStyle: "italic", margin: "0 0 0.75rem" }}>
           Every campaign has its set pieces. They arrive whether or not the ground is
           prepared, so the useful question is how much of it already is.
+        </p>
+      )}
+
+      {/* Placed above the summary band on purpose: the band's figures are term-wide, and a
+          reader has to know that before reading them, not after. No `Themed` wrapper and no
+          quest flavour — this is a statement about the control and about what the numbers
+          mean, and both halves have to read identically under every theme. */}
+      {lens && (
+        <p
+          id="campaign-arc-lens"
+          className="muted"
+          style={{ margin: "0 0 0.6rem", fontSize: "0.82rem" }}
+        >
+          Showing {courseLabel(lens, lens.id)} at full strength. Other courses are dimmed,
+          not removed — the figures below, and the order and grouping of every row, still
+          cover the whole term.
         </p>
       )}
 
@@ -828,6 +956,7 @@ export function CampaignArc({
                             markInferred={markRows && !m.dueConfirmed}
                             first={index === 0}
                             last={index === run.rows.length - 1}
+                            recede={recedes(m.courseId)}
                           />
                         ))}
                       </ol>
@@ -844,6 +973,7 @@ export function CampaignArc({
                         markInferred={markRows && !m.dueConfirmed}
                         first={index === 0}
                         last={index === rows.length - 1}
+                        recede={recedes(m.courseId)}
                       />
                     ))}
                   </ol>
@@ -886,6 +1016,12 @@ export function CampaignArc({
               const course = coursesById.get(m.courseId);
               const name = courseLabel(course, m.courseId);
               const prepared = m.prepBlocks > 0;
+              const recede = recedes(m.courseId);
+              // On this block the ink is `Q.inkDim` either way — the wax wash beneath it
+              // already rules `--text-dim` out at 4.37:1, which is why the row was built
+              // that way. So a receded undated row recedes through its sigil, its chips and
+              // its "date unknown" badge rather than through its body text.
+              const ink = recede ? recessedInk(quest) : undefined;
 
               return (
                 <li
@@ -893,9 +1029,15 @@ export function CampaignArc({
                   style={{
                     padding: "0.6rem 0 0.6rem 0.7rem",
                     marginBottom: "0.4rem",
-                    borderLeft: quest
-                      ? `3px dashed ${Q.wax}`
-                      : "3px dashed var(--accent-dim)",
+                    // The dashed edge marks "undated", not the course, so it stays a dash
+                    // under the lens and only loses its saturation.
+                    borderLeft: recede
+                      ? quest
+                        ? "3px dashed rgba(140, 47, 40, 0.4)"
+                        : "3px dashed var(--border)"
+                      : quest
+                        ? `3px dashed ${Q.wax}`
+                        : "3px dashed var(--accent-dim)",
                     // A wash rather than a fill: it separates the block from the arc above
                     // without turning it into a warning banner. Kept at 6% so the dim ink
                     // below still measures over 5:1 on the darker parchment stop.
@@ -912,14 +1054,14 @@ export function CampaignArc({
                       paddingLeft: "0.4rem",
                     }}
                   >
-                    <Sigil course={course} courseId={m.courseId} quest={quest} />
+                    <Sigil course={course} courseId={m.courseId} quest={quest} recede={recede} />
                     <span
                       style={{
                         flex: "1 1 12rem",
                         minWidth: 0,
                         fontWeight: 600,
                         fontSize: "0.98rem",
-                        color: quest ? Q.ink : "var(--text)",
+                        color: ink ?? (quest ? Q.ink : "var(--text)"),
                       }}
                     >
                       {m.title}
@@ -933,9 +1075,17 @@ export function CampaignArc({
                         textTransform: "uppercase",
                         padding: "0.12rem 0.5rem",
                         borderRadius: quest ? 4 : 999,
-                        background: quest ? Q.wax : "transparent",
-                        border: quest ? "1px solid rgba(0, 0, 0, 0.35)" : "1px solid var(--border)",
-                        color: quest ? Q.chipCream : "var(--text)",
+                        // Emptied rather than tinted-down for the same reason as the sigil:
+                        // a filled wax badge is the loudest mark in this block.
+                        background: quest && !recede ? Q.wax : "transparent",
+                        border: recede
+                          ? quest
+                            ? "1px solid rgba(140, 47, 40, 0.45)"
+                            : "1px solid var(--border)"
+                          : quest
+                            ? "1px solid rgba(0, 0, 0, 0.35)"
+                            : "1px solid var(--border)",
+                        color: ink ?? (quest ? Q.chipCream : "var(--text)"),
                       }}
                     >
                       <Themed visible="date unknown" plain="due date unknown" />
@@ -955,7 +1105,12 @@ export function CampaignArc({
                       {workTypeLabel(m.workType)}
                     </p>
 
-                    <PrepChip blocks={m.prepBlocks} minutes={m.prepMinutes} quest={quest} />
+                    <PrepChip
+                      blocks={m.prepBlocks}
+                      minutes={m.prepMinutes}
+                      quest={quest}
+                      recede={recede}
+                    />
 
                     {/* The sharpest sentence on the card, and it is only ever printed when
                         the data earns it: time already booked against work nobody has
@@ -965,12 +1120,20 @@ export function CampaignArc({
                         margin: "0.4rem 0 0",
                         fontSize: "0.86rem",
                         fontWeight: prepared ? 600 : 400,
-                        color: quest ? Q.ink : "var(--text)",
+                        color: ink ?? (quest ? Q.ink : "var(--text)"),
                       }}
                     >
                       <span
                         aria-hidden="true"
-                        style={{ color: quest ? Q.wax : "var(--text-dim)" }}
+                        style={{
+                          color: recede
+                            ? quest
+                              ? "rgba(140, 47, 40, 0.5)"
+                              : "var(--border)"
+                            : quest
+                              ? Q.wax
+                              : "var(--text-dim)",
+                        }}
                       >
                         {"◈ "}
                       </span>

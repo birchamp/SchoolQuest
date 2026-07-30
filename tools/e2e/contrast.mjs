@@ -147,6 +147,24 @@ const MEASURE = () => {
     return grounds;
   };
 
+  /**
+   * Opacity inherited down the tree, multiplied.
+   *
+   * The checker read `color` and composited backgrounds but ignored opacity below 1, so
+   * text at `opacity: 0.4` was measured at full strength and passed. That is not a
+   * hypothetical: dimming with opacity is the obvious way to build a course lens, and it
+   * would have sailed through this check while genuinely reducing what a reader can see.
+   * A checker that can be satisfied without the screen improving is worse than none.
+   */
+  const effectiveOpacity = (el) => {
+    let alpha = 1;
+    for (let node = el; node; node = node.parentElement) {
+      const value = parseFloat(getComputedStyle(node).opacity);
+      if (!Number.isNaN(value)) alpha *= value;
+    }
+    return alpha;
+  };
+
   const results = [];
   for (const el of document.querySelectorAll("body *")) {
     if (el.closest(".sr-only") || el.classList.contains("sr-only")) continue;
@@ -171,6 +189,12 @@ const MEASURE = () => {
     const isGlyphOnly = !/[a-z0-9]/i.test(text);
     if (isGlyphOnly) continue;
 
+    // WCAG 1.4.3 exempts inactive controls from the contrast minimum, and this codebase
+    // fades them with `opacity: 0.5`. They are reported rather than dropped: exempt is not
+    // the same as invisible, and a disabled control nobody can read is still worth seeing
+    // in the output even when it does not fail the run.
+    const disabled = el.closest("[disabled], [aria-disabled='true']") !== null;
+
 
     const style = getComputedStyle(el);
     if (style.visibility === "hidden" || style.display === "none" || style.opacity === "0") continue;
@@ -180,9 +204,13 @@ const MEASURE = () => {
     const fg = parse(style.color);
     if (!fg) continue;
 
+    // Faded text is painted at that fraction over whatever is behind it, so that is how it
+    // is measured. Without this, opacity is a way to fail the reader and pass the check.
+    const painted = { ...fg, a: fg.a * effectiveOpacity(el) };
+
     let worst = null;
     for (const ground of groundsOf(el)) {
-      const r = ratio(over(fg, ground), ground);
+      const r = ratio(over(painted, ground), ground);
       if (worst === null || r < worst.ratio) {
         worst = {
           ratio: r,
@@ -197,6 +225,7 @@ const MEASURE = () => {
     const large = size >= 24 || (size >= 18.66 && weight >= 700);
 
     results.push({
+      disabled,
       text: text.slice(0, 60),
       selector: el.tagName.toLowerCase() + (el.className ? `.${String(el.className).split(" ")[0]}` : ""),
       color: style.color,
@@ -227,7 +256,9 @@ for (const [name, matcher] of TABS) {
   }
 
   const results = await page.evaluate(MEASURE);
-  const bad = results.filter((r) => r.ratio !== null && r.ratio < (r.large ? AA_LARGE : AA_NORMAL));
+  const under = results.filter((r) => r.ratio !== null && r.ratio < (r.large ? AA_LARGE : AA_NORMAL));
+  const bad = under.filter((r) => !r.disabled);
+  const exempt = under.filter((r) => r.disabled);
 
 
   console.log(`\n=== ${THEME} / ${name} — ${results.length} text nodes, ${bad.length} below AA`);
@@ -235,6 +266,9 @@ for (const [name, matcher] of TABS) {
     console.log(
       `  ${String(r.ratio).padStart(6)}:1  ${r.selector.padEnd(24)} ${r.color} on ${r.ground}  "${r.text}"`,
     );
+  }
+  for (const r of exempt) {
+    console.log(`  ${String(r.ratio).padStart(6)}:1  (disabled — WCAG-exempt)  "${r.text}"`);
   }
   failures += bad.length;
 }
