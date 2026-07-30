@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { colorTokenFor, type Course, type CourseColorToken, type ThemeName } from "@schoolquest/domain";
+import { type Course, type ThemeName } from "@schoolquest/domain";
 import type { MilestoneView, UndatedMilestoneView } from "../lib/types";
+import { courseTincture } from "../lib/course-colour";
 
 /**
  * The term's major work as a timeline (docs/07-session-prep-design.md §3).
@@ -61,26 +62,12 @@ const Q = {
 } as const;
 
 /**
- * Heraldic tinctures for course sigils — the same map as Questline.tsx, keyed the same
- * way, so a course keeps its colour across screens. Position in this list is deliberately
- * not used: two screens that sort differently would then give one course two colours.
- */
-const HERALDRY: Record<CourseColorToken, string> = {
-  azure: "#2f4a6d",
-  vermilion: "#8c2f28",
-  verdant: "#3f6c45",
-  amber: "#6b4a2a",
-  violet: "#5a3b6b",
-  sable: "#241a10",
-};
-
-/**
  * The single colour lookup for this file. Every use site goes through here so the palette
  * (which today has fewer tokens than a nine-course student has courses) can be swapped in
  * one place rather than hunted for at each call.
  */
 function tinctureFor(courseId: string, course: Course | undefined): string {
-  return HERALDRY[colorTokenFor(courseId, course?.colorToken)];
+  return courseTincture(courseId, course?.colorToken, true);
 }
 
 /**

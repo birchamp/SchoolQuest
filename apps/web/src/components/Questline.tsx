@@ -1,5 +1,6 @@
-import { colorTokenFor, type Course, type CourseColorToken, type ThemeName } from "@schoolquest/domain";
+import { type Course, type ThemeName } from "@schoolquest/domain";
 import type { CourseProgressView, TermProgressView } from "../lib/types";
+import { courseTincture } from "../lib/course-colour";
 
 /**
  * Per-course progress readout (packages/planning-engine/src/progress.ts).
@@ -32,20 +33,6 @@ const Q = {
   goldDim: "#8a6f1f",
   wax: "#8c2f28",
 } as const;
-
-/**
- * Heraldic tinctures for course sigils. All are dark enough to carry parchment-colored
- * initials at 4.5:1, because the sigil is a filled chip and color is never load-bearing on
- * its own — the course name sits immediately beside it.
- */
-const HERALDRY: Record<CourseColorToken, string> = {
-  azure: "#2f4a6d",
-  vermilion: "#8c2f28",
-  verdant: "#3f6c45",
-  amber: "#6b4a2a",
-  violet: "#5a3b6b",
-  sable: "#241a10",
-};
 
 /** Locale-formatted, but never rounded up into a friendlier number. */
 function num(value: number): string {
@@ -418,7 +405,7 @@ export function Questline({
           // Keyed on the course's own identity colour, not its position in this list, so
           // a course keeps its tincture wherever it appears. Position-keyed colour meant
           // the same course changed hue between screens that happened to sort differently.
-          const tincture = HERALDRY[colorTokenFor(cp.courseId, course?.colorToken)];
+          const tincture = courseTincture(cp.courseId, course?.colorToken, true);
           const empty = cp.itemsTotal === 0;
           const points = cp.basis === "points";
           const partial = points && cp.pointsCoverage < 1;

@@ -1,0 +1,79 @@
+import { colorTokenFor, type CourseColorToken } from "@schoolquest/domain";
+
+/**
+ * One course, one colour, everywhere.
+ *
+ * This map existed in seven copies across six components. That is the exact shape of a
+ * defect this codebase has already hit three times — the effort fallback drifted and made a
+ * course table report zero projects for a term the Chronicle listed seven in; a sigil chip
+ * was copied before its contrast fix landed and shipped cream lettering at 3.56:1; and the
+ * colour itself was once keyed off list position, which gave one course two colours on two
+ * screens that sorted differently.
+ *
+ * Widening the palette is what forced the issue: adding tokens meant editing seven maps, and
+ * the seventh would have been the one that got missed.
+ *
+ * Colour is never load-bearing here. Every mark that uses it is paired with the course name
+ * and its code letters, so a student who cannot distinguish two hues loses nothing.
+ */
+
+/**
+ * Quest tinctures. All dark enough to carry parchment-coloured lettering at 4.5:1, because
+ * the sigil is a filled chip with initials on it.
+ */
+const HERALDRY: Record<CourseColorToken, string> = {
+  azure: "#2f4a6d",
+  vermilion: "#8c2f28",
+  verdant: "#3f6c45",
+  amber: "#6b4a2a",
+  violet: "#5a3b6b",
+  sable: "#241a10",
+  teal: "#1f5c5c",
+  rose: "#7a3355",
+  slate: "#3d4657",
+};
+
+/**
+ * The same identities in mid-tones for the plain shell.
+ *
+ * The heraldic tinctures are tuned to sit on parchment and read as mud on a plain surface.
+ * These are chosen to stay visible on both the light and dark plain grounds.
+ */
+const PLAIN_TINT: Record<CourseColorToken, string> = {
+  azure: "#4a6fa5",
+  vermilion: "#a8564e",
+  verdant: "#4e8a5c",
+  amber: "#9a7038",
+  violet: "#7a5f9e",
+  sable: "#6b6b80",
+  teal: "#3d8f8f",
+  rose: "#a85c82",
+  slate: "#66708a",
+};
+
+/** Keyed on the course's own identity, never on its position in whatever list is rendering. */
+export function courseTincture(
+  courseId: string,
+  colorToken: string | null | undefined,
+  quest: boolean,
+): string {
+  const token = colorTokenFor(courseId, colorToken);
+  return quest ? HERALDRY[token] : PLAIN_TINT[token];
+}
+
+/**
+ * Sigil lettering. Digits are skipped on purpose: "BIO 240" as a two-character mark reads
+ * as "B2", which looks like a typo rather than a course.
+ */
+export function courseInitials(
+  courseId: string,
+  code: string | null | undefined,
+  name: string | null | undefined,
+): string {
+  const source = code ?? name ?? courseId;
+  const words = source.match(/[A-Za-z]+/g) ?? [];
+  const first = words[0];
+  if (!first) return "?";
+  const second = words[1];
+  return (second ? first.slice(0, 1) + second.slice(0, 1) : first.slice(0, 3)).toUpperCase();
+}

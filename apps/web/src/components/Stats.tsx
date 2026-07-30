@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { colorTokenFor, type Course, type CourseColorToken, type ThemeName } from "@schoolquest/domain";
+import { type Course, type ThemeName } from "@schoolquest/domain";
+import { courseTincture } from "../lib/course-colour";
 import type {
   CourseProgressView,
   CourseStandingView,
@@ -68,21 +69,6 @@ const Q = {
   /** Dark ink for text on gold leaf; the shipped chip pairing. */
   onGold: "#3a2b00",
 } as const;
-
-/**
- * Heraldic tinctures for course sigils — the same map as Questline.tsx and CampaignArc.tsx,
- * keyed the same way, so a course keeps its colour across every screen. Position in a list
- * is deliberately never used: two screens that sort differently would give one course two
- * colours.
- */
-const HERALDRY: Record<CourseColorToken, string> = {
-  azure: "#2f4a6d",
-  vermilion: "#8c2f28",
-  verdant: "#3f6c45",
-  amber: "#6b4a2a",
-  violet: "#5a3b6b",
-  sable: "#241a10",
-};
 
 /** "95" -> "1h 35m". Matches Today.tsx and CampaignArc.tsx, so minutes read the same everywhere. */
 function formatEffort(minutes: number): string {
@@ -198,7 +184,7 @@ function Sigil({
   courseId: string;
   quest: boolean;
 }) {
-  const tincture = HERALDRY[colorTokenFor(courseId, course?.colorToken)];
+  const tincture = courseTincture(courseId, course?.colorToken, true);
   return (
     <span
       aria-hidden="true"

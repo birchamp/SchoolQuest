@@ -51,6 +51,13 @@ export const COURSE_COLOR_TOKENS = [
   "amber",
   "violet",
   "sable",
+  // Six tokens covered a five-course term and collided at seven, which is an ordinary
+  // load. Nine covers any realistic enrolment; beyond that the cycle repeats, which
+  // degrades rather than breaks because colour is never the only signal — every mark is
+  // paired with the course name and its code letters.
+  "teal",
+  "rose",
+  "slate",
 ] as const;
 export type CourseColorToken = (typeof COURSE_COLOR_TOKENS)[number];
 

@@ -1,6 +1,7 @@
-import { colorTokenFor, type Course, type CourseColorToken, type ThemeName } from "@schoolquest/domain";
+import { type Course, type ThemeName } from "@schoolquest/domain";
 import { explainBlockKind, explainDayLoad, label, plainDayLoad } from "@schoolquest/theme-language";
 import type { EncounterGroupView, PlanResponse, SessionBriefView } from "../lib/types";
+import { courseTincture } from "../lib/course-colour";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -27,23 +28,13 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * disappear. See `recede` below for what "recede" is allowed to touch, and what it is not.
  */
 
-/** Matches the tinctures in Questline.tsx and CourseManager.tsx — one colour per course. */
-const TINCTURES: Record<CourseColorToken, string> = {
-  azure: "#2f4a6d",
-  vermilion: "#8c2f28",
-  verdant: "#3f6c45",
-  amber: "#6b4a2a",
-  violet: "#5a3b6b",
-  sable: "#241a10",
-};
-
 /**
  * The single colour lookup for this file. Every use site goes through here so the palette
  * (which today has fewer tokens than a nine-course student has courses) can be swapped in
  * one place rather than hunted for at each call.
  */
 function tinctureFor(courseId: string, course: Course | undefined): string {
-  return TINCTURES[colorTokenFor(courseId, course?.colorToken)];
+  return courseTincture(courseId, course?.colorToken, true);
 }
 
 /**

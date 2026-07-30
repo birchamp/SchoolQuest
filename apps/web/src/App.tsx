@@ -13,6 +13,7 @@ import { Questline } from "./components/Questline";
 import { CampaignArc } from "./components/CampaignArc";
 import { SessionBrief } from "./components/SessionBrief";
 import { Stats } from "./components/Stats";
+import { CampaignTable } from "./components/CampaignTable";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 
 /**
@@ -47,6 +48,10 @@ export function App() {
   const [term, setTerm] = useState<Term | null>(null);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [tab, setTab] = useState<Tab>("today");
+  // The course lens. Lives here rather than in any one card because it is a lens on the
+  // shared surface — the week, the arc and the table all read from it, which is the whole
+  // difference between "one map with layers" and "a map per course".
+  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -186,13 +191,28 @@ export function App() {
               {plan.brief && (
                 <SessionBrief brief={plan.brief} courses={plan.courses} theme={theme} />
               )}
-              <WeekMap plan={plan} theme={theme} brief={plan.brief} />
+              {plan.courseLoad && (
+                <CampaignTable
+                  load={plan.courseLoad}
+                  courses={plan.courses}
+                  theme={theme}
+                  selectedCourseId={selectedCourseId}
+                  onSelectCourse={setSelectedCourseId}
+                />
+              )}
+              <WeekMap
+                plan={plan}
+                theme={theme}
+                brief={plan.brief}
+                selectedCourseId={selectedCourseId}
+              />
               {plan.brief && (
                 <CampaignArc
                   milestones={plan.brief.milestones}
                   undatedMilestones={plan.brief.undatedMilestones}
                   courses={plan.courses}
                   theme={theme}
+                  selectedCourseId={selectedCourseId}
                 />
               )}
               {plan.progress && (

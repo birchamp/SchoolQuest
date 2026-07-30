@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { colorTokenFor, type CourseColorToken, type ThemeName } from "@schoolquest/domain";
+import { type ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { DayPicker, TimeRange } from "./DayPicker";
+import { courseTincture } from "../lib/course-colour";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -143,25 +144,6 @@ const SHIELD =
   " 32% 94%, 14% 82%, 4% 66%, 0% 48%, 0% 7%)";
 
 /**
- * Tinctures keyed on the course's own identity colour.
- *
- * `colorToken` used to default to "slate" for every course, so keying off it painted an
- * identical mark on every row — which is why the Week roster showed five interchangeable
- * chips. Courses are now issued a distinct token when created, and `colorTokenFor` gives
- * older ones a stable colour derived from their id. Position was the obvious stand-in but
- * it is not an identity: two screens that sort differently would give the same course two
- * different colours.
- */
-const TINCTURES: Record<CourseColorToken, string> = {
-  azure: "#2f4a6d",
-  vermilion: Q.wax,
-  verdant: Q.forest,
-  amber: "#6b4a2a",
-  violet: "#5a3b6b",
-  sable: Q.leather2,
-};
-
-/**
  * Sigil lettering, matched to the Week tab so the two screens agree. Digits are skipped
  * on purpose: "BIO 240" as a two-character mark reads as "B2", which looks like a typo.
  */
@@ -175,7 +157,7 @@ function initialsFor(course: SnapshotCourse): string {
 }
 
 function CourseSigil({ course }: { course: SnapshotCourse }) {
-  const tincture = TINCTURES[colorTokenFor(course.id, course.colorToken)];
+  const tincture = courseTincture(course.id, course.colorToken, true);
   return (
     <span
       aria-hidden="true"
