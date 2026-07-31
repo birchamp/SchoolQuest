@@ -253,3 +253,27 @@ describe("slot grouping", () => {
     expect(review.questions[0]!.endTime).toBe("18:40");
   });
 });
+
+describe("today is off limits", () => {
+  /** 2026-09-28 is a Monday; NOW is 09:00 that morning. */
+  it("does not ask about a block earlier the same day", () => {
+    const review = buildWeeklyReview({
+      lost: [lost("2026-09-28", "07:00", 60)],
+      ...empty,
+    });
+    expect(review.questions).toEqual([]);
+    expect(review.unanswered).toBe(0);
+  });
+
+  it("still asks about yesterday", () => {
+    const review = buildWeeklyReview({ lost: [lost("2026-09-27", "07:00", 60)], ...empty });
+    expect(review.questions).toHaveLength(1);
+  });
+
+  it("measures the lookback from the start of today, not from this minute", () => {
+    // A block 21 days back to the minute must not slip out of the window purely because
+    // the student happened to open the app in the afternoon.
+    const review = buildWeeklyReview({ lost: [lost("2026-09-07", "23:00", 30)], ...empty });
+    expect(review.questions).toHaveLength(1);
+  });
+});

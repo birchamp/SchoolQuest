@@ -15,6 +15,13 @@
       "when": 1785381565101,
       "tag": "0001_acoustic_proudstar",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785381565102,
+      "tag": "0002_retire_superseded_blocks",
+      "breakpoints": true
     }
   ]
 }

@@ -78,7 +78,7 @@ npx wrangler d1 create schoolquest        # paste the id into apps/api/wrangler.
 npx wrangler r2 bucket create schoolquest-documents
 
 # 2. Local database
-pnpm db:migrate:local
+pnpm db:migrate:local                     # also run this after pulling — migrations are additive
 pnpm db:seed:local                        # loads the reference semester
 
 # 3. Secrets for local dev — apps/api/.dev.vars
@@ -95,6 +95,11 @@ pnpm dev:desktop  # Tauri window (starts the web dev server itself)
 
 With no `RESEND_API_KEY` set, the sign-in endpoint returns the magic link in its response
 and the sign-in screen shows it — local development needs no mail account.
+
+`pnpm db:reset-progress:local` returns the reference semester to "nothing done yet" without
+replaying extraction: it clears session outcomes, recorded interruptions, and the answers
+given about them, leaving courses, dates and weights exactly as extraction produced them.
+It is not scoped to one term — it resets every term in the local database.
 
 ### Deploying
 

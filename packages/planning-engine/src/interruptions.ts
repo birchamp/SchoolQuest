@@ -1,4 +1,5 @@
 import {
+  dateToEpochMinutes,
   dayOfWeekFor,
   formatTimeOfDay,
   MINUTES_PER_DAY,
@@ -105,7 +106,7 @@ export interface WeeklyReviewInput {
   lost: LostBlock[];
   reported: ReportedInterruption[];
   resolutions: SlotResolution[];
-  /** ISO instant. Only blocks whose time has passed are reviewed. */
+  /** ISO instant. Only blocks on days that are fully behind us are reviewed. */
   now: string;
   /** How far back to look. A term's worth of history makes for an interrogation. */
   lookbackDays?: number;
@@ -142,8 +143,17 @@ const CONTIGUOUS_GAP_MINUTES = 30;
 const ALIGNMENT_TOLERANCE_MINUTES = 90;
 
 export function buildWeeklyReview(input: WeeklyReviewInput): WeeklyReview {
-  const now = toEpochMinutes(input.now);
-  const since = now - (input.lookbackDays ?? DEFAULT_LOOKBACK_DAYS) * MINUTES_PER_DAY;
+  /**
+   * Today is off limits, however far through it we are.
+   *
+   * The obvious cutoff is "anything whose time has passed", and it nags: a student opening
+   * the app at three in the afternoon, having not yet ticked off a block from nine that
+   * morning, was asked what had taken the time — when the honest answer is that the day is
+   * not over and they may well still do it. The card calls itself a look at recent weeks and
+   * should mean it. A block only becomes evidence once its day is behind us.
+   */
+  const todayStart = dateToEpochMinutes(input.now.slice(0, 10));
+  const since = todayStart - (input.lookbackDays ?? DEFAULT_LOOKBACK_DAYS) * MINUTES_PER_DAY;
 
   const causeBySession = new Map<string, ReportedInterruption>();
   for (const report of input.reported) {
@@ -155,7 +165,7 @@ export function buildWeeklyReview(input: WeeklyReviewInput): WeeklyReview {
   const entries: SlotEntry[] = [];
   for (const block of input.lost) {
     const end = toEpochMinutes(block.endAt);
-    if (end > now || end < since) continue;
+    if (end > todayStart || end < since) continue;
     entries.push({
       start: toEpochMinutes(block.startAt),
       end,
@@ -166,7 +176,7 @@ export function buildWeeklyReview(input: WeeklyReviewInput): WeeklyReview {
   for (const report of input.reported) {
     if (report.sessionId) continue; // Already carried by the block it displaced.
     const end = toEpochMinutes(report.endAt);
-    if (end > now || end < since) continue;
+    if (end > todayStart || end < since) continue;
     entries.push({
       start: toEpochMinutes(report.startAt),
       end,
@@ -198,7 +208,7 @@ export function buildWeeklyReview(input: WeeklyReviewInput): WeeklyReview {
     minutesLost: entries.reduce((sum, e) => sum + Math.max(0, e.end - e.start), 0),
     unanswered: input.lost.filter((b) => {
       const end = toEpochMinutes(b.endAt);
-      return b.source === "silent" && end <= now && end >= since;
+      return b.source === "silent" && end <= todayStart && end >= since;
     }).length,
   };
 }

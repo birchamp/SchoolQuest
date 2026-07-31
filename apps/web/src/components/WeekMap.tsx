@@ -245,10 +245,17 @@ export function WeekMap({
                 </p>
               )}
 
+              {/* The load line above already reads "Clear road" (or "Clear") on a day with
+                  nothing on it, so an empty-state line underneath repeated it verbatim. It
+                  went unnoticed for as long as every test account had a full week; a brand
+                  new account's week is nothing but empty days, and the very first screen it
+                  shows said "Clear road / Clear road" seven times over. */}
               {timeline.length === 0 ? (
-                <p className="muted" style={{ fontSize: "0.75rem", margin: 0 }}>
-                  {quest ? "Clear road" : "Open"}
-                </p>
+                day.load !== "clear" && (
+                  <p className="muted" style={{ fontSize: "0.75rem", margin: 0 }}>
+                    {quest ? "Clear road" : "Open"}
+                  </p>
+                )
               ) : (
                 timeline.map((entry) => {
                   if (entry.type === "meal") {

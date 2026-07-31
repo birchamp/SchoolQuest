@@ -25,10 +25,30 @@ UPDATE work_items
 SET status = CASE WHEN status = 'canceled' THEN 'canceled' ELSE 'not_started' END,
     remaining_minutes = estimated_minutes;
 
+-- Blocks whose time has already passed are retired, not restored.
+--
+-- This used to set *every* session back to "planned", which was harmless while nothing read
+-- the past. The weekly review does read it: a restored block sitting in a day that has
+-- already gone by is indistinguishable from an hour the student lost, so a reset meant to
+-- produce a clean fixture instead produced one that opens by asking three questions about
+-- time nobody ever missed. A demo term has no history worth having an opinion about.
+UPDATE work_sessions
+SET status = 'moved',
+    actual_minutes = NULL,
+    outcome_code = NULL
+WHERE substr(start_at, 1, 10) < date('now');
+
+-- Everything still ahead goes back to untouched. Blocks already retired by a replan stay
+-- retired — they were never part of the live plan and restoring them would double-book it.
 UPDATE work_sessions
 SET status = 'planned',
     actual_minutes = NULL,
     outcome_code = NULL
-WHERE status <> 'moved';
+WHERE substr(start_at, 1, 10) >= date('now')
+  AND status <> 'moved';
 
 DELETE FROM audit_events WHERE entity_type = 'work_session';
+
+-- Reported interruptions and the answers given about them are progress too: leaving them
+-- behind would have the review skip questions the reset is meant to bring back.
+DELETE FROM interruptions;
