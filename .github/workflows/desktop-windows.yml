@@ -1,0 +1,110 @@
+name: Windows installer
+
+# Builds the desktop shell into a Windows installer.
+#
+# It runs on a real Windows runner rather than cross-compiling, because the Tauri Windows
+# bundle needs MSVC, WebView2 and either NSIS or WiX, and every one of those is a different
+# way for a cross-build to produce something that installs but does not run. A native build
+# is the one that has actually been on Windows before a student has.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      apiUrl:
+        description: >
+          Worker origin the installed app should talk to, e.g.
+          https://schoolquest-api.example.workers.dev. Leave blank to build against a
+          same-origin API, which only makes sense if you are serving the two together.
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # Keyed on the lockfile so a dependency bump busts it and an ordinary commit does not.
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The gates the repo already holds itself to. A signed installer of a broken build is
+      # worse than no installer, because it looks finished.
+      - name: Check
+        run: |
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+
+      # A tag push carries no workflow inputs, so a release built on the input alone would ship
+      # with no API origin at all — an installer that starts, looks fine, and fails every
+      # request. The repository variable is what makes the tagged path work unattended.
+      - name: Resolve the API origin
+        id: api
+        shell: bash
+        run: |
+          url="${{ github.event.inputs.apiUrl }}"
+          [ -n "$url" ] || url="${{ vars.SCHOOLQUEST_API_URL }}"
+          if [ -z "$url" ]; then
+            echo "::error::No API origin. Set the SCHOOLQUEST_API_URL repository variable, or"\
+                 " pass apiUrl when running this workflow by hand. A packaged build loads from"\
+                 " tauri://localhost, so a blank value means every request goes nowhere."
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Building against $url"
+
+      - name: Build the installer
+        working-directory: apps/desktop
+        env:
+          # Vite inlines this at build time, so the installer is bound to one Worker origin.
+          VITE_API_URL: ${{ steps.api.outputs.url }}
+        run: pnpm tauri build
+
+      - name: Collect the installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: schoolquest-windows
+          if-no-files-found: error
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            apps/desktop/src-tauri/target/release/bundle/msi/*.msi
+
+      # Only on a tag: a manual run is for trying a build, not for publishing one.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            apps/desktop/src-tauri/target/release/bundle/msi/*.msi
