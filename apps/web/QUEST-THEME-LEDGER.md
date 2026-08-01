@@ -96,7 +96,17 @@ that on surfaced nine real failures immediately.
 Corollary worth keeping: **two components copied a sigil chip style from before its contrast
 fix landed.** When a shared visual is fixed, grep for its clones.
 
-## Open from round 5 (start here next iteration)
+## Open (start here next iteration)
+
+0. **`RECONNAISSANCE` is on 22 of 24 beats.** Screenshotting the week map made it obvious:
+   `first_pass` means "not started yet", which in a term nobody has begun is every tile, so
+   the label covers the map and the two genuinely distinguishing `RITUAL` tags drown in it.
+   This is the same defect already recorded here for `LONG MARCH`, and it has the same fix —
+   `sustained` is suppressed for exactly this reason, and `first_pass` needs suppressing on
+   the same grounds whenever it is the majority kind. **If everything is named, no name means
+   anything.**
+
+## Open from round 5
 
 1. **The heraldic sigils could go further** — the Setup shield is a real heater shield with
    a bordure and a per-bend field; the roster chip is still a rounded square. They agree on
