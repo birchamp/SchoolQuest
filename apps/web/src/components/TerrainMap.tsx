@@ -87,6 +87,9 @@ const STATE_ORDER: BeaconState[] = [
   "done",
 ];
 
+/** Nothing switched off. A module constant so the default prop is referentially stable. */
+const EMPTY: ReadonlySet<string> = new Set();
+
 const VIEW_W = 1000;
 const VIEW_H = 580;
 
@@ -254,37 +257,21 @@ export function TerrainMap({
   plan,
   theme,
   reducedMotion,
-  selectedCourseId,
+  hiddenCourseIds,
 }: {
   plan: PlanResponse;
   theme: ThemeName;
   reducedMotion: boolean;
-  selectedCourseId?: string | null;
+  /** Classes switched off at the tab level. See `LayerBar.tsx` for why off means gone *here*. */
+  hiddenCourseIds?: ReadonlySet<string>;
 }) {
   const [focused, setFocused] = useState<TerrainMarker | null>(null);
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
 
-  /**
-   * Which classes are drawn. One layer each, any combination, all on to start.
-   *
-   * The reason this is a set of toggles rather than a one-class-at-a-time picker is the thing
-   * the whole view exists for: **time is the shared resource.** If BIO's work lived on BIO's own
-   * map, nothing would ever show that Wednesday is already full of HIS, and cross-course triage
-   * is the actual problem. Layers keep one piece of ground and let you decide what stands on it.
-   */
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
-  // Selecting a course elsewhere — a row in the campaign roster — solos that layer here, so the
-  // two controls mean the same thing rather than fighting over the same picture.
-  useEffect(() => {
-    setHidden(
-      selectedCourseId
-        ? new Set(plan.courses.map((c) => c.id).filter((id) => id !== selectedCourseId))
-        : new Set(),
-    );
-  }, [selectedCourseId, plan.courses]);
-
-  const visible = (courseId: string) => !hidden.has(courseId);
-  const shownItems = plan.workItems.filter((w) => visible(w.courseId));
+  // On this card, and only this card, a switched-off class is gone rather than dimmed: the
+  // ground is *built from* the work, and there is no such thing as a receded mountain.
+  const hidden = hiddenCourseIds ?? EMPTY;
+  const shownItems = plan.workItems.filter((w) => !hidden.has(w.courseId));
 
   // Booked minutes across the whole term, not just this week: a paper's beacon must know about
   // the three hours held for it a fortnight out.
@@ -378,32 +365,6 @@ export function TerrainMap({
     .sort((a, b) => (a.daysAway ?? 0) - (b.daysAway ?? 0));
   const weeks = Math.round(terrain.focusDays / 7);
 
-  /**
-   * One layer per class, each carrying that class's own severity.
-   *
-   * The severity is deliberately drawn from `plan.health` — the same course-health engine the
-   * dashboard reads — and not from what happens to be on the map. A class can be in trouble for
-   * reasons this picture cannot show: a grade below target, a marked assignment never recorded,
-   * a grading scheme that does not add up. A class chip that only counted lit beacons would go
-   * calm on exactly those cases.
-   *
-   * They keep their severity **while switched off**, which is the point of putting them here.
-   * Turning HIS off has to stop HIS crowding the ground without also making you forget HIS is on
-   * fire, or hiding a layer becomes a way to lose a class.
-   */
-  const healthByCourse = new Map((plan.health?.courses ?? []).map((c) => [c.courseId, c]));
-  const layers = plan.courses.map((course) => {
-    const mine = [...terrain.markers, ...terrain.distant].filter((m) => m.courseId === course.id);
-    return {
-      course,
-      on: visible(course.id),
-      level: healthByCourse.get(course.id)?.level ?? "steady",
-      concern: healthByCourse.get(course.id)?.concerns[0]?.detail ?? null,
-      lit: mine.filter((m) => m.state === "overdue" || m.state === "needs_time").length,
-    };
-  });
-  const hiddenLayers = layers.filter((l) => !l.on);
-
   return (
     <section className="card" aria-labelledby="terrain-heading">
       <h2 id="terrain-heading">
@@ -416,23 +377,6 @@ export function TerrainMap({
         land rises where the work piles up. Further out sits in the distance, dim because it can
         wait — unless nothing has been set aside for it, in which case it burns anyway.
       </p>
-
-      <LayerBar
-        layers={layers}
-        theme={theme}
-        onToggle={(courseId) =>
-          setHidden((prev) => {
-            const next = new Set(prev);
-            if (next.has(courseId)) next.delete(courseId);
-            else next.add(courseId);
-            return next;
-          })
-        }
-        onOnly={(courseId) =>
-          setHidden(new Set(plan.courses.map((c) => c.id).filter((id) => id !== courseId)))
-        }
-        onAll={() => setHidden(new Set())}
-      />
 
       <div className="terrain-frame terrain-frame-model">
         <Relief field={terrain.field} />
@@ -513,15 +457,6 @@ export function TerrainMap({
         </svg>
       </div>
 
-      {hiddenLayers.length > 0 && (
-        <p className="muted" style={{ margin: "0.5rem 0 0", fontSize: "0.84rem" }}>
-          {hiddenLayers.length === 1 ? "One class is" : `${hiddenLayers.length} classes are`} switched
-          off:{" "}
-          {hiddenLayers.map((l) => l.course.code ?? l.course.name).join(", ")}. The ground and the
-          counts below are only what is switched on.
-        </p>
-      )}
-
       {/* The legend is the key to the hues, and it states counts so the picture can be checked
           against a number. */}
       <ul className="terrain-legend">
@@ -590,127 +525,6 @@ export function TerrainMap({
         </p>
       )}
     </section>
-  );
-}
-
-/** Quest's parchment values, measured on that card. See `Dashboard.tsx` for why they differ. */
-const QUEST_INK_DIM = "#5b4930";
-const QUEST_WAX = "#8c2f28";
-const QUEST_GOLD_DIM = "#6f5200";
-
-/**
- * The severity a class is carrying, in the same language the dashboard uses.
- *
- * Quest repaints the ground under this card, so it needs its own values — `--at-risk` on
- * parchment measured 1.99:1 the last time a component assumed otherwise. The rule this keeps
- * failing to be obvious: a theme that repaints the ground has to repaint every token that means
- * "text on the ground", every time.
- */
-function levelColour(level: string, quest: boolean): string {
-  if (!quest) {
-    return level === "at_risk"
-      ? "var(--at-risk)"
-      : level === "needs_attention"
-        ? "var(--watch)"
-        : "var(--text-dim)";
-  }
-  return level === "at_risk" ? QUEST_WAX : level === "needs_attention" ? QUEST_GOLD_DIM : QUEST_INK_DIM;
-}
-
-/** Never colour alone: every severity ships a mark and a word as well as a hue. */
-const LEVEL_MARK: Record<string, { glyph: string; word: string }> = {
-  at_risk: { glyph: "▲", word: "needs a decision" },
-  needs_attention: { glyph: "●", word: "needs attention" },
-  steady: { glyph: "·", word: "steady" },
-};
-
-/**
- * One switch per class, each carrying that class's severity.
- *
- * Layers rather than a one-class-at-a-time picker, because time is the shared resource: five
- * separate maps would hide that Wednesday is already full of HIS while you are reading BIO, and
- * that collision *is* the problem this app is for. One piece of ground, and you choose what
- * stands on it.
- *
- * The severity stays lit on a switched-off class, which is the argument for putting these here
- * at all rather than leaving the lens buried in the roster table. Turning a class off has to
- * quieten the picture without quietening the class.
- */
-function LayerBar({
-  layers,
-  theme,
-  onToggle,
-  onOnly,
-  onAll,
-}: {
-  layers: {
-    course: Course;
-    on: boolean;
-    level: string;
-    concern: string | null;
-    lit: number;
-  }[];
-  theme: ThemeName;
-  onToggle: (courseId: string) => void;
-  onOnly: (courseId: string) => void;
-  onAll: () => void;
-}) {
-  const quest = theme === "quest";
-  const anyOff = layers.some((l) => !l.on);
-
-  return (
-    <div className="terrain-layers">
-      <ul>
-        {layers.map(({ course, on, level, concern, lit }) => {
-          const mark = LEVEL_MARK[level] ?? LEVEL_MARK.steady!;
-          return (
-            <li key={course.id}>
-              <button
-                type="button"
-                className={`terrain-layer${on ? " on" : ""}`}
-                aria-pressed={on}
-                onClick={() => onToggle(course.id)}
-                // Shift-click is a shortcut, never the only way: the "Only this" path is also
-                // reachable from the roster table, and a modifier nobody discovers is not a
-                // feature. It is announced in the label below.
-                onKeyDown={(e) => {
-                  if (e.shiftKey && e.key === "Enter") {
-                    e.preventDefault();
-                    onOnly(course.id);
-                  }
-                }}
-                title={concern ?? `${course.name} — ${mark.word}`}
-              >
-                <span
-                  aria-hidden="true"
-                  className="terrain-layer-swatch"
-                  style={{ background: courseChipFill(course.id, course.colorToken) }}
-                />
-                <span className="terrain-layer-code">{course.code ?? course.name}</span>
-                <span aria-hidden="true" style={{ color: levelColour(level, quest), fontWeight: 700 }}>
-                  {mark.glyph}
-                </span>
-                {lit > 0 && on && (
-                  <span aria-hidden="true" className="terrain-layer-count">
-                    {lit}
-                  </span>
-                )}
-                <span className="sr-only">
-                  {course.name}: {mark.word}
-                  {lit > 0 ? `, ${lit} needing time booked` : ""}.{" "}
-                  {on ? "Shown on the map. Activate to hide." : "Hidden from the map. Activate to show."}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      {anyOff && (
-        <button type="button" className="terrain-layer-all" onClick={onAll}>
-          Show every class
-        </button>
-      )}
-    </div>
   );
 }
 

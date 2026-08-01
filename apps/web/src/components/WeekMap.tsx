@@ -26,11 +26,12 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  *
  * Course colour is always paired with the course name; colour is never the only signal.
  *
- * One optional lens sits on top of all of this: `selectedCourseId` isolates a single course
- * *on the shared surface* rather than giving each course a map of its own. Separate maps
- * would hide the only thing this view exists to show — that Wednesday is already full of
- * History before Chemistry asks for an hour — so the other courses recede rather than
- * disappear. See `recede` below for what "recede" is allowed to touch, and what it is not.
+ * The class switches sit on top of all of this: they emphasise *on the shared surface* rather
+ * than giving each course a map of its own. Separate maps would hide the only thing this view
+ * exists to show — that Wednesday is already full of History before Chemistry asks for an hour —
+ * so a switched-off class recedes rather than disappearing. See `recede` below for what
+ * "recede" is allowed to touch, and what it is not, and `LayerBar.tsx` for why the road ahead is
+ * the one card that clears a switched-off class away entirely.
  */
 
 /**
@@ -82,13 +83,17 @@ export function WeekMap({
   plan,
   theme,
   brief,
-  selectedCourseId,
+  hiddenCourseIds,
 }: {
   plan: PlanResponse;
   theme: ThemeName;
   brief?: SessionBriefView;
-  /** Optional course lens; see the note at the top of the file. Absent or null = no lens. */
-  selectedCourseId?: string | null;
+  /**
+   * Classes switched off at the tab level. They **recede here and are never removed** — see the
+   * note at the top of the file, and `LayerBar.tsx` for why the road ahead is the only card that
+   * clears them away.
+   */
+  hiddenCourseIds?: ReadonlySet<string>;
 }) {
   const quest = theme === "quest";
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
@@ -106,19 +111,15 @@ export function WeekMap({
   // something assumed to own up to.
   const heldAny = (plan.meals ?? []).some((m) => m.status === "reserved" || m.status === "squeezed");
 
-  /**
-   * The lens only switches on when it has something to say.
-   *
-   * A student carrying one course, or a week whose beats all happen to belong to the
-   * selected course, would otherwise get a banner announcing an isolation that isolates
-   * nothing — and, worse, a screen on which every single tile is receded because there is
-   * no tile left to hold at full strength. An unknown id is treated the same way: naming a
-   * course the plan does not carry would be a worse answer than showing the plain week.
-   */
-  const lensCourse = selectedCourseId ? coursesById.get(selectedCourseId) : undefined;
-  const lens =
-    lensCourse && beats.some((b) => b.courseId !== lensCourse.id) ? lensCourse : undefined;
-  const lensName = lens ? courseLabel(lens) : "";
+  const hidden = hiddenCourseIds ?? new Set<string>();
+  // The lens only switches on when something would still be at full strength afterwards. A week
+  // whose every beat belongs to a switched-off class would otherwise recede entirely, leaving
+  // nothing to recede *from* and a banner announcing an emphasis that emphasises nothing.
+  const stepped = beats.some((b) => hidden.has(b.courseId)) && beats.some((b) => !hidden.has(b.courseId));
+  const steppedNames = plan.courses
+    .filter((c) => hidden.has(c.id))
+    .map((c) => courseLabel(c))
+    .join(", ");
 
   return (
     <section
@@ -126,7 +127,7 @@ export function WeekMap({
       // Named only while a lens is on, so a screen-reader user meets the highlighted course
       // as part of the region rather than having to find the sentence inside it. Without a
       // lens the section stays unnamed, exactly as it renders today.
-      aria-labelledby={lens ? "week-map-heading week-map-lens" : undefined}
+      aria-labelledby={stepped ? "week-map-heading week-map-lens" : undefined}
     >
       <h2 id="week-map-heading">{label("weekMap", theme)}</h2>
       {quest && (
@@ -140,14 +141,16 @@ export function WeekMap({
           from the styling. No `Themed` wrapper and no quest flavour: this is a sentence
           about the control, and the second half of it is a promise about the numbers that
           has to read the same under every theme. */}
-      {lens && (
+      {stepped && (
         <p
           id="week-map-lens"
           className="muted"
           style={{ margin: "0 0 0.6rem", fontSize: "0.82rem" }}
         >
-          Showing {lensName} at full strength. Other courses are dimmed, not removed — the
-          day loads, the busiest-day mark and every count below still cover the whole week.
+          {steppedNames} {steppedNames.includes(",") ? "are" : "is"} switched off, so
+          {steppedNames.includes(",") ? " they step" : " it steps"} back here rather than
+          disappearing — the day loads, the busiest-day mark and every count below still cover
+          the whole week.
         </p>
       )}
 
@@ -292,7 +295,7 @@ export function WeekMap({
                   // neutral edge in place of the course's colour. Nothing is filtered out,
                   // because the point of the shared surface is that a full Wednesday still
                   // looks full while you are reading Chemistry.
-                  const recede = lens !== undefined && beat.courseId !== lens.id;
+                  const recede = stepped && hidden.has(beat.courseId);
                   return (
                     <div
                       className="block"

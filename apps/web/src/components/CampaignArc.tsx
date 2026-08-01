@@ -29,10 +29,10 @@ import { courseTincture } from "../lib/course-colour";
  * the flavour is stripped, and the plain shell is a calm planner readout carrying no
  * metaphor at all.
  *
- * `selectedCourseId` adds an optional lens over all of it. The arc is the *term's* arc, so
- * the lens changes rank and nothing else: the ordering, the banding, the month runs and
- * every figure in the summary band are identical with a lens on and off. Rows outside the
- * lens recede — they keep every word, and lose colour and weight. See `recessedInk`.
+ * The class switches add an optional emphasis over all of it. The arc is the *term's* arc, so
+ * they change rank and nothing else: the ordering, the banding, the month runs and every figure
+ * in the summary band are identical whatever is switched off. Rows for a switched-off class
+ * recede — they keep every word, and lose colour and weight. See `recessedInk`.
  */
 
 /**
@@ -637,14 +637,18 @@ export function CampaignArc({
   undatedMilestones,
   courses,
   theme,
-  selectedCourseId,
+  hiddenCourseIds,
 }: {
   milestones: MilestoneView[];
   undatedMilestones: UndatedMilestoneView[];
   courses: Course[];
   theme: ThemeName;
-  /** Optional course lens; see the note at the top of the file. Absent or null = no lens. */
-  selectedCourseId?: string | null;
+  /**
+   * Classes switched off at the tab level. They **recede here and are never removed** — see the
+   * note at the top of the file, and `LayerBar.tsx` for why the road ahead is the only card that
+   * clears them away.
+   */
+  hiddenCourseIds?: ReadonlySet<string>;
 }): JSX.Element {
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
@@ -709,24 +713,28 @@ export function CampaignArc({
   const undatedHeading = quest ? "Set pieces with no date yet" : "Not dated yet";
 
   /**
-   * The lens only switches on when it has something to isolate.
+   * Stepping back only switches on when something would still be at full strength afterwards.
    *
-   * A single-course student, or a term whose major work happens to sit entirely in the
-   * selected course, would otherwise get a banner announcing a separation that separates
-   * nothing — and every row on the card receded, with nothing left at full strength for
-   * them to recede *from*. An id no course matches is treated the same way: silently
-   * showing the ordinary arc beats naming a course that is not there.
+   * A single-course student, or a term whose major work sits entirely in the switched-off
+   * classes, would otherwise get every row on the card receded, with nothing left at full
+   * strength for them to recede *from* — and a banner announcing an emphasis that emphasises
+   * nothing. Showing the ordinary arc is the better answer in both cases.
    */
-  const lensCourse = selectedCourseId ? coursesById.get(selectedCourseId) : undefined;
-  const lens = lensCourse && all.some((m) => m.courseId !== lensCourse.id) ? lensCourse : undefined;
-  const recedes = (courseId: string) => lens !== undefined && courseId !== lens.id;
+  const hidden = hiddenCourseIds ?? new Set<string>();
+  const stepped =
+    all.some((m) => hidden.has(m.courseId)) && all.some((m) => !hidden.has(m.courseId));
+  const steppedNames = courses
+    .filter((c) => hidden.has(c.id))
+    .map((c) => courseLabel(c, c.id))
+    .join(", ");
+  const recedes = (courseId: string) => stepped && hidden.has(courseId);
 
   return (
     <section
       className="card"
       // The lens line joins the heading in naming the region, so a screen-reader user meets
       // the highlighted course on arrival instead of having to find the sentence inside.
-      aria-labelledby={lens ? "campaign-arc-heading campaign-arc-lens" : "campaign-arc-heading"}
+      aria-labelledby={stepped ? "campaign-arc-heading campaign-arc-lens" : "campaign-arc-heading"}
     >
       <h2 id="campaign-arc-heading">
         {quest && <span aria-hidden="true">{"⚜ "}</span>}
@@ -745,15 +753,16 @@ export function CampaignArc({
           reader has to know that before reading them, not after. No `Themed` wrapper and no
           quest flavour — this is a statement about the control and about what the numbers
           mean, and both halves have to read identically under every theme. */}
-      {lens && (
+      {stepped && (
         <p
           id="campaign-arc-lens"
           className="muted"
           style={{ margin: "0 0 0.6rem", fontSize: "0.82rem" }}
         >
-          Showing {courseLabel(lens, lens.id)} at full strength. Other courses are dimmed,
-          not removed — the figures below, and the order and grouping of every row, still
-          cover the whole term.
+          {steppedNames} {steppedNames.includes(",") ? "are" : "is"} switched off, so
+          {steppedNames.includes(",") ? " they step" : " it steps"} back here rather than
+          disappearing — the figures below, and the order and grouping of every row, still cover
+          the whole term.
         </p>
       )}
 

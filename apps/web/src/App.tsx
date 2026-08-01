@@ -22,6 +22,7 @@ import { TerrainMap } from "./components/TerrainMap";
 import { AssignmentsTable, CoursesTable, LookaheadTable, WeekTable } from "./components/Tables";
 import { useViewMode } from "./lib/view-mode";
 import { CampaignTable } from "./components/CampaignTable";
+import { buildLayers, LayerBar } from "./components/LayerBar";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 
 /**
@@ -63,7 +64,18 @@ export function App() {
   // The course lens. Lives here rather than in any one card because it is a lens on the
   // shared surface — the week, the arc and the table all read from it, which is the whole
   // difference between "one map with layers" and "a map per course".
-  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  /**
+   * Classes switched off, governing every card on the week.
+   *
+   * Held here rather than inside any one card because it is one decision about the week, not a
+   * per-card setting — five places to set the same thing is exactly the working-memory tax this
+   * app exists to remove.
+   *
+   * **Never persisted, on purpose.** The worst thing this control can do is let a student switch
+   * four classes off, get distracted, and come back next week to an app quietly under-reporting
+   * the term. A filter that survives a session is how a class gets lost, so this one resets.
+   */
+  const [hiddenCourseIds, setHiddenCourseIds] = useState<ReadonlySet<string>>(new Set());
   const [weekView, setWeekView] = useState<WeekView>("map");
   const [viewMode, setViewMode] = useViewMode();
   const [loading, setLoading] = useState(true);
@@ -153,6 +165,13 @@ export function App() {
     setPlan(null);
     setTerm(null);
   }
+
+  // The roster row highlight and the class switches are one state, not two: a class is
+  // "selected" in the roster exactly when it is the only one still switched on.
+  const visibleCourseIds = (plan?.courses ?? [])
+    .map((c) => c.id)
+    .filter((id) => !hiddenCourseIds.has(id));
+  const soloCourseId = visibleCourseIds.length === 1 ? visibleCourseIds[0]! : null;
 
   if (loading) {
     return (
@@ -252,10 +271,33 @@ export function App() {
                       load={plan.courseLoad}
                       courses={plan.courses}
                       theme={theme}
-                      selectedCourseId={selectedCourseId}
-                      onSelectCourse={setSelectedCourseId}
+                      // The roster highlights a class when it is the only one left switched on,
+                      // so clicking a row and using the switches say the same thing rather than
+                      // being two controls arguing over one picture.
+                      selectedCourseId={soloCourseId}
+                      onSelectCourse={(id) =>
+                        setHiddenCourseIds(
+                          id === null
+                            ? new Set()
+                            : new Set(plan.courses.map((c) => c.id).filter((c) => c !== id)),
+                        )
+                      }
                     />
                   )}
+
+                  <LayerBar
+                    layers={buildLayers(plan, hiddenCourseIds)}
+                    theme={theme}
+                    onToggle={(courseId) =>
+                      setHiddenCourseIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(courseId)) next.delete(courseId);
+                        else next.add(courseId);
+                        return next;
+                      })
+                    }
+                    onAll={() => setHiddenCourseIds(new Set())}
+                  />
 
                   {/* The week has two honest shapes and neither replaces the other: the map
                       says what the work is, the calendar says where the hours go. */}
@@ -288,20 +330,16 @@ export function App() {
                       plan={plan}
                       theme={theme}
                       reducedMotion={me?.reducedMotion ?? false}
-                      selectedCourseId={selectedCourseId}
+                      hiddenCourseIds={hiddenCourseIds}
                     />
                   ) : weekView === "calendar" ? (
-                    <WeekCalendar
-                      plan={plan}
-                      theme={theme}
-                      selectedCourseId={selectedCourseId}
-                    />
+                    <WeekCalendar plan={plan} theme={theme} hiddenCourseIds={hiddenCourseIds} />
                   ) : (
                     <WeekMap
                       plan={plan}
                       theme={theme}
                       brief={plan.brief}
-                      selectedCourseId={selectedCourseId}
+                      hiddenCourseIds={hiddenCourseIds}
                     />
                   )}
 
@@ -311,7 +349,7 @@ export function App() {
                       undatedMilestones={plan.brief.undatedMilestones}
                       courses={plan.courses}
                       theme={theme}
-                      selectedCourseId={selectedCourseId}
+                      hiddenCourseIds={hiddenCourseIds}
                     />
                   )}
                   {plan.progress && (

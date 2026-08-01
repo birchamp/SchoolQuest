@@ -397,6 +397,52 @@ the map nearly empty:
   model came out as flat facets with hard edges between them. A quintic ease on every
   interpolated fraction fixes both. It is exactly why Perlin replaced his own cubic smoothstep.
 
+## Round 13 — one control, two honest behaviours
+
+The open question was whether the week map, the calendar and the arc should adopt the terrain's
+layers, and it was left to judgement "for someone with ADHD". The answer turned out to be *no*,
+for a reason the week map had already written down in its own header: **"Other courses are
+dimmed, not removed."**
+
+Out of sight is not a figure of speech for this reader. A filter that removes work is a way to
+lose that work, and the more surfaces that can hide a class, the more chances there are to lose
+one. So the switches were lifted to the tab where they govern everything, and they do two things:
+
+- **The road ahead clears a switched-off class away.** It has to — the ground there is *built
+  from* the work, and there is no such thing as a receded mountain.
+- **Everywhere else it steps back and is never removed.** The hour-by-hour calendar is the case
+  that decides it: that grid is a picture of time already spoken for, and dropping a class from
+  it would invent free time that does not exist. A reader with time blindness would look at
+  Wednesday, see a gap, and plan into an hour that is already taken.
+
+Three supporting decisions, all pointing the same way:
+
+- **The state never persists.** Every visit starts with every class on. The worst thing this
+  control can do is let someone switch four classes off, get distracted, and come back next week
+  to an app quietly under-reporting the term.
+- **A switched-off class keeps its severity on its own switch.** Turning HIS off has to quieten
+  the picture without quietening HIS.
+- **The roster row click and the switches are one state**, not two controls arguing over one
+  picture: a class is "selected" in the roster exactly when it is the only one still on.
+
+Two defects found by looking rather than reasoning:
+
+- **Receding on the calendar was a three-pixel border colour** — invisible at that scale, so a
+  switched-off class looked identical to a switched-on one and the control appeared broken. A
+  receded band now gives up its fill and keeps its size, position and ink. Borrowing the fill
+  already used for committed time meant no new colour pair to argue about.
+- **`p.terrain-layers-note` measured 2.14:1.** Moving the bar out of the terrain card and onto
+  the page put parchment ink on dark leather. Fourth time in this file that a component has been
+  carried one surface further out and taken its old ground's ink with it. The fix this time is
+  structural rather than another measured value: the bar has a surface of its own, so everything
+  inside it sits on something known.
+
+And one about the harness, which is the recurring shape of this whole ledger: the script written
+to prove the two behaviours differ reported the week map collapsing from 25 tiles to 0. It had
+not. A `.catch(() => {})` on the view-switch click meant a failed switch left it counting the
+view it was already on. **A check that silently falls back to measuring the wrong thing is worse
+than no check**, because it produces a number you will believe.
+
 ## Rules that hold regardless of round
 
 - Everything scoped under `body[data-theme="quest"]` (plus the shared pre-theme book

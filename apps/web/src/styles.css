@@ -1417,12 +1417,24 @@ body[data-theme="quest"] .view-switch button[aria-pressed="true"] {
 
 /* One switch per class, above the map. Wraps rather than scrolls, because a term can carry
    three classes or seven and a row that scrolls hides exactly the class in trouble. */
+/* The switches carry their own ground.
+ *
+ * They used to live inside the terrain card and moved out to govern the whole week — which put
+ * the rule underneath them on the *page*, and under Quest the page is dark oiled leather while
+ * the switches were coloured for parchment. The note measured 2.14:1. Fourth time in this file
+ * that a component has been moved one surface further out and taken its old ground's ink with
+ * it. Giving the bar a surface of its own ends the question rather than answering it again:
+ * everything inside it now sits on something known. */
 .terrain-layers {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem 0.6rem;
   margin: 0 0 0.55rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
 .terrain-layers ul {
@@ -1578,6 +1590,17 @@ body[data-theme="quest"] .view-switch button[aria-pressed="true"] {
    *leather* values — dark ink on dark leather, which measured 1.06:1. Third component to walk
    into this. The rule, again: a theme that repaints the ground has to repaint every token that
    means "text on the ground", every time, and the only way to know it did is to measure. */
+/* Parchment, like a card, because that is the ground its contents were measured against. */
+body[data-theme="quest"] .terrain-layers {
+  --text: var(--q-ink);
+  --text-dim: #6b5636;
+  border-radius: 3px;
+  border-color: rgba(201, 162, 39, 0.45);
+  background:
+    linear-gradient(180deg, rgba(255, 252, 240, 0.06), rgba(0, 0, 0, 0.06)),
+    var(--q-parchment, #e8dcb8);
+}
+
 body[data-theme="quest"] .terrain-layer {
   background: rgba(92, 73, 48, 0.1);
   border-color: rgba(139, 110, 60, 0.55);
@@ -1609,4 +1632,17 @@ body[data-theme="quest"] .terrain-focus {
   background: rgba(239, 227, 200, 0.7);
   border-left-color: var(--q-gold);
   color: #2a1f14;
+}
+
+/* The rule the switches follow, stated on the control itself. It has to survive being read
+   once, so it is one sentence and it never moves. */
+.terrain-layers-note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+body[data-theme="quest"] .terrain-layers-note {
+  color: #5b4930;
 }

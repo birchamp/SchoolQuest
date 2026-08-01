@@ -92,11 +92,20 @@ function clockOf(minuteOfDay: number): string {
 export function WeekCalendar({
   plan,
   theme,
-  selectedCourseId,
+  hiddenCourseIds,
 }: {
   plan: PlanResponse;
   theme: ThemeName;
-  selectedCourseId?: string | null;
+  /**
+   * Classes switched off at the tab level.
+   *
+   * They **recede here and are never removed**, and this is the card where that matters most.
+   * This grid is a picture of time already committed; dropping a class from it would invent free
+   * time that does not exist, and a reader with time blindness would look at Wednesday, see a
+   * gap, and plan into an hour that is already taken. Switching a class off is allowed to make
+   * the week quieter. It is not allowed to make it look emptier than it is.
+   */
+  hiddenCourseIds?: ReadonlySet<string>;
 }) {
   const quest = theme === "quest";
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
@@ -230,11 +239,7 @@ export function WeekCalendar({
                     windowStart={calendar.windowStartMinute}
                     quest={quest}
                     course={slot.courseId ? coursesById.get(slot.courseId) : undefined}
-                    receded={
-                      Boolean(selectedCourseId) &&
-                      slot.courseId !== null &&
-                      slot.courseId !== selectedCourseId
-                    }
+                    receded={slot.courseId !== null && (hiddenCourseIds?.has(slot.courseId) ?? false)}
                   />
                 ))}
               </div>
@@ -263,7 +268,19 @@ function Band({
 }) {
   const top = (slot.start - base - windowStart) * PIXELS_PER_MINUTE;
   const height = slot.minutes * PIXELS_PER_MINUTE;
-  const style = bandStyle(slot.kind, quest);
+  const own = bandStyle(slot.kind, quest);
+  /**
+   * A receded band keeps its size, its position and its ink; it gives up its fill.
+   *
+   * Losing only the three-pixel edge — which is all receding used to do here — was invisible at
+   * this scale, so a switched-off class looked exactly like a switched-on one and the control
+   * appeared broken. The fill borrowed is the one already used for committed time, so the ink on
+   * it is a pair this file already carries and no new colour has to be argued about.
+   *
+   * What it must never do is shrink or vanish. This grid is a picture of time already spoken
+   * for, and a band that disappeared would hand back an hour the student does not have.
+   */
+  const style = receded ? { ...bandStyle("commitment", quest), color: own.color } : own;
 
   // Study blocks carry the course's colour as an edge rather than a fill, so the text on
   // them keeps the card's measured ink instead of needing a per-course contrast check.
