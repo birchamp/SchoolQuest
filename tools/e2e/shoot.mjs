@@ -117,7 +117,12 @@ for (const [name, matcher] of tabs) {
 
 // The completion moment only exists for as long as it is on screen, so it needs its own
 // frame: go back to Today, finish the current recommendation through the UI, and shoot.
-{
+//
+// Off by default, because it *writes*. Every run retired one more session, so the reference
+// term drained a little with each round of screenshots and no two rounds were comparable —
+// the same fixture-grinding trap the seeding block above already had to be fixed for, one
+// step further down the script. Set SQ_SHOOT_COMPLETION=1 when that frame is what you want.
+if (process.env.SQ_SHOOT_COMPLETION === "1") {
   const todayTab = page.locator("nav.tabs button").first();
   await todayTab.click();
   await page.waitForTimeout(700);

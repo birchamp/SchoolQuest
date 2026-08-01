@@ -63,7 +63,12 @@ export interface TerrainMarker {
   /** Whole days until due; negative is past due. */
   daysAway: number | null;
 
-  /** 0 at the viewer's feet, 1 at the horizon. Time, compressed for perspective. */
+  /**
+   * Position in time, 0..1 and linear in days — 0 is today, 1 is the far end of whichever
+   * band this marker belongs to. Ground markers measure it across `focusDays`; distant ones
+   * measure it across the stretch from there to the horizon, so the two are not comparable
+   * and are never drawn on the same scale.
+   */
   depth: number;
   /** -1 (far left) to 1 (far right). Which course, plus a stable scatter. */
   lateral: number;
@@ -103,19 +108,33 @@ export interface HeightField {
 }
 
 export interface Terrain {
+  /**
+   * Work standing on the modelled ground — everything due inside `focusDays`. `depth` runs
+   * 0 (today, at the near edge) to 1 (the far edge of the ground).
+   */
   markers: TerrainMarker[];
+  /**
+   * Work past the ground but still ahead of the horizon: the middle distance.
+   *
+   * These have a place but no terrain. `depth` runs 0 (just past the ground) to 1 (at the
+   * horizon) on its *own* scale, not continuous with `markers`. Drawing them as faint marks
+   * rather than as modelled hillside is the whole reason the horizon can be twelve weeks:
+   * a plan nine weeks out is not precise enough to deserve a hillside, and pretending
+   * otherwise costs the four weeks that are.
+   */
+  distant: TerrainMarker[];
   /** Items with no known date, which cannot be placed by time. */
   undated: TerrainMarker[];
   /**
-   * Work further out than the drawn horizon. Counted rather than placed, because squeezing
-   * four months into one picture leaves the next fortnight — the only part anyone can act
-   * on — in the bottom tenth of it, and everything else in an illegible band at the back.
+   * Work further out than even the distance. Counted rather than placed.
    */
   beyond: TerrainMarker[];
-  /** The furthest day drawn, so the caller can label the horizon honestly. */
+  /** How much time the modelled ground covers. */
+  focusDays: number;
+  /** The furthest day placed at all, so the caller can label the distance honestly. */
   horizonDays: number;
   counts: Record<BeaconState, number>;
-  /** The relief, built from where the work actually falls. */
+  /** The relief, built from the work standing on the ground. */
   field: HeightField;
 }
 
@@ -129,7 +148,9 @@ export interface TerrainInput {
   now: string;
   /** Fallback effort by work type, so an unestimated item still has a size. */
   defaultEffortMinutes: Readonly<Record<string, number>>;
-  /** How far ahead to draw. Anything past it is counted at the horizon instead. */
+  /** How much time the modelled ground covers. Past it, work goes into the distance. */
+  focusDays?: number;
+  /** How far ahead to place anything. Past it, work is counted rather than placed. */
   visibleDays?: number;
 }
 
@@ -160,15 +181,28 @@ const MAX_RUNWAY_DAYS = 35;
 const MIN_WARNING_DAYS = 10;
 
 /**
- * How far ahead the ground is drawn.
+ * How much time the modelled ground covers.
  *
- * Eight weeks, because a term runs four months and drawing all of it was measurably worse:
- * with a 138-day horizon the whole of the next fortnight landed in the bottom fifth of the
- * frame and fifty markers piled into an unreadable band at the back. Eight weeks is also
- * about as far ahead as any of this is actionable — beyond it the honest answer is a count,
- * not a position.
+ * Four weeks. Two earlier horizons were wrong in the same direction: a full term put the next
+ * fortnight in the bottom fifth of the frame, and eight weeks still spent half the picture on
+ * ground nobody can act on. Four weeks is about as far as a plan is real — beyond it dates
+ * move, syllabi change, and the honest thing to draw is *that it is out there*, not a modelled
+ * hillside pretending to precision it does not have.
+ *
+ * Everything from here to `DEFAULT_VISIBLE_DAYS` still gets a position, just not ground: it
+ * sits in the distance as a faint mark. That is the point of splitting the two — a far mark
+ * costs almost no space, so the far horizon can be generous *because* it is vague.
  */
-const DEFAULT_VISIBLE_DAYS = 56;
+const DEFAULT_FOCUS_DAYS = 28;
+
+/**
+ * How far out anything is placed at all.
+ *
+ * Twelve weeks, which is most of a term. It can be this far only because the band past
+ * `DEFAULT_FOCUS_DAYS` is drawn as faint marks rather than as terrain; when everything had to
+ * be modelled ground, the same number would have been unreadable.
+ */
+const DEFAULT_VISIBLE_DAYS = 84;
 
 /** Rows of relief. Enough for the ridges to read as land, few enough to stay cheap. */
 const FIELD_ROWS = 26;
@@ -179,11 +213,17 @@ const FIELD_COLS = 49;
  * How far a piece of work's mass spreads through the land, in depth and across lanes.
  *
  * Wide enough that neighbouring work merges into a ridge rather than standing as a spike per
- * item — the shape of a busy fortnight is the point, not the individual pins, which the
- * beacons already carry.
+ * item — the shape of a busy fortnight is the point, not the individual pins, which the beacons
+ * already carry.
+ *
+ * These are fractions of the *ground*, so they had to grow when the ground shrank to four
+ * weeks: at the old value a piece of work spread over two and a half days, which on a month-long
+ * map is a pin. Almost every cell came out at the floor and the model rendered as a dark plate
+ * with a few needles in it. Roughly five days is the width at which a heavy week reads as one
+ * mass — which is how a week actually feels.
  */
-const SPREAD_DEPTH = 0.09;
-const SPREAD_LATERAL = 0.26;
+const SPREAD_DEPTH = 0.13;
+const SPREAD_LATERAL = 0.28;
 
 /** Below this the item is a stone rather than a hill. */
 const SMALL_MINUTES = 45;
@@ -191,14 +231,13 @@ const SMALL_MINUTES = 45;
 const LARGE_MINUTES = 600;
 
 /**
- * How hard time is compressed toward the horizon.
+ * Depth across the modelled ground is now **linear in days**, with no compression curve.
  *
- * Linear depth wastes the near ground — with a term running four months out, everything for
- * the next fortnight lands in the bottom tenth of the picture, which is precisely the part
- * the student needs room to read. The exponent gives near days more of the frame while
- * keeping the far end genuinely far.
+ * The curve existed to rescue a first-person view whose horizon crushed everything distant
+ * into a few pixels. Seen from above as a tilted slab, distance costs nothing — day 27 gets
+ * exactly as much room as day 2 — so bending time would be distortion with no purchase. A
+ * week is a quarter of the ground, everywhere on it, and the week lines can be trusted.
  */
-const DEPTH_CURVE = 0.6;
 
 export function buildTerrain(input: TerrainInput): Terrain {
   const now = toEpochMinutes(input.now);
@@ -213,11 +252,17 @@ export function buildTerrain(input: TerrainInput): Terrain {
     const days = (toEpochMinutes(item.dueAt!) - now) / MINUTES_PER_DAY;
     return Math.max(max, days);
   }, 0);
-  // A term with only imminent work still needs a horizon to draw against, and one running
-  // months out is clipped rather than compressed.
-  const horizonDays = Math.max(14, Math.min(input.visibleDays ?? DEFAULT_VISIBLE_DAYS, Math.ceil(furthest)));
+  // The ground is a fixed four weeks, so a week is always a quarter of it and the eye can
+  // trust the scale between one visit and the next. Only the *distance* is elastic: a term
+  // with nothing past the ground does not draw an empty sky.
+  const focusDays = Math.max(7, input.focusDays ?? DEFAULT_FOCUS_DAYS);
+  const horizonDays = Math.max(
+    focusDays,
+    Math.min(input.visibleDays ?? DEFAULT_VISIBLE_DAYS, Math.ceil(furthest)),
+  );
 
   const markers: TerrainMarker[] = [];
+  const distant: TerrainMarker[] = [];
   const undated: TerrainMarker[] = [];
   const beyond: TerrainMarker[] = [];
 
@@ -252,10 +297,16 @@ export function buildTerrain(input: TerrainInput): Terrain {
     }
 
     const daysAway = Math.floor((toEpochMinutes(item.dueAt) - now) / MINUTES_PER_DAY);
-    const depth = depthFor(daysAway, horizonDays);
     const { state, detail } = beaconFor(item, { daysAway, required, booked });
+    const onGround = daysAway <= focusDays;
+    // On the ground, depth is position within the four weeks. Past it, depth is position
+    // within the distance — a separate scale, because the two are drawn as different kinds
+    // of thing and sharing one number would make the renderer lie about which.
+    const depth = onGround
+      ? depthFor(daysAway, focusDays)
+      : depthFor(daysAway - focusDays, Math.max(1, horizonDays - focusDays));
 
-    (daysAway > horizonDays ? beyond : markers).push({
+    const marker: TerrainMarker = {
       workItemId: item.id,
       courseId: item.courseId,
       title: item.title,
@@ -268,16 +319,24 @@ export function buildTerrain(input: TerrainInput): Terrain {
       rise,
       state,
       // Proximity, so what is near is lit whatever state it is in. Overdue work is pinned
-      // at full brightness — it is the one thing that must not recede.
-      glow: state === "overdue" ? 1 : Math.max(0.12, 1 - depth),
+      // at full brightness — it is the one thing that must not recede. Distance dims, but
+      // it never dims a warning to nothing: something far out with no time booked has to
+      // stay visible, or the whole view is just a prettier version of the list that buries
+      // it at position forty.
+      glow: state === "overdue" ? 1 : onGround ? Math.max(0.12, 1 - depth) : lit(state) ? 0.6 : 0.1,
       detail,
       requiredMinutes: required,
       bookedMinutes: booked,
-    });
+    };
+
+    if (daysAway > horizonDays) beyond.push(marker);
+    else if (onGround) markers.push(marker);
+    else distant.push(marker);
   }
 
   // Far markers are drawn first so near ones sit on top of them.
   markers.sort((a, b) => b.depth - a.depth || a.workItemId.localeCompare(b.workItemId));
+  distant.sort((a, b) => b.depth - a.depth || a.workItemId.localeCompare(b.workItemId));
 
   const counts: Record<BeaconState, number> = {
     overdue: 0,
@@ -289,10 +348,18 @@ export function buildTerrain(input: TerrainInput): Terrain {
   };
   // Everything is counted, drawn or not: a legend that only totals what fits would be the
   // one number on this screen that is quietly false.
-  for (const marker of [...markers, ...undated, ...beyond]) counts[marker.state] += 1;
+  for (const marker of [...markers, ...distant, ...undated, ...beyond]) counts[marker.state] += 1;
 
   beyond.sort((a, b) => (a.daysAway ?? 0) - (b.daysAway ?? 0));
-  return { markers, undated, beyond, horizonDays, counts, field: buildField(markers) };
+  // The land is raised only by work that stands on it. Distant work has a position but no
+  // ground under it, and letting it push up the hills would put a mountain in the four-week
+  // map for something due in week nine.
+  return { markers, distant, undated, beyond, focusDays, horizonDays, counts, field: buildField(markers) };
+}
+
+/** States that are asking for something. Distance dims everything else. */
+function lit(state: BeaconState): boolean {
+  return state === "overdue" || state === "needs_time" || state === "partly_covered";
 }
 
 function finished(item: WorkItem): boolean {
@@ -370,7 +437,7 @@ function hours(minutes: number): string {
 /** Time, compressed so the near ground gets the room it needs. */
 function depthFor(daysAway: number, horizonDays: number): number {
   const clamped = Math.max(0, Math.min(daysAway, horizonDays));
-  return Math.pow(clamped / horizonDays, DEPTH_CURVE);
+  return horizonDays > 0 ? clamped / horizonDays : 0;
 }
 
 /** Size, as a 0..1 height. */

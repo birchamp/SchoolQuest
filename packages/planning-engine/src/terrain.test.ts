@@ -47,34 +47,38 @@ function build(items: WorkItem[], booked: Record<string, number> = {}, courses =
 }
 
 const first = (t: ReturnType<typeof build>) => t.markers[0]!;
+/** Everything that got a place, on the ground or out in the distance. */
+const all = (t: ReturnType<typeof build>) => [...t.markers, ...t.distant];
+const find = (t: ReturnType<typeof build>, id: string) => all(t).find((m) => m.workItemId === id)!;
 
 describe("placing work in the landscape", () => {
   it("puts sooner work nearer than later work", () => {
     const t = build([
       item({ id: "soon", dueAt: inDays(3) }),
-      item({ id: "later", dueAt: inDays(40) }),
+      item({ id: "later", dueAt: inDays(25) }),
     ]);
-    const soon = t.markers.find((m) => m.workItemId === "soon")!;
-    const later = t.markers.find((m) => m.workItemId === "later")!;
-    expect(soon.depth).toBeLessThan(later.depth);
+    expect(find(t, "soon").depth).toBeLessThan(find(t, "later").depth);
   });
 
   it("lights near work more brightly than far work", () => {
     const t = build([
       item({ id: "soon", dueAt: inDays(2) }),
-      item({ id: "later", dueAt: inDays(45) }),
+      item({ id: "later", dueAt: inDays(26) }),
     ]);
-    expect(t.markers.find((m) => m.workItemId === "soon")!.glow).toBeGreaterThan(
-      t.markers.find((m) => m.workItemId === "later")!.glow,
-    );
+    expect(find(t, "soon").glow).toBeGreaterThan(find(t, "later").glow);
   });
 
-  it("gives the near ground more of the frame than a linear scale would", () => {
-    // The whole reason for the curve: a term four months long must not squash the next
-    // fortnight into the bottom tenth of the picture.
-    const t = build([item({ id: "a", dueAt: inDays(14) }), item({ id: "far", dueAt: inDays(50) })]);
-    const near = t.markers.find((m) => m.workItemId === "a")!;
-    expect(near.depth).toBeGreaterThan(14 / 50);
+  it("measures the ground linearly in days, so a week is always a quarter of it", () => {
+    // Seen from above there is no horizon to rescue, so bending time would be distortion
+    // with nothing bought by it — and the week rules would stop being trustworthy.
+    const t = build([
+      item({ id: "w1", dueAt: inDays(7) }),
+      item({ id: "w2", dueAt: inDays(14) }),
+      item({ id: "w3", dueAt: inDays(21) }),
+    ]);
+    expect(find(t, "w1").depth).toBeCloseTo(0.25, 5);
+    expect(find(t, "w2").depth).toBeCloseTo(0.5, 5);
+    expect(find(t, "w3").depth).toBeCloseTo(0.75, 5);
   });
 
   it("draws bigger work as higher ground", () => {
@@ -124,9 +128,17 @@ describe("placing work in the landscape", () => {
     }
   });
 
-  it("sets the horizon to the furthest thing, up to the drawn limit", () => {
-    expect(build([item({ id: "a", dueAt: inDays(30) })]).horizonDays).toBe(30);
-    expect(build([item({ id: "a", dueAt: inDays(200) })]).horizonDays).toBeLessThanOrEqual(56);
+  it("sets the horizon to the furthest thing, up to the placed limit", () => {
+    expect(build([item({ id: "a", dueAt: inDays(50) })]).horizonDays).toBe(50);
+    expect(build([item({ id: "a", dueAt: inDays(200) })]).horizonDays).toBeLessThanOrEqual(84);
+  });
+
+  it("never shrinks the ground below the four weeks it is a map of", () => {
+    // A term with nothing past next week still draws a month, or the scale would change
+    // shape every time something was finished.
+    const t = build([item({ id: "a", dueAt: inDays(2) })]);
+    expect(t.focusDays).toBe(28);
+    expect(t.horizonDays).toBeGreaterThanOrEqual(28);
   });
 
   it("counts work past the horizon rather than squeezing it in", () => {
@@ -138,6 +150,42 @@ describe("placing work in the landscape", () => {
     ]);
     expect(t.markers.map((m) => m.workItemId)).toEqual(["near"]);
     expect(t.beyond.map((m) => m.workItemId)).toEqual(["far"]);
+  });
+
+  it("puts work past the ground into the distance rather than onto the ground", () => {
+    const t = build([
+      item({ id: "onmap", dueAt: inDays(20) }),
+      item({ id: "outthere", dueAt: inDays(50) }),
+    ]);
+    expect(t.markers.map((m) => m.workItemId)).toEqual(["onmap"]);
+    expect(t.distant.map((m) => m.workItemId)).toEqual(["outthere"]);
+  });
+
+  it("measures the distance on its own scale, not as a continuation of the ground", () => {
+    // The two bands are drawn as different kinds of thing, so sharing one number would make
+    // the renderer quietly lie about which one a marker belongs to.
+    const t = build([
+      item({ id: "justpast", dueAt: inDays(29) }),
+      item({ id: "horizon", dueAt: inDays(84) }),
+    ]);
+    expect(find(t, "justpast").depth).toBeLessThan(0.1);
+    expect(find(t, "horizon").depth).toBeCloseTo(1, 5);
+  });
+
+  it("dims the distance, but never dims a warning to nothing", () => {
+    const t = build([
+      item({ id: "calm", dueAt: inDays(60), estimatedMinutes: 30 }),
+      // Past the ground, but inside its own runway: a twenty-five-hour paper a month out
+      // is the exact case a date-sorted list buries and this view exists to surface.
+      item({ id: "asking", workType: "paper", dueAt: inDays(31), estimatedMinutes: 1500 }),
+    ]);
+    const calm = find(t, "calm");
+    const asking = find(t, "asking");
+    expect(calm.state).toBe("waiting");
+    expect(asking.state).toBe("needs_time");
+    // Both are out in the distance; only one of them is asking for a decision today.
+    expect(t.distant).toHaveLength(2);
+    expect(asking.glow).toBeGreaterThan(calm.glow * 3);
   });
 
   it("still counts what it does not draw", () => {
@@ -161,7 +209,7 @@ describe("placing work in the landscape", () => {
       defaultEffortMinutes: DEFAULTS,
       visibleDays: 120,
     });
-    expect(t.markers).toHaveLength(1);
+    expect(t.distant).toHaveLength(1);
     expect(t.beyond).toHaveLength(0);
   });
 
@@ -185,7 +233,7 @@ describe("what the lights mean", () => {
 
   it("stays calm about the same work while it is still far off", () => {
     const t = build([item({ id: "a", dueAt: inDays(40), estimatedMinutes: 60 })]);
-    expect(first(t).state).toBe("waiting");
+    expect(find(t, "a").state).toBe("waiting");
   });
 
   it("asks earlier for bigger work", () => {
@@ -311,7 +359,7 @@ describe("the relief under the work", () => {
   it("raises the land where the work is heavy", () => {
     const t = build([
       item({ id: "heavy", dueAt: inDays(6), estimatedMinutes: 900 }),
-      item({ id: "light", dueAt: inDays(30), estimatedMinutes: 30 }),
+      item({ id: "light", dueAt: inDays(24), estimatedMinutes: 30 }),
     ]);
     expect(heightUnder(t, "heavy")).toBeGreaterThan(heightUnder(t, "light"));
   });
@@ -321,7 +369,7 @@ describe("the relief under the work", () => {
       item({ id: "a", dueAt: inDays(6), estimatedMinutes: 200 }),
       item({ id: "b", dueAt: inDays(7), estimatedMinutes: 200 }),
       item({ id: "c", dueAt: inDays(8), estimatedMinutes: 200 }),
-      item({ id: "far", dueAt: inDays(40), estimatedMinutes: 200 }),
+      item({ id: "far", dueAt: inDays(26), estimatedMinutes: 200 }),
     ]);
     expect(heightUnder(crowded, "a")).toBeGreaterThan(heightUnder(crowded, "far"));
   });
@@ -337,5 +385,16 @@ describe("the relief under the work", () => {
   it("is the same landscape every time it is built", () => {
     const items = [item({ id: "a", dueAt: inDays(4) }), item({ id: "b", dueAt: inDays(22) })];
     expect(build(items).field).toEqual(build(items).field);
+  });
+
+  it("is not raised by work out in the distance", () => {
+    // Distant work has a place but no ground under it. Letting it push up the relief would
+    // put a mountain in the four-week map for something due in week nine.
+    const near = build([item({ id: "a", dueAt: inDays(10), estimatedMinutes: 60 })]);
+    const alsoFar = build([
+      item({ id: "a", dueAt: inDays(10), estimatedMinutes: 60 }),
+      item({ id: "b", dueAt: inDays(60), estimatedMinutes: 1800 }),
+    ]);
+    expect(alsoFar.field).toEqual(near.field);
   });
 });

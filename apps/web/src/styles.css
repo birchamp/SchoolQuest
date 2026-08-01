@@ -1415,6 +1415,23 @@ body[data-theme="quest"] .view-switch button[aria-pressed="true"] {
   background: #0b0e18;
 }
 
+/* The relief model is two layers in register: a canvas carrying the hillshaded ground, and
+   the SVG on top carrying everything that means anything. They share one coordinate space,
+   so the canvas is stretched to exactly the box the SVG lays out and never sized itself. */
+.terrain-frame-model {
+  position: relative;
+  background: radial-gradient(120% 90% at 50% 88%, #1d2540 0%, #12172a 48%, #080b13 100%);
+}
+
+.terrain-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
 .terrain-legend {
   display: flex;
   flex-wrap: wrap;

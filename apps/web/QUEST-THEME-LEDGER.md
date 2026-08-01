@@ -268,6 +268,87 @@ Two more, both about the tools rather than the screen:
   surfaced that the base-relief waves summed to ±1.4 before normalising, so troughs went
   slightly negative and the ground dipped below the plane the beacons stand on.
 
+## Round 11 — the camera was the problem
+
+*"I guess you're not thinking that you should use the 3D style maps like the picture I
+attached."* Correct, and it took two rounds of polishing the wrong thing to see it. The
+reference is a raised-relief model on a table, seen from above and to the side. What had been
+built was a first-person view looking toward a horizon — a different camera, and the camera was
+causing the complaint that came with it: *should eight weeks out be off in the distance
+somewhere?*
+
+**A horizon camera spends pixels in inverse proportion to how much they matter.** Near days get
+the whole lower half of the frame; everything past a fortnight piles into a band at the back. No
+amount of shading fixes that, because it is geometry. Looking down at a tilted slab makes
+distance free — day 27 gets exactly as much room as day 2 — which in turn let time go linear, so
+a week is always a quarter of the ground and the week rules can be trusted between visits.
+
+Three more things followed from the new camera:
+
+- **Ground for four weeks, distance for the rest.** Only the month the plan is actually about is
+  modelled. Work past it is a faint mark above the far edge — real, placed, and deliberately not
+  drawn with precision the plan does not have that far out. Because a far mark costs almost no
+  space, the horizon could *grow* from eight weeks to twelve.
+- **The far edge dissolves rather than stopping.** A crisp edge says *the term ends here*, which
+  is false, and a picture tells that kind of false much more loudly than a sentence does.
+- **Distance dims everything except a warning.** A twenty-five-hour paper a month out with
+  nothing booked keeps its colour and its glow. That single case is the whole argument for this
+  view over a date-sorted list, and hazing it out would have thrown away the point.
+
+Rendering it took a fourth attempt, and the failures rhyme with rounds 9 and 10: flat-filled
+ridgelines read as contour lines, an SVG quad mesh read as blocks, crest-gradient strips read as
+terrain but only from a horizon. Looking *down*, silhouette carries almost nothing and shading
+carries everything, so per-pixel hillshading stopped being a nicety — which is a canvas job, not
+an SVG one. Ground on a canvas, everything that means anything still SVG and DOM.
+
+Four bugs worth keeping:
+
+- **Products of sine waves are not noise.** The first ruggedness pass multiplied two sines and
+  tiled: the model came out under a regular criss-cross that read as fabric. Stacked octaves of
+  value noise have no visible period.
+- **Per-cell alpha double-composites.** Each cell is filled *and* stroked in its own colour to
+  hide the seam with its neighbour; under partial alpha those two paints blend twice along every
+  border, ruling a lattice over the whole far half. Build the layer opaque, fade it once.
+- **A screen-space haze does not know about height.** A peak near the far edge rose straight
+  through the gradient and left a lit corner hanging in the sky. The land now settles toward the
+  base plane on the same curve that hazes it.
+- **Constants tuned to one horizon are wrong at another.** `SPREAD_DEPTH` was a fraction of the
+  ground, so shrinking the ground from eight weeks to four turned every piece of work into a pin
+  and the model rendered as a dark plate with needles in it.
+
+## Round 11a — the contrast checker's fourth blind spot, and the worst one yet
+
+The DOM checker reported **zero failures** on this view. Measuring the rendered pixels found
+**seven of fourteen labels below AA, the worst at 1.38:1** — cream lettering on the orange halo
+of the very beacon it names.
+
+It could not have found them. `getComputedStyle` walks *ancestors* for a background. A beacon
+halo is an SVG **sibling**. The hillside is a **canvas**. Neither is a background of anything,
+so as far as the checker is concerned there is nothing behind those labels at all. This is the
+fourth instance of the same lesson — after non-default views, aria-hidden subtrees, and SVG
+`fill` — and it is the one that should end the argument: **a checker that infers a background
+from the DOM cannot see any surface the DOM does not describe.**
+
+`tools/e2e/canvas-contrast.mjs` measures pixels instead. It screenshots each label's box with
+the text hidden, so the background is *observed* rather than inferred, and it scores against the
+**worst** pixel in the box rather than the average — a label that is legible over its dark half
+and vanishes over its pale half has failed, and an average is precisely what hides that.
+
+Two fixes came out of it, and the second was caused by the first:
+
+- **Labels get a dark plate.** That ends the class of problem rather than tuning around it:
+  whatever the ground does, whatever the halo does, the background is a known colour.
+- **Labels have to be their own layer above every beacon.** With each label inside its own
+  beacon's group, a beacon drawn later painted its flame over an earlier beacon's plate. Two
+  labels stayed at 1.7:1.
+- **Plate width has to be measured, not estimated.** A per-character estimate calibrated on
+  Quest's serif ran short on the sans the other two themes ship, letters hung off the end onto
+  bare hillside, and four labels dropped back under AA — the exact failure the plate exists to
+  prevent, reintroduced by a shortcut taken while building it. `getComputedTextLength` is the
+  fix, and it is font-agnostic by construction.
+
+All fourteen labels now clear AA in all three themes measured against real pixels, worst 6.06:1.
+
 ## Rules that hold regardless of round
 
 - Everything scoped under `body[data-theme="quest"]` (plus the shared pre-theme book
