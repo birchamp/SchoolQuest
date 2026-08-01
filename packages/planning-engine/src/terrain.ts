@@ -80,6 +80,28 @@ export interface TerrainMarker {
   bookedMinutes: number;
 }
 
+/**
+ * The land itself, as a grid of heights.
+ *
+ * The first version drew three sine curves in three near-identical blues, which is a
+ * gradient with a wobble rather than ground — and it was decoration, which this codebase
+ * does not allow a metaphor to be. The relief is now *made of the work*: height at a point
+ * is how much is due around that time, in that course's lane. A heavy fortnight three weeks
+ * out is literally a mountain in the middle distance, and "when does this get hard" becomes
+ * a thing the eye answers.
+ *
+ * Rows run back to front — `rows[0]` is at the horizon — so a renderer can paint them in
+ * order and let near ground occlude far ground.
+ */
+export interface HeightField {
+  /** `rows[depthBand][lateralSample]`, each 0..1. */
+  rows: number[][];
+  /** Depth (0 at the viewer, 1 at the horizon) of each row. */
+  depths: number[];
+  /** Lateral position (-1..1) of each sample. */
+  laterals: number[];
+}
+
 export interface Terrain {
   markers: TerrainMarker[];
   /** Items with no known date, which cannot be placed by time. */
@@ -93,6 +115,8 @@ export interface Terrain {
   /** The furthest day drawn, so the caller can label the horizon honestly. */
   horizonDays: number;
   counts: Record<BeaconState, number>;
+  /** The relief, built from where the work actually falls. */
+  field: HeightField;
 }
 
 export interface TerrainInput {
@@ -145,6 +169,21 @@ const MIN_WARNING_DAYS = 10;
  * not a position.
  */
 const DEFAULT_VISIBLE_DAYS = 56;
+
+/** Rows of relief. Enough for the ridges to read as land, few enough to stay cheap. */
+const FIELD_ROWS = 26;
+/** Samples across each row. */
+const FIELD_COLS = 49;
+
+/**
+ * How far a piece of work's mass spreads through the land, in depth and across lanes.
+ *
+ * Wide enough that neighbouring work merges into a ridge rather than standing as a spike per
+ * item — the shape of a busy fortnight is the point, not the individual pins, which the
+ * beacons already carry.
+ */
+const SPREAD_DEPTH = 0.09;
+const SPREAD_LATERAL = 0.26;
 
 /** Below this the item is a stone rather than a hill. */
 const SMALL_MINUTES = 45;
@@ -253,7 +292,7 @@ export function buildTerrain(input: TerrainInput): Terrain {
   for (const marker of [...markers, ...undated, ...beyond]) counts[marker.state] += 1;
 
   beyond.sort((a, b) => (a.daysAway ?? 0) - (b.daysAway ?? 0));
-  return { markers, undated, beyond, horizonDays, counts };
+  return { markers, undated, beyond, horizonDays, counts, field: buildField(markers) };
 }
 
 function finished(item: WorkItem): boolean {
@@ -356,4 +395,58 @@ function lateralFor(lane: number, laneCount: number, id: string): number {
   for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) | 0;
   const jitter = ((Math.abs(hash) % 1000) / 1000 - 0.5) * (laneCount <= 1 ? 0.9 : 1.4 / laneCount);
   return Math.max(-1, Math.min(1, centre * usable + jitter));
+}
+
+
+/**
+ * Raises the land under the work.
+ *
+ * Each marker contributes its effort as a soft bump centred on where it sits, so a fortnight
+ * carrying three big pieces rises as one ridge rather than three spikes. A little base relief
+ * is added underneath so ground with nothing on it still reads as landscape rather than as a
+ * flat floor — that part is decoration and is deliberately small enough never to be mistaken
+ * for load.
+ */
+function buildField(markers: readonly TerrainMarker[]): HeightField {
+  const depths = Array.from({ length: FIELD_ROWS }, (_, i) => 1 - i / (FIELD_ROWS - 1));
+  const laterals = Array.from({ length: FIELD_COLS }, (_, i) => (i / (FIELD_COLS - 1)) * 2 - 1);
+
+  const rows = depths.map((depth) =>
+    laterals.map((lateral) => {
+      let load = 0;
+      for (const m of markers) {
+        const dd = (m.depth - depth) / SPREAD_DEPTH;
+        const dl = (m.lateral - lateral) / SPREAD_LATERAL;
+        const falloff = Math.exp(-(dd * dd + dl * dl));
+        if (falloff < 0.01) continue;
+        load += m.requiredMinutes * falloff;
+      }
+      // Base relief: deterministic, small, and never confusable with work. Divided by the sum
+      // of the wave amplitudes so it lands in 0..1 — without that the troughs go negative and
+      // the ground dips below the plane the beacons stand on.
+      const base =
+        ((Math.sin(lateral * 5.1 + depth * 3.7) + Math.sin(lateral * 11.3 - depth * 6.1) * 0.4) / 1.4) *
+          0.5 +
+        0.5;
+      return { load, base };
+    }),
+  );
+
+  const peak = rows.reduce(
+    (max, row) => row.reduce((m, cell) => Math.max(m, cell.load), max),
+    0,
+  );
+
+  return {
+    depths,
+    laterals,
+    rows: rows.map((row) =>
+      row.map((cell) => {
+        // Square root, so a fortnight holding twice the work is visibly higher without one
+        // enormous project flattening everything else into the floor.
+        const fromWork = peak > 0 ? Math.sqrt(cell.load / peak) : 0;
+        return Math.min(1, fromWork * 0.86 + cell.base * 0.14);
+      }),
+    ),
+  };
 }

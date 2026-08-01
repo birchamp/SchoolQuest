@@ -88,6 +88,33 @@ for (const [name, matcher] of tabs) {
   console.log(`shot ${THEME}-${name}.png`);
 }
 
+// The terrain sits behind a toggle on the Week tab, so the tab loop above never reached it
+// and the critic judged rounds of this app without once seeing its largest picture. Shoot
+// the card on its own: full-page frames scale it down to where the relief is unreadable.
+{
+  const weekTab = page.locator("nav.tabs button", { hasText: /week|map|board/i }).first();
+  if ((await weekTab.count()) > 0) {
+    await weekTab.click();
+    await page.waitForTimeout(700);
+    // The toggle is plain language in every theme, so one selector serves all three.
+    const roadAhead = page.getByRole("button", { name: "The road ahead" }).first();
+    if ((await roadAhead.count()) > 0) {
+      await roadAhead.click();
+      await page.waitForTimeout(1200);
+      const card = page
+        .locator("section.card")
+        .filter({ has: page.locator("h2", { hasText: /road ahead|term ahead/i }) })
+        .first();
+      if ((await card.count()) > 0) {
+        await card.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(300);
+        await card.screenshot({ path: `${OUT}/${THEME}-terrain.png` });
+        console.log(`shot ${THEME}-terrain.png`);
+      }
+    }
+  }
+}
+
 // The completion moment only exists for as long as it is on screen, so it needs its own
 // frame: go back to Today, finish the current recommendation through the UI, and shoot.
 {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Course, ThemeName } from "@schoolquest/domain";
 import {
   buildTerrain,
@@ -88,6 +88,41 @@ function project(depth: number, lateral: number, rise: number) {
   // Height lifts the beacon off the ground, foreshortened like everything else.
   const y = groundY - rise * 54 * scale;
   return { x, y, groundY, scale };
+}
+
+/**
+ * The height of the land at a point, so a beacon can stand on the ground rather than float
+ * at the flat plane the ground used to be. Bilinear between the field's samples — nearest
+ * neighbour made markers hop as they moved between cells.
+ */
+function sampleHeight(
+  field: { rows: number[][]; depths: number[]; laterals: number[] },
+  depth: number,
+  lateral: number,
+): number {
+  const rows = field.rows;
+  if (rows.length === 0) return 0;
+  // Depths run from 1 (back) down to 0 (front).
+  const rowSpan = field.depths.length - 1;
+  const rowPos = Math.max(0, Math.min(rowSpan, (1 - depth) * rowSpan));
+  const colSpan = field.laterals.length - 1;
+  const colPos = Math.max(0, Math.min(colSpan, ((lateral + 1) / 2) * colSpan));
+
+  const r0 = Math.floor(rowPos);
+  const r1 = Math.min(rowSpan, r0 + 1);
+  const c0 = Math.floor(colPos);
+  const c1 = Math.min(colSpan, c0 + 1);
+  const fr = rowPos - r0;
+  const fc = colPos - c0;
+
+  const top = rows[r0]![c0]! * (1 - fc) + rows[r0]![c1]! * fc;
+  const bottom = rows[r1]![c0]! * (1 - fc) + rows[r1]![c1]! * fc;
+  return top * (1 - fr) + bottom * fr;
+}
+
+/** Must match the lift used when the relief is drawn, or beacons sit off the ground. */
+function reliefLift(scale: number): number {
+  return 90 * (0.28 + scale * 0.72);
 }
 
 function formatDue(iso: string | null, daysAway: number | null): string {
@@ -218,9 +253,8 @@ export function TerrainMap({
           <rect width={VIEW_W} height={HORIZON_Y} fill="url(#terrain-sky)" />
           <rect y={HORIZON_Y} width={VIEW_W} height={VIEW_H - HORIZON_Y} fill="url(#terrain-ground)" />
 
-          {/* Ridgelines: enough relief to read as land, drawn from a fixed profile so the
-              landscape never reshuffles between renders. */}
-          <Ridges />
+          {/* The land, raised by the work that falls on it. */}
+          <Relief field={terrain.field} />
 
           {/* Week gridlines receding to the vanishing point — the scale that turns a pretty
               picture into a readable one. Without them "far" has no unit. */}
@@ -265,6 +299,7 @@ export function TerrainMap({
             <Beacon
               key={m.workItemId}
               marker={m}
+              surface={sampleHeight(terrain.field, m.depth, m.lateral)}
               course={coursesById.get(m.courseId)}
               named={named.has(m.workItemId)}
               reducedMotion={reducedMotion}
@@ -348,28 +383,116 @@ export function TerrainMap({
   );
 }
 
-/** A fixed relief profile. Landscape, not data — the data is the beacons. */
-function Ridges() {
-  const bands = [
-    { y: HORIZON_Y + 8, amp: 9, fill: "#212a3f", seed: 0 },
-    { y: HORIZON_Y + 46, amp: 15, fill: "#1a2131", seed: 1 },
-    { y: HORIZON_Y + 118, amp: 22, fill: "#141a28", seed: 2 },
-  ];
+/** Canvas pixels between samples along a ridgeline. Small enough that the land reads smooth. */
+const RELIEF_STEP = 6;
+/** Roughly how much of each row survives in front of the row behind it, in canvas pixels. */
+const ROW_SLIVER = 30;
+
+/**
+ * The relief, drawn back to front.
+ *
+ * Two earlier attempts are worth recording, because both failed in instructive ways.
+ *
+ * The first drew each row as one ridgeline filled flat down to the bottom of the canvas.
+ * Every near row's fill then covered the whole of every row behind it, so all that survived
+ * of the land was the thin stroke along each crest — twenty-six near-identical tints differ
+ * by about one step per channel — and it read as contour lines ruled across a flat floor,
+ * which is exactly what it was.
+ *
+ * The second replaced the strips with a slope-shaded quad mesh. That produced real mass but
+ * SVG has no Gouraud shading, so every quad was flat: at any resolution cheap enough to
+ * render, the landscape looked built out of blocks. It was also too pale, and washed out the
+ * beacons it exists to sit beneath.
+ *
+ * What works is strips again, but with each one filled by a vertical gradient anchored to
+ * its own crest: bright along the ridge, falling into shadow down the flank. That is how a
+ * raised-relief map reads — the eye takes a lit edge above a dark face as a rise — and it
+ * costs one path and one gradient per row, stays smooth because the crest is a dense
+ * polyline rather than a grid, and keeps the ground dark so the beacons stay the brightest
+ * things in the picture.
+ *
+ * Rows span the whole frame, not the perspective half-width. Drawing them only as wide as
+ * the marker lanes turned the landscape into a stepped ziggurat with hard vertical edges,
+ * because each row was wider than the one behind it and every step showed. Ground extends
+ * past the edge of a picture; only the *content* converges. So each row walks x across the
+ * full canvas and converts back to a lateral position through the same projection the
+ * markers use — which keeps the hill under a beacon the hill the beacon is standing on.
+ */
+function Relief({ field }: { field: { rows: number[][]; depths: number[]; laterals: number[] } }) {
+  const bands = useMemo(
+    () =>
+      field.depths.map((depth, i) => {
+        const { groundY, scale } = project(depth, 0, 0);
+        const half = VIEW_W * 0.46 * (0.25 + scale * 0.75);
+        const lift = reliefLift(scale);
+
+        const points: string[] = [];
+        let crestY = Number.POSITIVE_INFINITY;
+        let sum = 0;
+        let n = 0;
+        for (let x = 0; x <= VIEW_W; x += RELIEF_STEP) {
+          const lateral = Math.max(-1, Math.min(1, (x - VIEW_W / 2) / half));
+          const h = sampleHeight(field, depth, lateral);
+          const y = groundY - h * lift;
+          if (y < crestY) crestY = y;
+          sum += h;
+          n += 1;
+          points.push(`${x} ${y.toFixed(1)}`);
+        }
+
+        // Aerial perspective, and a brighter rim on ground that is actually raised — a ridge
+        // catches light, flat ground does not.
+        const near = 1 - depth;
+        const relief = n > 0 ? sum / n : 0;
+        const lit = 0.34 + near * 0.3 + Math.min(0.36, relief * 0.7);
+        return {
+          id: `sq-relief-${i}`,
+          depth,
+          path: `M0 ${VIEW_H} L${points.join(" L")} L${VIEW_W} ${VIEW_H} Z`,
+          crest: `M${points.join(" L")}`,
+          crestY,
+          // The flank has to reach shadow within the sliver of itself that stays visible —
+          // only the strip between this crest and the next row's crest is ever seen, about
+          // fifteen pixels. A gradient run over the full height of the ridge spends all of
+          // it in the light stop, and the whole landscape comes out one flat brightness.
+          shadowY: crestY + ROW_SLIVER + lift * 0.16,
+          lit,
+        };
+      }),
+    [field],
+  );
+
   return (
     <g aria-hidden="true">
-      {bands.map((band) => {
-        let d = `M0 ${band.y}`;
-        for (let x = 0; x <= VIEW_W; x += 50) {
-          // Deterministic pseudo-relief: a sum of sines, so it is land-shaped and identical
-          // on every render.
-          const h =
-            Math.sin((x / VIEW_W) * 7 + band.seed * 2.1) * band.amp +
-            Math.sin((x / VIEW_W) * 17 + band.seed) * (band.amp * 0.4);
-          d += ` L${x} ${band.y - h}`;
-        }
-        d += ` L${VIEW_W} ${VIEW_H} L0 ${VIEW_H} Z`;
-        return <path key={band.seed} d={d} fill={band.fill} />;
-      })}
+      <defs>
+        {bands.map((b) => (
+          <linearGradient
+            key={b.id}
+            id={b.id}
+            gradientUnits="userSpaceOnUse"
+            x1={0}
+            y1={b.crestY}
+            x2={0}
+            y2={b.shadowY}
+          >
+            <stop offset="0" stopColor={`rgb(${Math.round(46 + b.lit * 78)}, ${Math.round(58 + b.lit * 88)}, ${Math.round(84 + b.lit * 108)})`} />
+            <stop offset="1" stopColor={`rgb(${Math.round(11 + b.depth * 14)}, ${Math.round(15 + b.depth * 18)}, ${Math.round(24 + b.depth * 28)})`} />
+          </linearGradient>
+        ))}
+      </defs>
+      {bands.map((b) => (
+        <g key={b.id}>
+          <path d={b.path} fill={`url(#${b.id})`} />
+          {/* The lit crest itself. Half a pixel of light is what separates one ridge from the
+              ridge behind it once the gradients have gone dark. */}
+          <path
+            d={b.crest}
+            fill="none"
+            stroke={`rgba(176, 198, 240, ${(0.1 + (1 - b.depth) * 0.2).toFixed(2)})`}
+            strokeWidth={1}
+          />
+        </g>
+      ))}
     </g>
   );
 }
@@ -411,6 +534,7 @@ function WeekLines({ horizonDays }: { horizonDays: number }) {
 function Beacon({
   marker,
   course,
+  surface,
   named,
   reducedMotion,
   receded,
@@ -418,12 +542,18 @@ function Beacon({
 }: {
   marker: TerrainMarker;
   course: Course | undefined;
+  /** Height of the land under it, 0..1. */
+  surface: number;
   named: boolean;
   reducedMotion: boolean;
   receded: boolean;
   onFocus: () => void;
 }) {
-  const { x, y, groundY, scale } = project(marker.depth, marker.lateral, marker.rise);
+  const raw = project(marker.depth, marker.lateral, marker.rise);
+  const { x, scale } = raw;
+  // Stand on the land, not on the plane it used to be.
+  const groundY = raw.groundY - surface * reliefLift(scale);
+  const y = raw.y - surface * reliefLift(scale);
   const look = BEACON[marker.state];
   const size = Math.max(3.2, 8 * scale + marker.rise * 5 * scale);
   const halo = size * (3.2 + marker.glow * 3.4);

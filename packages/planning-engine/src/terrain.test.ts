@@ -257,3 +257,85 @@ describe("what the lights mean", () => {
     expect(t.counts.waiting).toBe(1);
   });
 });
+
+/** Nearest sample index to `value` in an ascending-or-descending axis. */
+function nearest(axis: readonly number[], value: number): number {
+  let best = 0;
+  for (let i = 1; i < axis.length; i += 1) {
+    if (Math.abs(axis[i]! - value) < Math.abs(axis[best]! - value)) best = i;
+  }
+  return best;
+}
+
+/** The height of the land directly under a marker. */
+function heightUnder(t: ReturnType<typeof build>, workItemId: string): number {
+  const m = t.markers.find((x) => x.workItemId === workItemId)!;
+  return t.field.rows[nearest(t.field.depths, m.depth)]![nearest(t.field.laterals, m.lateral)]!;
+}
+
+describe("the relief under the work", () => {
+  it("covers the whole ground in a fixed grid, so a renderer can walk it", () => {
+    const t = build([item({ id: "a", dueAt: inDays(5) })]);
+    expect(t.field.rows).toHaveLength(t.field.depths.length);
+    for (const row of t.field.rows) expect(row).toHaveLength(t.field.laterals.length);
+  });
+
+  it("runs back to front, so near ground can be painted over far ground", () => {
+    const t = build([item({ id: "a", dueAt: inDays(5) })]);
+    expect(t.field.depths[0]).toBeCloseTo(1);
+    expect(t.field.depths.at(-1)).toBeCloseTo(0);
+    for (let i = 1; i < t.field.depths.length; i += 1) {
+      expect(t.field.depths[i]!).toBeLessThan(t.field.depths[i - 1]!);
+    }
+  });
+
+  it("spans the full width of the ground", () => {
+    const t = build([item({ id: "a", dueAt: inDays(5) })]);
+    expect(t.field.laterals[0]).toBeCloseTo(-1);
+    expect(t.field.laterals.at(-1)).toBeCloseTo(1);
+  });
+
+  it("keeps every height on the scale a renderer expects", () => {
+    const t = build([
+      item({ id: "a", dueAt: inDays(2), estimatedMinutes: 1200 }),
+      item({ id: "b", dueAt: inDays(20), estimatedMinutes: 30 }),
+    ]);
+    for (const row of t.field.rows) {
+      for (const h of row) {
+        expect(h).toBeGreaterThanOrEqual(0);
+        expect(h).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("raises the land where the work is heavy", () => {
+    const t = build([
+      item({ id: "heavy", dueAt: inDays(6), estimatedMinutes: 900 }),
+      item({ id: "light", dueAt: inDays(30), estimatedMinutes: 30 }),
+    ]);
+    expect(heightUnder(t, "heavy")).toBeGreaterThan(heightUnder(t, "light"));
+  });
+
+  it("stacks a crowded fortnight into one ridge rather than leaving it flat", () => {
+    const crowded = build([
+      item({ id: "a", dueAt: inDays(6), estimatedMinutes: 200 }),
+      item({ id: "b", dueAt: inDays(7), estimatedMinutes: 200 }),
+      item({ id: "c", dueAt: inDays(8), estimatedMinutes: 200 }),
+      item({ id: "far", dueAt: inDays(40), estimatedMinutes: 200 }),
+    ]);
+    expect(heightUnder(crowded, "a")).toBeGreaterThan(heightUnder(crowded, "far"));
+  });
+
+  it("still draws land when nothing is due, so empty ground is landscape and not a floor", () => {
+    const t = build([]);
+    const heights = t.field.rows.flat();
+    expect(Math.max(...heights)).toBeGreaterThan(0);
+    // ...but nothing empty ever climbs into the range work occupies.
+    expect(Math.max(...heights)).toBeLessThan(0.2);
+  });
+
+  it("is the same landscape every time it is built", () => {
+    const items = [item({ id: "a", dueAt: inDays(4) }), item({ id: "b", dueAt: inDays(22) })];
+    expect(build(items).field).toEqual(build(items).field);
+  });
+});

@@ -227,6 +227,47 @@ Two design findings, both from looking at the render rather than the code:
   all at the viewer's feet, so all nine labels landed in one band and overlapped into mush.
   Urgency picks the candidates; space decides which of them get named.
 
+## Round 10 — making the ground actually be ground
+
+Verdict on the first terrain render, from the person it was built for: *"I don't see any like
+random terrain underneath the glowing dots."* Correct. What sat under the beacons was three
+bands of 9–22px wobble in three near-identical blues — a gradient, dressed as landscape. In an
+app where a metaphor is only allowed to exist if it carries information, that is the worst
+kind of failure: decoration passing itself off as meaning.
+
+The relief is now **made of the work**. Height at a point is how much is due around that time
+in that course's lane, so a heavy fortnight three weeks out is literally a mountain in the
+middle distance and "when does this get hard" becomes a thing the eye answers.
+
+Getting it to read as land took three attempts, and the two failures are the useful part:
+
+- **Flat-filled ridgelines read as contour lines.** Each row filled to the bottom of the
+  canvas, so every near row covered the whole of every row behind it and only the crest
+  strokes survived. Twenty-six tints across that range differ by about one step per channel.
+  The picture was honest and looked like ruled lines on a floor.
+- **A slope-shaded quad mesh read as blocks.** It had real mass, but SVG has no Gouraud
+  shading, so every quad was flat: at any resolution cheap enough to render, the landscape
+  looked built out of Lego. It was also too pale and washed out the beacons it exists beneath.
+- **What works is strips with a gradient anchored to each crest** — bright along the ridge,
+  falling into shadow down the flank, which is how a raised-relief map reads. One path and one
+  gradient per row, smooth because the crest is a dense polyline rather than a grid, and dark
+  enough that the beacons stay the brightest things in the frame.
+
+The gradient span is the whole trick: only ~15px of each row survives in front of the row
+ahead of it, so a gradient run over the full height of a ridge spends all of it in the light
+stop and the landscape comes out one flat brightness. It has to reach shadow inside its own
+visible sliver.
+
+Two more, both about the tools rather than the screen:
+
+- **`shoot.mjs` never captured the terrain**, because it lives behind a toggle on the Week tab
+  and the tab loop only shot defaults. The visual critic had judged this app for rounds
+  without once seeing its largest picture. Same shape of blindness as the `SQ_VIEW` gap and
+  the SVG `fill` gap: *a verification tool hides failures in exactly the area it cannot see.*
+- **A test caught a defect no fixture would have.** Asserting every height lands in 0..1
+  surfaced that the base-relief waves summed to ±1.4 before normalising, so troughs went
+  slightly negative and the ground dipped below the plane the beacons stand on.
+
 ## Rules that hold regardless of round
 
 - Everything scoped under `body[data-theme="quest"]` (plus the shared pre-theme book
