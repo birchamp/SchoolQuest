@@ -167,6 +167,10 @@ describe("long-horizon work under deadline pressure", () => {
   it("does not pace short work, whatever its due date", () => {
     // Spreading a 45-minute reading across eight weeks would be silly, and an earlier
     // version that deferred short distant work emptied the back half of the week.
+    //
+    // Short work distant from its deadline *is* deferred now — see `earliestSensibleStart` —
+    // but never at the cost of an empty plan. Here the reading is the only work there is, so
+    // the fallback pass places it in full, which is what this has always asserted.
     const short = item({ title: "Reading", workType: "reading", dueAt: inDays(56), estimatedMinutes: 45, remainingMinutes: 45 });
     const base = seedPlanningInput();
     const plan = generatePlan(
@@ -274,5 +278,121 @@ describe("long-horizon work under deadline pressure", () => {
     const project = scores.find((s) => s.workItemId === projectId)!;
     const tomorrow = scores.filter((s) => s.workItemId !== projectId);
     expect(Math.max(...tomorrow.map((s) => s.score))).toBeGreaterThan(project.score);
+  });
+});
+
+describe("how early short work may start", () => {
+  /**
+   * The problem this answers only shows up over a term.
+   *
+   * With no lower bound on when work may begin, a reading quiz due on 2 December was a
+   * candidate on 24 August, and a student with capacity to spare had it booked. Walking the
+   * real semester made the cost visible: five courses' worth of work finished in nine weeks,
+   * with the last seven planning nothing at all.
+   *
+   * It is wrong twice. Studying week thirteen's material in week one is studying material
+   * nobody has taught, so the session is close to worthless. And a back half of term that
+   * renders empty is actively misleading for a reader who cannot feel time passing.
+   */
+  it("leaves distant short work alone while there is nearer work to do", () => {
+    const soon = item({ title: "Quiz 1", workType: "quiz", dueAt: inDays(3), estimatedMinutes: 30, remainingMinutes: 30 });
+    const distant = item({
+      id: "wi_distant",
+      title: "Quiz 12",
+      workType: "quiz",
+      dueAt: inDays(84),
+      estimatedMinutes: 30,
+      remainingMinutes: 30,
+    });
+    const base = seedPlanningInput();
+    const plan = generatePlan(
+      { ...base, workItems: [soon, distant], dependencies: [], existingSessions: [] },
+      "plan_lh_gate",
+    );
+    expect(plan.sessions.some((s) => s.workItemId === soon.id)).toBe(true);
+    expect(plan.sessions.some((s) => s.workItemId === distant.id)).toBe(false);
+  });
+
+  it("still gives a distant large project time, because pacing is the whole point", () => {
+    // The gate covers short work only. A fifteen-hour paper has to start early or it arrives
+    // as a crisis, which is the failure this app was built to prevent — and is exactly what
+    // the first version of the gate reintroduced.
+    const paper = item({
+      id: "wi_paper",
+      title: "Term paper",
+      workType: "paper",
+      dueAt: inDays(84),
+      estimatedMinutes: 900,
+      remainingMinutes: 900,
+    });
+    const base = seedPlanningInput();
+    const plan = generatePlan(
+      { ...base, workItems: [paper], dependencies: [], existingSessions: [] },
+      "plan_lh_gate_long",
+    );
+    const minutes = plan.sessions
+      .filter((s) => s.workItemId === paper.id)
+      .reduce((sum, s) => sum + s.minutes, 0);
+    expect(minutes).toBeGreaterThan(0);
+  });
+
+  it("never hands back an empty week just because nothing is ripe yet", () => {
+    // The floor under the deferral. "Nothing to do" is the one answer this app must never give
+    // by accident to a reader who opened it to be told what to do next.
+    const distant = item({
+      id: "wi_only",
+      title: "Quiz 12",
+      workType: "quiz",
+      dueAt: inDays(84),
+      estimatedMinutes: 30,
+      remainingMinutes: 30,
+    });
+    const base = seedPlanningInput();
+    const plan = generatePlan(
+      { ...base, workItems: [distant], dependencies: [], existingSessions: [] },
+      "plan_lh_floor",
+    );
+    expect(plan.sessions.length).toBeGreaterThan(0);
+  });
+
+  it("picks work up again once its date has gone, rather than abandoning it", () => {
+    // `latestSafeEnd` used to clamp the limit to `now`, so anything past due had no legal slot
+    // and was silently dropped from every plan for the rest of term — while the map went on
+    // burning it red. The app telling a student something needs attention and then refusing to
+    // make room for it is the worst pair of behaviours available to it.
+    const late = item({
+      id: "wi_late",
+      title: "Problem Set 1",
+      workType: "problem_set",
+      dueAt: inDays(-9),
+      estimatedMinutes: 60,
+      remainingMinutes: 60,
+    });
+    const base = seedPlanningInput();
+    const plan = generatePlan(
+      { ...base, workItems: [late], dependencies: [], existingSessions: [] },
+      "plan_lh_late",
+    );
+    expect(plan.sessions.some((s) => s.workItemId === late.id)).toBe(true);
+  });
+
+  it("can still schedule work due inside its own deadline buffer", () => {
+    // Same clamp, different victim: with a one-day buffer, work due tomorrow had its limit
+    // pulled back to `now` and became unschedulable — the most urgent work being the least
+    // bookable. The margin degrades to the real deadline instead of biting.
+    const tomorrow = item({
+      id: "wi_tomorrow",
+      title: "Quiz",
+      workType: "quiz",
+      dueAt: inDays(1),
+      estimatedMinutes: 30,
+      remainingMinutes: 30,
+    });
+    const base = seedPlanningInput();
+    const plan = generatePlan(
+      { ...base, workItems: [tomorrow], dependencies: [], existingSessions: [] },
+      "plan_lh_buffer",
+    );
+    expect(plan.sessions.some((s) => s.workItemId === tomorrow.id)).toBe(true);
   });
 });

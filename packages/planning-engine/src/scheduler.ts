@@ -8,6 +8,9 @@ import {
   type WorkItem,
 } from "@schoolquest/domain";
 import { buildCapacity, totalCapacityMinutes } from "./capacity.js";
+// The scheduler's "not yet worth starting" and the terrain's "starting to ask for attention"
+// are the same judgement seen from two sides, so they share one number rather than drifting.
+import { runwayDays } from "./terrain.js";
 import { isSchedulable, scoreWorkItems } from "./priority.js";
 import type { ReasonCode, RiskCode } from "./reason-codes.js";
 import type {
@@ -43,6 +46,8 @@ interface PendingWork {
   item: WorkItem;
   priority: PriorityScore;
   minutesRemaining: number;
+  /** What `minutesRemaining` started as, so a second pass can reset to it. */
+  allocatedMinutes: number;
   /** Absolute latest a session may end: due date minus the reserved buffer. */
   latestEnd: number | null;
   earliestStart: number;
@@ -147,10 +152,12 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
       item,
       priority,
       minutesRemaining: allocation.minutes,
+      allocatedMinutes: allocation.minutes,
       latestEnd: latestSafeEnd(item, input),
       earliestStart: Math.max(
         now,
         item.availableAt ? toEpochMinutes(item.availableAt) : Number.NEGATIVE_INFINITY,
+        earliestSensibleStart(item, required),
       ),
     });
   }
@@ -172,6 +179,16 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
   let sessionCounter = carried.length;
   const unscheduled: string[] = [];
 
+  /**
+   * Place everything that is ripe; if that turns out to be nothing at all, place the rest.
+   *
+   * The deferral above is right almost always and wrong in one case: a week with genuinely
+   * nothing inside its runway would hand back an empty plan. For a reader who opens this app to
+   * be told what to do next, "nothing" is the one answer it must never give by accident. A
+   * previous attempt at deferring distant work was reverted for exactly this, so the rule keeps
+   * the deferral and adds the floor rather than choosing between them.
+   */
+  const placeAll = () => {
   for (const work of orderedPending) {
     const dependencyFloor = earliestStartByItem.get(work.item.id) ?? Number.NEGATIVE_INFINITY;
     const earliest = Math.max(work.earliestStart, dependencyFloor, now);
@@ -222,6 +239,22 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
       unscheduled.push(work.item.id);
       risks.push(unscheduledRisk(work, placedAny));
     }
+  }
+  };
+
+  placeAll();
+  if (sessions.length === carried.length && orderedPending.length > 0) {
+    // Nothing was ripe. Lift the runway floor and try again — nothing has been consumed, so the
+    // second pass starts from the same empty week the first one did.
+    unscheduled.length = 0;
+    for (const work of orderedPending) {
+      work.earliestStart = Math.max(
+        now,
+        work.item.availableAt ? toEpochMinutes(work.item.availableAt) : Number.NEGATIVE_INFINITY,
+      );
+      work.minutesRemaining = work.allocatedMinutes;
+    }
+    placeAll();
   }
 
   const usedMinutes = sessions.reduce((sum, s) => sum + s.minutes, 0);
@@ -309,17 +342,67 @@ function horizonAllocation(
 }
 
 /**
+ * The earliest moment work should be *started*, as opposed to the earliest it is possible.
+ *
+ * Without this there is no lower bound at all: a reading quiz due on 2 December is a candidate
+ * on 24 August, and with capacity to spare the planner books it. Walking a real semester showed
+ * exactly that — a five-course term finished in nine weeks, with the last seven planning nothing
+ * because the work had all been done months before it was set.
+ *
+ * That is wrong twice over. Studying week thirteen's material in week one is studying material
+ * nobody has taught yet, so the session is close to worthless; and a back half of term that
+ * renders empty is actively misleading for a reader who cannot feel time passing.
+ *
+ * The runway is the same one the terrain view uses to decide when a piece of work starts asking
+ * for attention, and it has to be, or the app warns about work it will not schedule — a
+ * contradiction it has already shipped once, in a different form, at `latestSafeEnd`.
+ *
+ * **It applies to short work only.** Long projects are already handled, and handled better, by
+ * `horizonAllocation`: they get a proportional slice every week from the moment they exist,
+ * which is the whole reason a fifteen-hour paper does not arrive as a crisis. Gating those the
+ * same way broke exactly that — the first attempt at this refused to give a distant project any
+ * time at all until it was inside its runway, which is the failure mode this app was built to
+ * prevent. Pacing covers the long tail; this covers the short work pacing never touches.
+ */
+function earliestSensibleStart(item: WorkItem, required: number): number {
+  // Nothing to be early relative to.
+  if (!item.dueAt) return Number.NEGATIVE_INFINITY;
+  // Paced work starts as early as it likes, by design.
+  if (required > LONG_PROJECT_MINUTES) return Number.NEGATIVE_INFINITY;
+  return toEpochMinutes(item.dueAt) - runwayDays(required) * MINUTES_PER_DAY;
+}
+
+/**
  * The last moment a session may end. High-value work reserves a buffer before the
  * deadline so a bad day does not become a missed submission (docs/04 §8).
  */
 function latestSafeEnd(item: WorkItem, input: PlanningInput): number | null {
   if (!item.dueAt) return null;
   const due = toEpochMinutes(item.dueAt);
+  const now = toEpochMinutes(input.now);
   const bufferDays = input.preferences.deadlineBufferDays;
   const buffered = due - bufferDays * MINUTES_PER_DAY;
-  // Never push the deadline itself earlier than "now" — a buffer must not make work
-  // unschedulable when the student is already tight.
-  return Math.max(buffered, toEpochMinutes(input.now));
+
+  // A margin that makes work unschedulable is worse than no margin.
+  //
+  // This used to return `max(buffered, now)`, which reads as "never push the deadline earlier
+  // than now" and does the opposite of what it intends. Once the buffer has elapsed the limit
+  // collapses to `now`, every candidate slot ends after it, and the item cannot be booked at
+  // all — silently, because nothing reports a deadline that excluded itself.
+  //
+  // Walking a real semester made the cost plain: five pieces of work went past their dates in
+  // the first month and were never scheduled again for the remaining seven weeks. The map went
+  // on burning them red while the planner had quietly given up on them, which is the worst
+  // possible pair of behaviours — the app telling the student something needs attention and
+  // then refusing to make room for it.
+  //
+  // So the margin degrades instead of biting: protect it while it exists, fall back to the real
+  // deadline once it has gone, and drop the constraint entirely for work already past its date.
+  // Late work is still worth doing — a late penalty beats a zero, and a project milestone that
+  // slipped still has the rest of the project waiting on it.
+  if (buffered > now) return buffered;
+  if (due > now) return due;
+  return null;
 }
 
 function nextChunkMinutes(work: PendingWork, input: PlanningInput): number {
