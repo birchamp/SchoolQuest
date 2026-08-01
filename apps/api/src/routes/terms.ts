@@ -707,3 +707,56 @@ termsRoute.delete("/commitments/:id", async (c) => {
   await db.delete(commitments).where(eq(commitments.id, id));
   return c.json({ ok: true });
 });
+
+/**
+ * Setting a course's class times after the course exists.
+ *
+ * Meeting patterns could only be supplied in the same request that created the course, or by
+ * confirming an extraction. A class that moves room or hour mid-term — or one the student
+ * added by hand and only later found the timetable for — had no way in, so the calendar and
+ * the scheduler both went on believing the student was free during a lecture.
+ *
+ * Replaces the set rather than appending: a timetable is a statement of the whole pattern,
+ * and merging would leave last term's Tuesday behind with no way to remove it.
+ */
+const meetingsBody = z.object({
+  patterns: z.array(
+    z.object({
+      daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1),
+      startTime: timeOfDay,
+      endTime: timeOfDay,
+      location: z.string().nullable().optional(),
+    }),
+  ),
+});
+
+termsRoute.put("/courses/:courseId/meeting-patterns", async (c) => {
+  const db = getDb(c.env.DB);
+  const courseId = c.req.param("courseId");
+  if (!(await assertCourseOwner(db, courseId, c.get("userId")))) {
+    return c.json({ error: "Course not found" }, 404);
+  }
+
+  const parsed = meetingsBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const bad = parsed.data.patterns.find((p) => p.endTime <= p.startTime);
+  if (bad) return c.json({ error: "A class must end after it starts." }, 400);
+
+  await db.delete(meetingPatterns).where(eq(meetingPatterns.courseId, courseId));
+  if (parsed.data.patterns.length > 0) {
+    await db.insert(meetingPatterns).values(
+      parsed.data.patterns.map((p) => ({
+        id: newId("meetingPattern"),
+        courseId,
+        daysOfWeek: serializeDays(p.daysOfWeek),
+        startTime: p.startTime,
+        endTime: p.endTime,
+        location: p.location ?? null,
+        effectiveStart: null,
+        effectiveEnd: null,
+      })),
+    );
+  }
+  return c.json({ ok: true, patterns: parsed.data.patterns.length });
+});

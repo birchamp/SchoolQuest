@@ -173,6 +173,25 @@ number, and `gradedWeightFraction` is zero whenever grades are not mapped to wei
 categories — which is most of the time. The board prints "71% · 3 results so far" rather than
 "71% · 0% of the course graded", because the second is true and useless.
 
+## Round 8 — the workflow audit
+
+Auditing the eight workflows the app claims to support found four with no interface at all.
+The engine could do them; nothing could ask it to. Two lessons beyond the features:
+
+- **A verification tool that only visits the default view is measuring one sixth of the app.**
+  The contrast checker walked five tabs in whichever mode the app happened to open in, so the
+  new tables and the hour calendar — whole surfaces, each with its own grounds — were
+  invisible to it and reported clean before they had been looked at once. It takes `SQ_VIEW`
+  and `SQ_WEEK_VIEW` now, and both themes are measured in all three.
+- **Transparency as de-emphasis, for the third time.** A calendar band's time prefix carried
+  `opacity: 0.85` and measured 4.27:1. This exact mistake is already recorded twice in this
+  file. If a thing should be quieter, give it a quieter colour and measure that colour.
+
+And one that is about colour tokens rather than themes: `PLAIN_TINT` is a set of *foreground*
+colours, and filling a chip with one and putting white letters on it fails for three of the
+nine (verdant 4.11:1, teal 3.80:1, amber 4.42:1). Filled marks now go through
+`courseChipFill`, which is dark by construction, so the next component cannot repeat it.
+
 ## Rules that hold regardless of round
 
 - Everything scoped under `body[data-theme="quest"]` (plus the shared pre-theme book
