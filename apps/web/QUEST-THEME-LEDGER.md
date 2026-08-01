@@ -349,6 +349,54 @@ Two fixes came out of it, and the second was caused by the first:
 
 All fourteen labels now clear AA in all three themes measured against real pixels, worst 6.06:1.
 
+## Round 12 — class layers
+
+*"I like the different layers as long as they can be turned on and off."*
+
+One switch per class above the map, any combination, all on to start. Two arguments settled
+here, and they pull in opposite directions:
+
+- **Against five separate maps:** time is the shared resource. If BIO's work lived on BIO's own
+  map, nothing would ever show that Wednesday is already full of HIS, and that collision *is*
+  what this app is for. One piece of ground; you choose what stands on it.
+- **Against a lens that only dims:** hiding has to actually hide, or the switch is decoration.
+  The ground is rebuilt from the visible classes, so the relief, the counts, the legend and the
+  list all follow — and a line states what is switched off, because a picture that quietly omits
+  two classes is worse than one that never had them.
+
+What reconciles the two is that **a switched-off class keeps its severity on its own switch.**
+Turning HIS off quietens the picture without quietening HIS. The severity is read from the
+course-health engine, not from what happens to be on the map, because a class can be in trouble
+for reasons this picture cannot draw — a grade below target, a result never recorded, a grading
+scheme that does not add up — and a chip counting only lit beacons would go calm on exactly
+those.
+
+Three bugs, all of them the same shape as ones already in this ledger:
+
+- **`--text` on `--surface` measured 1.06:1.** Under Quest those are the *leather* values and the
+  switches sit on parchment. Third component to walk into this. The rule does not get easier to
+  remember by being written down again, so what actually catches it is measuring every new
+  surface in every theme.
+- **`--at-risk` as a badge fill with white lettering: 2.92:1.** `--at-risk` is a *foreground*
+  token. This is the second time a filled mark has been given a foreground colour and had white
+  text put on it — the first was `PLAIN_TINT`, fixed with `courseChipFill`. A badge is its own
+  surface and needs a surface colour.
+- **A switched-off class was distinguished by opacity alone** in the first draft. That is the
+  fourth time transparency was reached for to mean "de-emphasised" in this file, and three of
+  the previous three took the text under the floor. It is a line-through now.
+
+Two defects the layers exposed rather than caused, both visible only once a single class left
+the map nearly empty:
+
+- **The label de-collision was testing the wrong point.** It measured each marker's spot on the
+  flat ground while the labels are drawn above the beacon's head, on top of whatever hill it is
+  standing on. Two labels cleared a check for positions neither of them ended up at, then
+  overlapped. It now tests the label position.
+- **Bilinear interpolation creases under a light.** Both the noise lattice and the height field's
+  own 26×49 grid are continuous in value but not in slope, and hillshading reads slope — so the
+  model came out as flat facets with hard edges between them. A quintic ease on every
+  interpolated fraction fixes both. It is exactly why Perlin replaced his own cubic smoothstep.
+
 ## Rules that hold regardless of round
 
 - Everything scoped under `body[data-theme="quest"]` (plus the shared pre-theme book

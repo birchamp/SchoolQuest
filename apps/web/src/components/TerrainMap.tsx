@@ -130,6 +130,17 @@ function plotDistant(u: number, depth: number) {
 }
 
 /**
+ * Quintic ease, flat in slope at both ends.
+ *
+ * Used for every interpolation the surface is lit from. Anything with a discontinuous derivative
+ * shows up as a crease once a light is put on it, and this shape is the standard fix — it is why
+ * Perlin replaced his own cubic smoothstep with it.
+ */
+function ease(t: number): number {
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+/**
  * The height of the land at a point. Bilinear between the field's samples — nearest neighbour
  * made markers hop as they crossed a cell boundary.
  */
@@ -146,8 +157,12 @@ function sampleHeight(field: HeightField, depth: number, lateral: number): numbe
   const r1 = Math.min(rowSpan, r0 + 1);
   const c0 = Math.floor(colPos);
   const c1 = Math.min(colSpan, c0 + 1);
-  const fr = rowPos - r0;
-  const fc = colPos - c0;
+  // Eased fractions, not raw ones. Plain bilinear is continuous in value but not in slope across
+  // a cell boundary, and hillshading reads slope — so the field's own 26×49 grid printed itself
+  // over the model as a lattice of flat facets with hard creases between them. Easing the
+  // fractions costs two multiplies and makes the surface smooth enough to light.
+  const fr = ease(rowPos - r0);
+  const fc = ease(colPos - c0);
 
   const top = rows[r0]![c0]! * (1 - fc) + rows[r0]![c1]! * fc;
   const bottom = rows[r1]![c0]! * (1 - fc) + rows[r1]![c1]! * fc;
@@ -168,9 +183,10 @@ function valueNoise(x: number, y: number): number {
   const yi = Math.floor(y);
   const xf = x - xi;
   const yf = y - yi;
-  // Smoothstep between lattice points, or the interpolation creases show as a grid.
-  const u = xf * xf * (3 - 2 * xf);
-  const v = yf * yf * (3 - 2 * yf);
+  // Quintic, not cubic smoothstep: cubic leaves a slope discontinuity at every lattice
+  // boundary, and hillshading is computed from slope, so each one showed up as a hard crease.
+  const u = ease(xf);
+  const v = ease(yf);
   const a = hash2(xi, yi);
   const b = hash2(xi + 1, yi);
   const c = hash2(xi, yi + 1);
@@ -248,6 +264,28 @@ export function TerrainMap({
   const [focused, setFocused] = useState<TerrainMarker | null>(null);
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
 
+  /**
+   * Which classes are drawn. One layer each, any combination, all on to start.
+   *
+   * The reason this is a set of toggles rather than a one-class-at-a-time picker is the thing
+   * the whole view exists for: **time is the shared resource.** If BIO's work lived on BIO's own
+   * map, nothing would ever show that Wednesday is already full of HIS, and cross-course triage
+   * is the actual problem. Layers keep one piece of ground and let you decide what stands on it.
+   */
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  // Selecting a course elsewhere — a row in the campaign roster — solos that layer here, so the
+  // two controls mean the same thing rather than fighting over the same picture.
+  useEffect(() => {
+    setHidden(
+      selectedCourseId
+        ? new Set(plan.courses.map((c) => c.id).filter((id) => id !== selectedCourseId))
+        : new Set(),
+    );
+  }, [selectedCourseId, plan.courses]);
+
+  const visible = (courseId: string) => !hidden.has(courseId);
+  const shownItems = plan.workItems.filter((w) => visible(w.courseId));
+
   // Booked minutes across the whole term, not just this week: a paper's beacon must know about
   // the three hours held for it a fortnight out.
   const booked: Record<string, number> = {};
@@ -258,8 +296,11 @@ export function TerrainMap({
   }
 
   const terrain = buildTerrain({
-    workItems: plan.workItems,
+    workItems: shownItems,
     bookedByItem: booked,
+    // Every course, always — lanes are assigned from this list, and passing only the visible
+    // ones would slide the remaining classes sideways every time a layer was switched. A layer
+    // toggle that moves the other layers is not a layer toggle.
     courseIds: plan.courses.map((c) => c.id),
     now: new Date().toISOString(),
     defaultEffortMinutes: DEFAULT_EFFORT_MINUTES,
@@ -282,22 +323,6 @@ export function TerrainMap({
     waiting: 4,
     done: 5,
   };
-  // Urgency picks the candidates; space decides which of them actually get named. Sorting by
-  // urgency alone named nine overdue markers that all sit at the near edge, so all nine labels
-  // landed in one band and overlapped into mush. A label that cannot be read is worse than no
-  // label, because it also hides the ones that could be.
-  const named = new Set<string>();
-  const placed: { x: number; y: number }[] = [];
-  for (const m of [...terrain.markers, ...terrain.distant].sort(
-    (a, b) => URGENCY[a.state] - URGENCY[b.state] || (a.daysAway ?? 0) - (b.daysAway ?? 0),
-  )) {
-    if (named.size >= 8) break;
-    const { x, y } = plot(m.lateral, m.depth, 0);
-    if (placed.some((p) => Math.abs(p.x - x) < 230 && Math.abs(p.y - y) < 24)) continue;
-    named.add(m.workItemId);
-    placed.push({ x, y });
-  }
-
   // Beacons and their labels are laid out once and drawn in two passes, because a label is
   // not part of the beacon it belongs to as far as painting order goes: with labels drawn
   // inside each beacon's group, a beacon rendered later painted its flame straight over an
@@ -317,12 +342,67 @@ export function TerrainMap({
     haze: 1,
   }));
 
+  /** Where a marker's label actually lands, which is the only position worth testing. */
+  const labelAt = (e: { marker: TerrainMarker; at: { x: number; y: number }; scale: number }) => {
+    const { x, y, size } = beaconShape(e.marker, e.at, e.scale);
+    return { x, y: y - size * 2.1 - 4 };
+  };
+
+  // Urgency picks the candidates; space decides which of them actually get named. Sorting by
+  // urgency alone named nine overdue markers that all sit at the near edge, so all nine labels
+  // landed in one band and overlapped into mush. A label that cannot be read is worse than no
+  // label, because it also hides the ones that could be.
+  //
+  // The test runs on the *label* position, not the marker's spot on the flat ground. It used to
+  // use the latter, which is a different point once the beacon is standing on a hill and holding
+  // its label above its own head — so the check would clear two labels that then landed twenty
+  // pixels apart and overlapped anyway.
+  const named = new Set<string>();
+  const placed: { x: number; y: number }[] = [];
+  for (const e of [...onGround, ...inDistance].sort(
+    (a, b) =>
+      URGENCY[a.marker.state] - URGENCY[b.marker.state] ||
+      (a.marker.daysAway ?? 0) - (b.marker.daysAway ?? 0),
+  )) {
+    if (named.size >= 8) break;
+    const { x, y } = labelAt(e);
+    if (placed.some((p) => Math.abs(p.x - x) < 230 && Math.abs(p.y - y) < 26)) continue;
+    named.add(e.marker.workItemId);
+    placed.push({ x, y });
+  }
+
   const onMap = terrain.markers.length + terrain.distant.length;
   const lit = terrain.counts.overdue + terrain.counts.needs_time;
   const attention = [...terrain.markers, ...terrain.distant]
     .filter((m) => m.state === "overdue" || m.state === "needs_time" || m.state === "partly_covered")
     .sort((a, b) => (a.daysAway ?? 0) - (b.daysAway ?? 0));
   const weeks = Math.round(terrain.focusDays / 7);
+
+  /**
+   * One layer per class, each carrying that class's own severity.
+   *
+   * The severity is deliberately drawn from `plan.health` — the same course-health engine the
+   * dashboard reads — and not from what happens to be on the map. A class can be in trouble for
+   * reasons this picture cannot show: a grade below target, a marked assignment never recorded,
+   * a grading scheme that does not add up. A class chip that only counted lit beacons would go
+   * calm on exactly those cases.
+   *
+   * They keep their severity **while switched off**, which is the point of putting them here.
+   * Turning HIS off has to stop HIS crowding the ground without also making you forget HIS is on
+   * fire, or hiding a layer becomes a way to lose a class.
+   */
+  const healthByCourse = new Map((plan.health?.courses ?? []).map((c) => [c.courseId, c]));
+  const layers = plan.courses.map((course) => {
+    const mine = [...terrain.markers, ...terrain.distant].filter((m) => m.courseId === course.id);
+    return {
+      course,
+      on: visible(course.id),
+      level: healthByCourse.get(course.id)?.level ?? "steady",
+      concern: healthByCourse.get(course.id)?.concerns[0]?.detail ?? null,
+      lit: mine.filter((m) => m.state === "overdue" || m.state === "needs_time").length,
+    };
+  });
+  const hiddenLayers = layers.filter((l) => !l.on);
 
   return (
     <section className="card" aria-labelledby="terrain-heading">
@@ -336,6 +416,23 @@ export function TerrainMap({
         land rises where the work piles up. Further out sits in the distance, dim because it can
         wait — unless nothing has been set aside for it, in which case it burns anyway.
       </p>
+
+      <LayerBar
+        layers={layers}
+        theme={theme}
+        onToggle={(courseId) =>
+          setHidden((prev) => {
+            const next = new Set(prev);
+            if (next.has(courseId)) next.delete(courseId);
+            else next.add(courseId);
+            return next;
+          })
+        }
+        onOnly={(courseId) =>
+          setHidden(new Set(plan.courses.map((c) => c.id).filter((id) => id !== courseId)))
+        }
+        onAll={() => setHidden(new Set())}
+      />
 
       <div className="terrain-frame terrain-frame-model">
         <Relief field={terrain.field} />
@@ -388,7 +485,6 @@ export function TerrainMap({
               haze={haze}
               course={coursesById.get(marker.courseId)}
               reducedMotion={reducedMotion}
-              receded={Boolean(selectedCourseId) && marker.courseId !== selectedCourseId}
               onFocus={() => setFocused(marker)}
             />
           ))}
@@ -410,13 +506,21 @@ export function TerrainMap({
                   fill={BEACON[marker.state].ink}
                   fontSize={Math.max(10, 13 * scale)}
                   fontWeight={burning ? 700 : 500}
-                  opacity={Boolean(selectedCourseId) && marker.courseId !== selectedCourseId ? 0.32 : 1}
                   text={`${marker.title.length > 22 ? `${marker.title.slice(0, 21)}…` : marker.title}${code ? ` · ${code}` : ""}`}
                 />
               );
             })}
         </svg>
       </div>
+
+      {hiddenLayers.length > 0 && (
+        <p className="muted" style={{ margin: "0.5rem 0 0", fontSize: "0.84rem" }}>
+          {hiddenLayers.length === 1 ? "One class is" : `${hiddenLayers.length} classes are`} switched
+          off:{" "}
+          {hiddenLayers.map((l) => l.course.code ?? l.course.name).join(", ")}. The ground and the
+          counts below are only what is switched on.
+        </p>
+      )}
 
       {/* The legend is the key to the hues, and it states counts so the picture can be checked
           against a number. */}
@@ -486,6 +590,127 @@ export function TerrainMap({
         </p>
       )}
     </section>
+  );
+}
+
+/** Quest's parchment values, measured on that card. See `Dashboard.tsx` for why they differ. */
+const QUEST_INK_DIM = "#5b4930";
+const QUEST_WAX = "#8c2f28";
+const QUEST_GOLD_DIM = "#6f5200";
+
+/**
+ * The severity a class is carrying, in the same language the dashboard uses.
+ *
+ * Quest repaints the ground under this card, so it needs its own values — `--at-risk` on
+ * parchment measured 1.99:1 the last time a component assumed otherwise. The rule this keeps
+ * failing to be obvious: a theme that repaints the ground has to repaint every token that means
+ * "text on the ground", every time.
+ */
+function levelColour(level: string, quest: boolean): string {
+  if (!quest) {
+    return level === "at_risk"
+      ? "var(--at-risk)"
+      : level === "needs_attention"
+        ? "var(--watch)"
+        : "var(--text-dim)";
+  }
+  return level === "at_risk" ? QUEST_WAX : level === "needs_attention" ? QUEST_GOLD_DIM : QUEST_INK_DIM;
+}
+
+/** Never colour alone: every severity ships a mark and a word as well as a hue. */
+const LEVEL_MARK: Record<string, { glyph: string; word: string }> = {
+  at_risk: { glyph: "▲", word: "needs a decision" },
+  needs_attention: { glyph: "●", word: "needs attention" },
+  steady: { glyph: "·", word: "steady" },
+};
+
+/**
+ * One switch per class, each carrying that class's severity.
+ *
+ * Layers rather than a one-class-at-a-time picker, because time is the shared resource: five
+ * separate maps would hide that Wednesday is already full of HIS while you are reading BIO, and
+ * that collision *is* the problem this app is for. One piece of ground, and you choose what
+ * stands on it.
+ *
+ * The severity stays lit on a switched-off class, which is the argument for putting these here
+ * at all rather than leaving the lens buried in the roster table. Turning a class off has to
+ * quieten the picture without quietening the class.
+ */
+function LayerBar({
+  layers,
+  theme,
+  onToggle,
+  onOnly,
+  onAll,
+}: {
+  layers: {
+    course: Course;
+    on: boolean;
+    level: string;
+    concern: string | null;
+    lit: number;
+  }[];
+  theme: ThemeName;
+  onToggle: (courseId: string) => void;
+  onOnly: (courseId: string) => void;
+  onAll: () => void;
+}) {
+  const quest = theme === "quest";
+  const anyOff = layers.some((l) => !l.on);
+
+  return (
+    <div className="terrain-layers">
+      <ul>
+        {layers.map(({ course, on, level, concern, lit }) => {
+          const mark = LEVEL_MARK[level] ?? LEVEL_MARK.steady!;
+          return (
+            <li key={course.id}>
+              <button
+                type="button"
+                className={`terrain-layer${on ? " on" : ""}`}
+                aria-pressed={on}
+                onClick={() => onToggle(course.id)}
+                // Shift-click is a shortcut, never the only way: the "Only this" path is also
+                // reachable from the roster table, and a modifier nobody discovers is not a
+                // feature. It is announced in the label below.
+                onKeyDown={(e) => {
+                  if (e.shiftKey && e.key === "Enter") {
+                    e.preventDefault();
+                    onOnly(course.id);
+                  }
+                }}
+                title={concern ?? `${course.name} — ${mark.word}`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="terrain-layer-swatch"
+                  style={{ background: courseChipFill(course.id, course.colorToken) }}
+                />
+                <span className="terrain-layer-code">{course.code ?? course.name}</span>
+                <span aria-hidden="true" style={{ color: levelColour(level, quest), fontWeight: 700 }}>
+                  {mark.glyph}
+                </span>
+                {lit > 0 && on && (
+                  <span aria-hidden="true" className="terrain-layer-count">
+                    {lit}
+                  </span>
+                )}
+                <span className="sr-only">
+                  {course.name}: {mark.word}
+                  {lit > 0 ? `, ${lit} needing time booked` : ""}.{" "}
+                  {on ? "Shown on the map. Activate to hide." : "Hidden from the map. Activate to show."}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {anyOff && (
+        <button type="button" className="terrain-layer-all" onClick={onAll}>
+          Show every class
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -861,7 +1086,6 @@ function Beacon({
   course,
   reducedMotion,
   haze = 1,
-  receded,
   onFocus,
 }: {
   marker: TerrainMarker;
@@ -872,7 +1096,6 @@ function Beacon({
   reducedMotion: boolean;
   /** How much of the ground under it is still solid, so a beacon fades with its own hillside. */
   haze?: number;
-  receded: boolean;
   onFocus: () => void;
 }) {
   const look = BEACON[marker.state];
@@ -892,7 +1115,7 @@ function Beacon({
       aria-label={`${marker.title}. ${look.word}. ${marker.detail}`}
       onMouseEnter={onFocus}
       onFocus={onFocus}
-      opacity={receded ? 0.32 : fade}
+      opacity={fade}
       style={{ cursor: "pointer" }}
     >
       {stake > 2 && (

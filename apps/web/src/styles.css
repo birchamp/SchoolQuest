@@ -1415,6 +1415,98 @@ body[data-theme="quest"] .view-switch button[aria-pressed="true"] {
   background: #0b0e18;
 }
 
+/* One switch per class, above the map. Wraps rather than scrolls, because a term can carry
+   three classes or seven and a row that scrolls hides exactly the class in trouble. */
+.terrain-layers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  margin: 0 0 0.55rem;
+}
+
+.terrain-layers ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.terrain-layer {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.26rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+/* A switched-off layer reads as switched off at a glance — struck through, not merely faded.
+   Opacity alone would have been the fourth time in this file that transparency was used to
+   mean "de-emphasised" and took the text under the contrast floor with it. */
+.terrain-layer:not(.on) .terrain-layer-code {
+  text-decoration: line-through;
+}
+
+.terrain-layer.on {
+  border-color: var(--accent-dim);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.terrain-layer:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.terrain-layer-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+
+/* The swatch is the class's identity and has to survive being switched off, or the row stops
+   being scannable by colour the moment anything is hidden. */
+.terrain-layer:not(.on) .terrain-layer-swatch {
+  opacity: 0.55;
+}
+
+.terrain-layer-code {
+  font-weight: 600;
+}
+
+/* Fixed wax red rather than `--at-risk`, because this badge carries white lettering and
+   `--at-risk` is a *foreground* token: it resolves to #d68f5f on the light theme and #d0846a
+   under quest, which measured 2.92:1 with white on it. A badge is its own surface and needs a
+   surface colour. White on #8c2f28 is 7.76:1 and does not move with the theme. */
+.terrain-layer-count {
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: #8c2f28;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.terrain-layer-all {
+  border: none;
+  background: none;
+  padding: 0.2rem 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* The relief model is two layers in register: a canvas carrying the hillshaded ground, and
    the SVG on top carrying everything that means anything. They share one coordinate space,
    so the canvas is stretched to exactly the box the SVG lays out and never sized itself. */
@@ -1480,6 +1572,26 @@ body[data-theme="quest"] .view-switch button[aria-pressed="true"] {
 .terrain-flicker {
   animation: terrain-flicker 1.7s ease-in-out infinite;
   transform-origin: center bottom;
+}
+
+/* The layer switches sit on the parchment card, and `--text` / `--surface` under quest are the
+   *leather* values — dark ink on dark leather, which measured 1.06:1. Third component to walk
+   into this. The rule, again: a theme that repaints the ground has to repaint every token that
+   means "text on the ground", every time, and the only way to know it did is to measure. */
+body[data-theme="quest"] .terrain-layer {
+  background: rgba(92, 73, 48, 0.1);
+  border-color: rgba(139, 110, 60, 0.55);
+  color: #5b4930;
+}
+
+body[data-theme="quest"] .terrain-layer.on {
+  background: rgba(255, 252, 240, 0.6);
+  border-color: rgba(139, 110, 60, 0.95);
+  color: #3a2d1c;
+}
+
+body[data-theme="quest"] .terrain-layer-all {
+  color: #6f5200;
 }
 
 body[data-theme="quest"] .terrain-frame {

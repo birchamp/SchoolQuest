@@ -398,3 +398,66 @@ describe("the relief under the work", () => {
     expect(alsoFar.field).toEqual(near.field);
   });
 });
+
+describe("layers", () => {
+  /**
+   * The invariant the layer switches rest on: hiding a class must not move the classes that are
+   * still shown. Lanes come from `courseIds`, so a caller that filters the work items but keeps
+   * the full course list gets stable geometry — and one that filters both does not.
+   */
+  it("keeps every lane where it was when a class is switched off", () => {
+    const courses = ["crs_a", "crs_b", "crs_c"];
+    const items = [
+      item({ id: "a1", courseId: "crs_a", dueAt: inDays(5) }),
+      item({ id: "b1", courseId: "crs_b", dueAt: inDays(6) }),
+      item({ id: "c1", courseId: "crs_c", dueAt: inDays(7) }),
+    ];
+
+    const all = build(items, {}, courses);
+    const withoutB = build(
+      items.filter((i) => i.courseId !== "crs_b"),
+      {},
+      courses,
+    );
+
+    for (const id of ["a1", "c1"]) {
+      expect(find(withoutB, id).lateral).toBe(find(all, id).lateral);
+      expect(find(withoutB, id).depth).toBe(find(all, id).depth);
+    }
+    expect(withoutB.markers.map((m) => m.workItemId).sort()).toEqual(["a1", "c1"]);
+  });
+
+  it("lowers the land where a switched-off class used to pile it up", () => {
+    const courses = ["crs_a", "crs_b"];
+    const items = [
+      item({ id: "a1", courseId: "crs_a", dueAt: inDays(10), estimatedMinutes: 120 }),
+      item({ id: "b1", courseId: "crs_b", dueAt: inDays(10), estimatedMinutes: 1200 }),
+    ];
+    const both = build(items, {}, courses);
+    const onlyA = build(
+      items.filter((i) => i.courseId === "crs_a"),
+      {},
+      courses,
+    );
+    // The heavy class is what was raising the far half; without it the same ground is quieter.
+    const total = (t: ReturnType<typeof build>) =>
+      t.field.rows.reduce((sum, row) => sum + row.reduce((s, h) => s + h, 0), 0);
+    expect(total(onlyA)).toBeLessThan(total(both));
+  });
+
+  it("counts only what is switched on, so the legend never overstates the picture", () => {
+    const courses = ["crs_a", "crs_b"];
+    const items = [
+      item({ id: "a1", courseId: "crs_a", dueAt: inDays(-2) }),
+      item({ id: "b1", courseId: "crs_b", dueAt: inDays(-2) }),
+    ];
+    expect(build(items, {}, courses).counts.overdue).toBe(2);
+    expect(
+      build(
+        items.filter((i) => i.courseId === "crs_a"),
+        {},
+        courses,
+      ).counts.overdue,
+    ).toBe(1);
+  });
+});
