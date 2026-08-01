@@ -357,6 +357,19 @@ function horizonAllocation(
  * for attention, and it has to be, or the app warns about work it will not schedule — a
  * contradiction it has already shipped once, in a different form, at `latestSafeEnd`.
  *
+ * **In practice that runway is always ten days here, and that is a decision rather than an
+ * accident.** `runwayDays` derives a window from effort and floors it at `MIN_WARNING_DAYS`;
+ * for anything at or under `LONG_PROJECT_MINUTES` the derivation comes out at four days or
+ * fewer, so the floor always wins. The size-sensitivity is inert for exactly the set this gate
+ * applies to — worth saying plainly, because the call reads as though the window scales with
+ * the work and it does not. Ten days of lead on a quiz was chosen deliberately; if it should be
+ * a fortnight, move `MIN_WARNING_DAYS`. It stays a call to `runwayDays` rather than a local
+ * constant so that moving it moves the terrain's warning threshold with it, which is the only
+ * thing keeping the two from contradicting each other.
+ *
+ * Note also that most work carries no effort estimate at all — the default for its type stands
+ * in — so the ten days is doing more of the judging than the estimate is.
+ *
  * **It applies to short work only.** Long projects are already handled, and handled better, by
  * `horizonAllocation`: they get a proportional slice every week from the moment they exist,
  * which is the whole reason a fifteen-hour paper does not arrive as a crisis. Gating those the

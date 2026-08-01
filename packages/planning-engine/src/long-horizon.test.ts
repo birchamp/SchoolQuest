@@ -313,6 +313,42 @@ describe("how early short work may start", () => {
     expect(plan.sessions.some((s) => s.workItemId === distant.id)).toBe(false);
   });
 
+  it("opens short work ten days before it is due, and not before", () => {
+    /**
+     * The lead time is a product decision, so it gets an assertion rather than only a constant.
+     *
+     * `runwayDays` derives a window from effort and floors it at ten days; for anything short
+     * enough to be gated the derivation comes out at four days or fewer, so the floor always
+     * wins and every gated item gets exactly ten. Whoever moves `MIN_WARNING_DAYS` should be
+     * told by a failing test what they are changing, because the call site reads as though the
+     * window scales with the work — and it does not.
+     *
+     * With a seven-day horizon the boundary lands at seventeen days out: due minus ten has to
+     * fall inside the week being planned.
+     */
+    const near = item({ id: "wi_near", title: "Nearby", workType: "quiz", dueAt: inDays(2), estimatedMinutes: 30, remainingMinutes: 30 });
+    const base = seedPlanningInput();
+    const planFor = (dueInDays: number) => {
+      const subject = item({
+        id: "wi_subject",
+        title: "Quiz",
+        workType: "quiz",
+        dueAt: inDays(dueInDays),
+        estimatedMinutes: 30,
+        remainingMinutes: 30,
+      });
+      return generatePlan(
+        { ...base, workItems: [near, subject], dependencies: [], existingSessions: [] },
+        `plan_lead_${dueInDays}`,
+      ).sessions.some((s) => s.workItemId === "wi_subject");
+    };
+
+    // Inside the window: ten days before day 15 is day 5, which the week can reach.
+    expect(planFor(15)).toBe(true);
+    // Outside it: ten days before day 25 is day 15, past the end of the week being planned.
+    expect(planFor(25)).toBe(false);
+  });
+
   it("still gives a distant large project time, because pacing is the whole point", () => {
     // The gate covers short work only. A fifteen-hour paper has to start early or it arrives
     // as a crisis, which is the failure this app was built to prevent — and is exactly what
