@@ -316,6 +316,13 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     courses: snapshot.courses,
     workItems: snapshot.workItems,
     standings: snapshot.standings,
+    // The rest of the week: classes, shifts, and the hours the student said they are free.
+    // Study blocks alone cannot answer "where does my time actually go" — a calendar showing
+    // only what the planner booked leaves the other five-sixths of the week blank, which
+    // reads as free time the student does not have.
+    meetingPatterns: snapshot.meetingPatterns,
+    commitments: snapshot.commitments,
+    availabilityRules: snapshot.availabilityRules,
     progress: {
       ...computeTermProgress(
         snapshot.courses.map((course) => course.id),

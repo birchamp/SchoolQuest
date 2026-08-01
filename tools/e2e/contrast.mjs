@@ -45,6 +45,10 @@ const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromi
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 await page.goto(APP);
 await page.evaluate((t) => localStorage.setItem("sq_session_token", t), sessionToken);
+// The tables and the hour calendar are whole surfaces the default view never reaches, and
+// each brings its own grounds — a parchment table header, a calendar band. Measuring only
+// what the app happens to open on is how a theme ships an unreadable screen.
+await page.evaluate((v) => localStorage.setItem("sq_view_mode", v), process.env.SQ_VIEW ?? "visual");
 await page.goto(APP, { waitUntil: "networkidle" });
 await page.waitForTimeout(1500);
 
@@ -254,6 +258,15 @@ for (const [name, matcher] of TABS) {
     const button = page.locator("nav.tabs button", { hasText: matcher }).first();
     if ((await button.count()) > 0) await button.click();
     await page.waitForTimeout(800);
+  }
+
+  // The week has two visual shapes and the second is a whole surface of its own.
+  if (name === "week" && process.env.SQ_WEEK_VIEW === "calendar") {
+    const hours = page.getByRole("button", { name: "Hour by hour" });
+    if ((await hours.count()) > 0) {
+      await hours.click();
+      await page.waitForTimeout(900);
+    }
   }
 
   const results = await page.evaluate(MEASURE);

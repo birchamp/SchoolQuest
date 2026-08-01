@@ -14,8 +14,12 @@ import { CampaignArc } from "./components/CampaignArc";
 import { SessionBrief } from "./components/SessionBrief";
 import { WeeklyReview } from "./components/WeeklyReview";
 import { MealWindows } from "./components/MealWindows";
+import { StudyHours } from "./components/StudyHours";
 import { Stats } from "./components/Stats";
 import { Dashboard } from "./components/Dashboard";
+import { WeekCalendar } from "./components/WeekCalendar";
+import { AssignmentsTable, CoursesTable, LookaheadTable, WeekTable } from "./components/Tables";
+import { useViewMode } from "./lib/view-mode";
 import { CampaignTable } from "./components/CampaignTable";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 
@@ -29,6 +33,10 @@ import { SyllabusUpload } from "./components/SyllabusUpload";
  */
 
 type Tab = "today" | "week" | "stats" | "coach" | "setup";
+
+/** How the week is drawn. A peer of the map, not a fallback for it — the map answers what
+ *  the student is working on, the calendar answers where the hours go. */
+type WeekView = "map" | "calendar";
 
 /**
  * Sessions loaded from a saved plan carry startAt/endAt but no precomputed minutes —
@@ -55,6 +63,8 @@ export function App() {
   // shared surface — the week, the arc and the table all read from it, which is the whole
   // difference between "one map with layers" and "a map per course".
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const [weekView, setWeekView] = useState<WeekView>("map");
+  const [viewMode, setViewMode] = useViewMode();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -178,6 +188,17 @@ export function App() {
     <div className="app">
       <header className="app-header">
         <h1>SchoolQuest</h1>
+        <div className="view-switch" role="group" aria-label="How to show your data">
+          <button
+            aria-pressed={viewMode === "visual"}
+            onClick={() => setViewMode("visual")}
+          >
+            Visual
+          </button>
+          <button aria-pressed={viewMode === "table"} onClick={() => setViewMode("table")}>
+            Tables
+          </button>
+        </div>
         <nav className="tabs" aria-label="Main">
           {tabs.map((t) => (
             <button
@@ -214,35 +235,74 @@ export function App() {
                   onAnswered={regenerate}
                 />
               )}
-              {plan.brief && (
-                <SessionBrief brief={plan.brief} courses={plan.courses} theme={theme} />
-              )}
-              {plan.courseLoad && (
-                <CampaignTable
-                  load={plan.courseLoad}
-                  courses={plan.courses}
-                  theme={theme}
-                  selectedCourseId={selectedCourseId}
-                  onSelectCourse={setSelectedCourseId}
-                />
-              )}
-              <WeekMap
-                plan={plan}
-                theme={theme}
-                brief={plan.brief}
-                selectedCourseId={selectedCourseId}
-              />
-              {plan.brief && (
-                <CampaignArc
-                  milestones={plan.brief.milestones}
-                  undatedMilestones={plan.brief.undatedMilestones}
-                  courses={plan.courses}
-                  theme={theme}
-                  selectedCourseId={selectedCourseId}
-                />
-              )}
-              {plan.progress && (
-                <Questline progress={plan.progress} courses={plan.courses} theme={theme} />
+              {viewMode === "table" ? (
+                <>
+                  <WeekTable plan={plan} theme={theme} />
+                  <LookaheadTable plan={plan} theme={theme} />
+                  <AssignmentsTable plan={plan} theme={theme} onChanged={regenerate} />
+                </>
+              ) : (
+                <>
+                  {plan.brief && (
+                    <SessionBrief brief={plan.brief} courses={plan.courses} theme={theme} />
+                  )}
+                  {plan.courseLoad && (
+                    <CampaignTable
+                      load={plan.courseLoad}
+                      courses={plan.courses}
+                      theme={theme}
+                      selectedCourseId={selectedCourseId}
+                      onSelectCourse={setSelectedCourseId}
+                    />
+                  )}
+
+                  {/* The week has two honest shapes and neither replaces the other: the map
+                      says what the work is, the calendar says where the hours go. */}
+                  <div className="button-row" style={{ margin: "0 0 0.5rem" }}>
+                    <button
+                      className={`action${weekView === "map" ? " primary" : ""}`}
+                      aria-pressed={weekView === "map"}
+                      onClick={() => setWeekView("map")}
+                    >
+                      {label("weekMap", theme)}
+                    </button>
+                    <button
+                      className={`action${weekView === "calendar" ? " primary" : ""}`}
+                      aria-pressed={weekView === "calendar"}
+                      onClick={() => setWeekView("calendar")}
+                    >
+                      Hour by hour
+                    </button>
+                  </div>
+
+                  {weekView === "calendar" ? (
+                    <WeekCalendar
+                      plan={plan}
+                      theme={theme}
+                      selectedCourseId={selectedCourseId}
+                    />
+                  ) : (
+                    <WeekMap
+                      plan={plan}
+                      theme={theme}
+                      brief={plan.brief}
+                      selectedCourseId={selectedCourseId}
+                    />
+                  )}
+
+                  {plan.brief && (
+                    <CampaignArc
+                      milestones={plan.brief.milestones}
+                      undatedMilestones={plan.brief.undatedMilestones}
+                      courses={plan.courses}
+                      theme={theme}
+                      selectedCourseId={selectedCourseId}
+                    />
+                  )}
+                  {plan.progress && (
+                    <Questline progress={plan.progress} courses={plan.courses} theme={theme} />
+                  )}
+                </>
               )}
             </>
           )}
@@ -251,7 +311,8 @@ export function App() {
               underneath a seven-day grid buries it. */}
           {/* The term page opens with the one question no other screen answers — which
               course needs me — and only then goes into the detail behind it. */}
-          {tab === "stats" && plan.health && (
+          {tab === "stats" && viewMode === "table" && <CoursesTable plan={plan} theme={theme} />}
+          {tab === "stats" && viewMode === "visual" && plan.health && (
             <Dashboard
               health={plan.health}
               courses={plan.courses}
@@ -260,7 +321,7 @@ export function App() {
               onChanged={refreshPlan}
             />
           )}
-          {tab === "stats" && plan.projects && (
+          {tab === "stats" && viewMode === "visual" && plan.projects && (
             <Stats
               projects={plan.projects}
               progress={plan.progress}
@@ -275,6 +336,7 @@ export function App() {
           {tab === "setup" && (
             <>
               <CourseManager termId={term.id} onChanged={refreshPlan} />
+              <StudyHours termId={term.id} onChanged={regenerate} />
               <MealWindows term={term} onChanged={regenerate} />
               <SyllabusUpload courses={plan.courses} onPlanChanged={regenerate} />
               <section className="card">

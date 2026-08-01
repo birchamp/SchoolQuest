@@ -1,4 +1,11 @@
-import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
+import type {
+  AvailabilityRule,
+  Commitment,
+  Course,
+  MeetingPattern,
+  ThemeName,
+  WorkItem,
+} from "@schoolquest/domain";
 
 export interface Recommendation {
   rank: number;
@@ -355,6 +362,11 @@ export interface PlanResponse {
   review?: WeeklyReviewView;
   /** Present on saved-plan reads only. */
   health?: TermHealthView;
+  /** The rest of the week, so an hour calendar can account for every hour and not just
+   *  the booked ones. Present on saved-plan reads only. */
+  meetingPatterns?: MeetingPattern[];
+  commitments?: Commitment[];
+  availabilityRules?: AvailabilityRule[];
 }
 
 export interface CoachActionView {

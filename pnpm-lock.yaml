@@ -91,6 +91,9 @@ importers:
       '@schoolquest/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@schoolquest/planning-engine':
+        specifier: workspace:*
+        version: link:../../packages/planning-engine
       '@schoolquest/theme-language':
         specifier: workspace:*
         version: link:../../packages/theme-language

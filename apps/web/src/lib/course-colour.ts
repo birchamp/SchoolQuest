@@ -51,6 +51,23 @@ const PLAIN_TINT: Record<CourseColorToken, string> = {
   slate: "#66708a",
 };
 
+/**
+ * A fill guaranteed to carry white or parchment lettering.
+ *
+ * `PLAIN_TINT` is a set of *foreground* colours — chosen to stay legible as text and rules on
+ * both plain grounds — and three of the nine are too light to sit under white lettering:
+ * verdant measures 4.11:1, teal 3.80:1, amber 4.42:1. A filled sigil chip is a different job
+ * from a coloured word, and using one for the other is the same defect the ledger already
+ * records once. The heraldic set is dark by construction (6.1:1 at its lightest), so filled
+ * chips take it under every theme.
+ *
+ * Use this for anything with text on top of it. Use `courseTincture` for text, rules, and
+ * edges.
+ */
+export function courseChipFill(courseId: string, colorToken: string | null | undefined): string {
+  return HERALDRY[colorTokenFor(courseId, colorToken)];
+}
+
 /** Keyed on the course's own identity, never on its position in whatever list is rendering. */
 export function courseTincture(
   courseId: string,

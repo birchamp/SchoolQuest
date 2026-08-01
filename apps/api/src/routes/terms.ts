@@ -643,3 +643,67 @@ termsRoute.put("/work-items/:id/grade", async (c) => {
 
   return c.json({ grade }, 201);
 });
+
+/**
+ * Changing or removing a standing commitment.
+ *
+ * Commitments could be created and never touched again. A shift that moves to a different
+ * evening — which is the single commonest change in a student's term — could only be handled
+ * by adding a second one and living with the first, so the planner kept protecting an hour
+ * nobody needed and the week quietly lost time to a shift that had ended weeks ago.
+ */
+const commitmentPatch = commitmentBody.partial();
+
+termsRoute.patch("/commitments/:id", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+
+  const [owned] = await db
+    .select({ commitment: commitments })
+    .from(commitments)
+    .innerJoin(terms, eq(terms.id, commitments.termId))
+    .where(and(eq(commitments.id, id), eq(terms.userId, c.get("userId"))));
+  if (!owned) return c.json({ error: "Commitment not found" }, 404);
+
+  const parsed = commitmentPatch.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const patch: Record<string, unknown> = {};
+  if (parsed.data.title !== undefined) patch["title"] = parsed.data.title;
+  if (parsed.data.commitmentType !== undefined) patch["commitmentType"] = parsed.data.commitmentType;
+  if (parsed.data.daysOfWeek !== undefined) patch["daysOfWeek"] = serializeDays(parsed.data.daysOfWeek);
+  if (parsed.data.startTime !== undefined) patch["startTime"] = parsed.data.startTime;
+  if (parsed.data.endTime !== undefined) patch["endTime"] = parsed.data.endTime;
+  if (parsed.data.specificDate !== undefined) patch["specificDate"] = parsed.data.specificDate;
+  if (parsed.data.flexibility !== undefined) {
+    patch["flexibility"] = parsed.data.flexibility;
+    patch["locked"] = parsed.data.flexibility === "fixed";
+  }
+  if (Object.keys(patch).length === 0) return c.json({ commitment: owned.commitment });
+
+  const start = (patch["startTime"] as string) ?? owned.commitment.startTime;
+  const end = (patch["endTime"] as string) ?? owned.commitment.endTime;
+  if (end <= start) return c.json({ error: "A commitment must end after it starts." }, 400);
+
+  const [updated] = await db
+    .update(commitments)
+    .set(patch)
+    .where(eq(commitments.id, id))
+    .returning();
+  return c.json({ commitment: updated });
+});
+
+termsRoute.delete("/commitments/:id", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+
+  const [owned] = await db
+    .select({ id: commitments.id })
+    .from(commitments)
+    .innerJoin(terms, eq(terms.id, commitments.termId))
+    .where(and(eq(commitments.id, id), eq(terms.userId, c.get("userId"))));
+  if (!owned) return c.json({ error: "Commitment not found" }, 404);
+
+  await db.delete(commitments).where(eq(commitments.id, id));
+  return c.json({ ok: true });
+});

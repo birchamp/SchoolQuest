@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
 import { explainHealth, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
-import { courseInitials, courseTincture } from "../lib/course-colour";
+import { courseChipFill, courseInitials } from "../lib/course-colour";
 import type { CourseHealthView, TermHealthView } from "../lib/types";
 
 /**
@@ -160,7 +160,8 @@ function CourseRow({
 }) {
   const [open, setOpen] = useState(false);
   const verdict = explainHealth(row.level, theme);
-  const tincture = courseTincture(row.courseId, course?.colorToken, quest);
+  // A filled chip with white letters on it, so it needs the fill that is safe for them.
+  const tincture = courseChipFill(row.courseId, course?.colorToken);
   const name = course
     ? course.code && !course.name.includes(course.code)
       ? `${course.name} (${course.code})`

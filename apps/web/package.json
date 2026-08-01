@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@schoolquest/domain": "workspace:*",
+    "@schoolquest/planning-engine": "workspace:*",
     "@schoolquest/theme-language": "workspace:*",
     "pdfjs-dist": "^6.1.200",
     "react": "^18.3.1",
