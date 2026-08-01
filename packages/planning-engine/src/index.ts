@@ -5,6 +5,7 @@ export * from "./capacity.js";
 export * from "./meals.js";
 export * from "./interruptions.js";
 export * from "./week-calendar.js";
+export * from "./terrain.js";
 export * from "./scheduler.js";
 export * from "./progress.js";
 export * from "./session-brief.js";

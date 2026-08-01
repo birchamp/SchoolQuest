@@ -18,6 +18,7 @@ import { StudyHours } from "./components/StudyHours";
 import { Stats } from "./components/Stats";
 import { Dashboard } from "./components/Dashboard";
 import { WeekCalendar } from "./components/WeekCalendar";
+import { TerrainMap } from "./components/TerrainMap";
 import { AssignmentsTable, CoursesTable, LookaheadTable, WeekTable } from "./components/Tables";
 import { useViewMode } from "./lib/view-mode";
 import { CampaignTable } from "./components/CampaignTable";
@@ -36,7 +37,7 @@ type Tab = "today" | "week" | "stats" | "coach" | "setup";
 
 /** How the week is drawn. A peer of the map, not a fallback for it — the map answers what
  *  the student is working on, the calendar answers where the hours go. */
-type WeekView = "map" | "calendar";
+type WeekView = "map" | "calendar" | "terrain";
 
 /**
  * Sessions loaded from a saved plan carry startAt/endAt but no precomputed minutes —
@@ -273,9 +274,23 @@ export function App() {
                     >
                       Hour by hour
                     </button>
+                    <button
+                      className={`action${weekView === "terrain" ? " primary" : ""}`}
+                      aria-pressed={weekView === "terrain"}
+                      onClick={() => setWeekView("terrain")}
+                    >
+                      The road ahead
+                    </button>
                   </div>
 
-                  {weekView === "calendar" ? (
+                  {weekView === "terrain" ? (
+                    <TerrainMap
+                      plan={plan}
+                      theme={theme}
+                      reducedMotion={me?.reducedMotion ?? false}
+                      selectedCourseId={selectedCourseId}
+                    />
+                  ) : weekView === "calendar" ? (
                     <WeekCalendar
                       plan={plan}
                       theme={theme}

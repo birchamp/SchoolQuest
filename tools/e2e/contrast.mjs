@@ -206,7 +206,23 @@ const MEASURE = () => {
     const box = el.getBoundingClientRect();
     if (box.width === 0 || box.height === 0) continue;
 
-    const fg = parse(style.color);
+    /**
+     * SVG text paints with `fill`, not with `color`.
+     *
+     * Reading `color` for an SVG label returns whatever the surrounding CSS inherited, which
+     * is the card's ink and has nothing to do with what is on screen. The terrain view's
+     * labels were reported at 1.2:1 against a colour they never used, while the values that
+     * actually paint went unmeasured entirely — a checker confidently wrong in both
+     * directions at once. Anything inside an `<svg>` is judged on its fill.
+     */
+    // Namespace, not `ownerSVGElement`: that property is *undefined* on an HTML element
+    // rather than null, so `!== null` matched every node on the page and judged the whole
+    // app against `fill`, which computes to black on HTML and paints nothing.
+    const inSvg = el.namespaceURI === "http://www.w3.org/2000/svg";
+    const paint = inSvg ? style.fill || style.color : style.color;
+    const fg = parse(paint);
+    // A fill of `none`, or a paint-server reference like `url(#grad)`, is not a flat colour
+    // and cannot be measured this way. Skipping is right; guessing would not be.
     if (!fg) continue;
 
     // Faded text is painted at that fraction over whatever is behind it, so that is how it
@@ -233,7 +249,7 @@ const MEASURE = () => {
       disabled,
       text: text.slice(0, 60),
       selector: el.tagName.toLowerCase() + (el.className ? `.${String(el.className).split(" ")[0]}` : ""),
-      color: style.color,
+      color: paint,
       ground: worst.ground,
       ratio: Math.round(worst.ratio * 100) / 100,
       large,
@@ -260,12 +276,14 @@ for (const [name, matcher] of TABS) {
     await page.waitForTimeout(800);
   }
 
-  // The week has two visual shapes and the second is a whole surface of its own.
-  if (name === "week" && process.env.SQ_WEEK_VIEW === "calendar") {
-    const hours = page.getByRole("button", { name: "Hour by hour" });
-    if ((await hours.count()) > 0) {
-      await hours.click();
-      await page.waitForTimeout(900);
+  // The week has three visual shapes and each is a whole surface with its own grounds.
+  const weekViews = { calendar: "Hour by hour", terrain: "The road ahead" };
+  const wanted = weekViews[process.env.SQ_WEEK_VIEW];
+  if (name === "week" && wanted) {
+    const button = page.getByRole("button", { name: wanted });
+    if ((await button.count()) > 0) {
+      await button.click();
+      await page.waitForTimeout(1100);
     }
   }
 

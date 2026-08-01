@@ -202,6 +202,31 @@ colours, and filling a chip with one and putting white letters on it fails for t
 nine (verdant 4.11:1, teal 3.80:1, amber 4.42:1). Filled marks now go through
 `courseChipFill`, which is dark by construction, so the next component cannot repeat it.
 
+## Round 9 — the terrain view
+
+The biggest single finding is about the checker, not the theme: **it was reading `color` for
+SVG text, which paints with `fill`.** The terrain view's labels were reported at 1.2:1 against
+a colour they never used, while the values that actually paint went unmeasured entirely — a
+tool confidently wrong in both directions at once. Fixing it took two goes, and the first fix
+was worse than the bug: `el.ownerSVGElement !== null` is *true for every HTML element*,
+because the property is `undefined` there rather than null, so the whole app got judged
+against `fill`, which computes to black on HTML and paints nothing. Use `namespaceURI`.
+
+With the checker honest, every SVG colour in the new view passed first time and it found the
+one real mistake: the terrain legend used `#cbb98c` — the cream that belongs on leather — on
+the parchment card, at **1.32:1**. Same trap as the Main Quest rationale, one surface further
+out. There is no version of this lesson that stops needing to be relearned; the only defence
+is measuring every new surface.
+
+Two design findings, both from looking at the render rather than the code:
+
+- **Drawing the whole term made the actionable part unreadable.** A 138-day horizon put the
+  next fortnight in the bottom fifth of the frame and piled fifty markers into a band at the
+  back. The ground now stops at eight weeks and everything further is counted, not placed.
+- **Labelling by urgency alone stacks labels.** The nine most urgent markers were all overdue,
+  all at the viewer's feet, so all nine labels landed in one band and overlapped into mush.
+  Urgency picks the candidates; space decides which of them get named.
+
 ## Rules that hold regardless of round
 
 - Everything scoped under `body[data-theme="quest"]` (plus the shared pre-theme book

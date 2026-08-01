@@ -1402,3 +1402,82 @@ body[data-theme="quest"] .view-switch button[aria-pressed="true"] {
   color: #f0e2bd;
   border-color: var(--q-gold);
 }
+
+/* --- The terrain view -------------------------------------------------------
+ * A landscape has its own ground, so it inherits neither theme's card. Every beacon
+ * colour and every label in it is measured against the near-black sky inside the frame,
+ * not against the card around it. */
+
+.terrain-frame {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #0b0e18;
+}
+
+.terrain-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.terrain-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 0.4rem;
+  vertical-align: baseline;
+}
+
+.terrain-focus {
+  margin: 0.6rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border-left: 3px solid var(--accent-dim);
+  background: var(--surface-2);
+  border-radius: 0 6px 6px 0;
+  font-size: 0.9rem;
+}
+
+/* Only lit beacons breathe, and only when motion is allowed. A landscape where forty
+   markers pulse at once is a fairground, not a plan. */
+@keyframes terrain-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+@keyframes terrain-flicker {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(0.86); }
+}
+
+.terrain-pulse {
+  animation: terrain-pulse 2.8s ease-in-out infinite;
+}
+
+.terrain-flicker {
+  animation: terrain-flicker 1.7s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+
+body[data-theme="quest"] .terrain-frame {
+  border-color: rgba(201, 162, 39, 0.45);
+}
+
+/* The legend sits on the parchment card, not on the landscape inside it. #cbb98c is the
+   cream used on leather and measures 1.32:1 here; the dim ink is the parchment-safe value
+   at 5.88:1. Same trap as the Main Quest rationale, one surface further out. */
+body[data-theme="quest"] .terrain-legend {
+  color: #5b4930;
+}
+
+body[data-theme="quest"] .terrain-focus {
+  background: rgba(239, 227, 200, 0.7);
+  border-left-color: var(--q-gold);
+  color: #2a1f14;
+}
