@@ -147,6 +147,32 @@ One rule the tooling now encodes: `.beat-kind` and `.block.rest` both de-emphasi
 `opacity`, because the contrast checker still measures colour and a transparent element is
 invisible to it. Every new quiet thing in this app is quiet by hierarchy, never by alpha.
 
+## Round 7 — the dashboard
+
+The board itself is new; two of its three bugs were the same shape as round 6's.
+
+- **`--at-risk` and `--watch` are dark-page tokens.** Used on a parchment card they measured
+  1.99:1 and **1.11:1** — the second is invisible, and it is the identical failure this
+  ledger opens with. Every new coloured word on a quest card needs its own measured value;
+  the amber that works elsewhere (#8a6f1f) is only 3.28:1 on the darkest parchment stop and
+  had to be darkened to #6f5200 for 4.98:1.
+- **A forward-only fix leaves the existing rows wrong, again.** Course creation was taught to
+  hand out palette colours in round 5, so every course made *since* has one — and every
+  course made before still held the schema default. `slate` is a valid token, so the
+  deterministic fallback could not rescue them either. Five identical grey sigils on four
+  screens, with the column populated so nothing looked broken. Same lesson as the superseded
+  sessions: when a fix changes what gets written, ask what is already written.
+- **Styling can contradict the model.** The board's fact line marked "nothing booked this
+  week" in the attention colour unconditionally, including for a course the engine had
+  deliberately judged fine because it has no work left. The verdict said steady and the line
+  beside it argued back.
+
+One design rule worth keeping: **a percentage is never shown without its basis.** A standing
+drawn from three quizzes and one drawn from half the course are indistinguishable as a big
+number, and `gradedWeightFraction` is zero whenever grades are not mapped to weighted
+categories — which is most of the time. The board prints "71% · 3 results so far" rather than
+"71% · 0% of the course graded", because the second is true and useless.
+
 ## Rules that hold regardless of round
 
 - Everything scoped under `body[data-theme="quest"]` (plus the shared pre-theme book

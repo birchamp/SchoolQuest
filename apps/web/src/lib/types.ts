@@ -294,6 +294,42 @@ export interface WeeklyReviewView {
   unanswered: number;
 }
 
+/** Per-course verdict (packages/planning-engine/src/course-health.ts). */
+export type HealthLevel = "at_risk" | "needs_attention" | "steady";
+
+export interface CourseConcernView {
+  code: string;
+  level: Exclude<HealthLevel, "steady">;
+  detail: string;
+}
+
+export interface CourseHealthView {
+  courseId: string;
+  level: HealthLevel;
+  concerns: CourseConcernView[];
+  bookedMinutes: number;
+  blocks: number;
+  openItems: number;
+  nextDueAt: string | null;
+  nextDueTitle: string | null;
+  nextDueInDays: number | null;
+  gradePercent: number | null;
+  /** Zero whenever the graded work is not mapped to weighted categories — the common case. */
+  gradedWeightFraction: number;
+  gradedCount: number;
+  targetPercent: number;
+  targetIsOwn: boolean;
+  ungradedResults: number;
+}
+
+export interface TermHealthView {
+  courses: CourseHealthView[];
+  coursesAtRisk: number;
+  coursesNeedingAttention: number;
+  coursesSteady: number;
+  coursesUnplanned: number;
+}
+
 export interface PlanResponse {
   planVersionId?: string;
   planVersion?: { id: string; versionNumber: number; horizonStart: string; horizonEnd: string } | null;
@@ -317,6 +353,8 @@ export interface PlanResponse {
   meals?: MealBreakView[];
   /** Present on saved-plan reads only; generating a plan does not look backwards. */
   review?: WeeklyReviewView;
+  /** Present on saved-plan reads only. */
+  health?: TermHealthView;
 }
 
 export interface CoachActionView {

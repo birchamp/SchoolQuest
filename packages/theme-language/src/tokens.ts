@@ -30,7 +30,8 @@ export type LabelKey =
   | "sharedTime"
   | "dayShape"
   | "mealBreak"
-  | "weekReview";
+  | "weekReview"
+  | "dashboard";
 
 type LabelSet = Record<ThemeName, string>;
 
@@ -68,6 +69,8 @@ export const LABELS: Record<LabelKey, LabelSet> = {
   dayShape: { quest: "How the day runs", mission: "Day profile", plain: "Your day" },
   mealBreak: { quest: "Break in play", mission: "Meal window", plain: "Meal" },
   weekReview: { quest: "Last session's recap", mission: "After-action review", plain: "How last week went" },
+  /** Which class needs me — the one question no other screen answers. */
+  dashboard: { quest: "The war table", mission: "Status board", plain: "What needs you" },
 };
 
 export function label(key: LabelKey, theme: ThemeName): string {

@@ -22,6 +22,13 @@
       "when": 1785381565102,
       "tag": "0002_retire_superseded_blocks",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785381565103,
+      "tag": "0003_assign_course_colours",
+      "breakpoints": true
     }
   ]
 }

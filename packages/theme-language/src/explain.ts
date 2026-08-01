@@ -266,3 +266,59 @@ export function explainUpkeep(
   if (!entry) return { label: status, hint: "", plainLabel: status };
   return { ...entry[theme], plainLabel: entry.plain.label };
 }
+
+/**
+ * Course health — the dashboard's one-word verdict.
+ *
+ * Every wording here names a state of the *plan or the course*, never a state of the
+ * student. "Needs a look" is a to-do; "falling behind" would be a judgement, and would also
+ * be a loss mechanic in disguise (docs/02-prd.md §3). Nothing accumulates: a course returns
+ * to steady the moment its concerns are addressed.
+ *
+ * The quest column stays on the Dungeon Master's side of the table — a questline in trouble
+ * is a thread that needs the DM's attention before next session, not a player who failed.
+ */
+const HEALTH_TEXT: Record<string, Record<ThemeName, { label: string; hint: string }>> = {
+  at_risk: {
+    quest: {
+      label: "Needs a call",
+      hint: "Something here cannot be fixed by working harder — it needs a decision.",
+    },
+    mission: {
+      label: "Decision needed",
+      hint: "Something here needs a call, not more effort.",
+    },
+    plain: {
+      label: "Needs a decision",
+      hint: "Something here will not resolve by working harder.",
+    },
+  },
+  needs_attention: {
+    quest: {
+      label: "Needs a look",
+      hint: "Worth a few minutes before the next session; cheap to sort out now.",
+    },
+    mission: {
+      label: "Action needed",
+      hint: "Worth handling now while it is small.",
+    },
+    plain: {
+      label: "Needs attention",
+      hint: "Worth a few minutes now, while it is still small.",
+    },
+  },
+  steady: {
+    quest: { label: "Holding", hint: "Nothing needs you here right now." },
+    mission: { label: "Nominal", hint: "Nothing needs you here right now." },
+    plain: { label: "On track", hint: "Nothing needs you here right now." },
+  },
+};
+
+export function explainHealth(
+  level: string,
+  theme: ThemeName,
+): { label: string; hint: string; plainLabel: string } {
+  const entry = HEALTH_TEXT[level];
+  if (!entry) return { label: level, hint: "", plainLabel: level };
+  return { ...entry[theme], plainLabel: entry.plain.label };
+}

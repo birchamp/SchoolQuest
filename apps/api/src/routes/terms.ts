@@ -5,6 +5,7 @@ import {
   COURSE_COLOR_TOKENS,
   newId,
   planningPreferences,
+  workStatus,
   type WorkItem,
 } from "@schoolquest/domain";
 import {
@@ -17,6 +18,7 @@ import {
   commitments,
   courses,
   dependencies,
+  gradeResults,
   gradingCategories,
   meetingPatterns,
   terms,
@@ -320,6 +322,13 @@ const workItemBody = z.object({
     .default("anywhere"),
   parentWorkItemId: z.string().nullable().optional(),
   userPriority: z.number().int().min(-2).max(2).default(0),
+  /**
+   * Nothing could set this. A student could finish a session, which marks the item done as a
+   * side effect, but could not simply say "I handed this in" — and the item's status is what
+   * the dashboard reads to know a result is owed. Unknown keys are stripped by Zod, so the
+   * omission showed up not as a rejection but as a PATCH that silently did nothing.
+   */
+  status: workStatus.optional(),
 });
 
 /** Confirms a course belongs to this user before writing work items into it. */
@@ -391,6 +400,12 @@ termsRoute.patch("/work-items/:id", async (c) => {
   delete patch["courseId"]; // Moving an item between courses is not a PATCH.
   // A user edit is always confirmed, overriding whatever the extractor inferred.
   if (parsed.data.dueAt !== undefined) patch["sourceConfidence"] = "confirmed";
+
+  // Drizzle throws on an empty SET, so a body of only unrecognised keys — which Zod strips
+  // rather than rejecting — came back as a 500 rather than as the no-op it is.
+  if (Object.keys(patch).length === 0) {
+    return c.json({ workItem: existing.item });
+  }
 
   const [updated] = await db.update(workItems).set(patch).where(eq(workItems.id, id)).returning();
   return c.json({ workItem: updated });
@@ -558,4 +573,73 @@ termsRoute.post("/work-items/:id/stages", async (c) => {
   await db.update(workItems).set({ remainingMinutes: 0 }).where(eq(workItems.id, id));
 
   return c.json({ stages: created }, 201);
+});
+
+/**
+ * Recording what a piece of work actually scored.
+ *
+ * Nothing could do this before. Grades were in the schema, the seed loaded three of them,
+ * and `computeCourseStanding` knew how to weight them — but no route existed to enter one,
+ * so in practice every student's standing was permanently unknown. That was survivable while
+ * nothing depended on it; it stops being survivable the moment the dashboard tells a student
+ * their results are unrecorded, because naming a problem with no way to fix it is worse than
+ * staying quiet about it.
+ *
+ * A result replaces any earlier one for the same item rather than accumulating. A grade is a
+ * fact about a piece of work, not an event log, and a corrected mark should read as the
+ * correction it is.
+ */
+const gradeBody = z.object({
+  pointsEarned: z.number().nonnegative().nullable(),
+  pointsPossible: z.number().positive().nullable(),
+  letterGrade: z.string().max(8).nullable().default(null),
+  confirmationStatus: z.enum(["confirmed", "extracted_unreviewed", "estimated"]).default("confirmed"),
+});
+
+termsRoute.put("/work-items/:id/grade", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+
+  const [existing] = await db
+    .select({ item: workItems })
+    .from(workItems)
+    .innerJoin(courses, eq(courses.id, workItems.courseId))
+    .innerJoin(terms, eq(terms.id, courses.termId))
+    .where(and(eq(workItems.id, id), eq(terms.userId, c.get("userId"))));
+  if (!existing) return c.json({ error: "Work item not found" }, 404);
+
+  const parsed = gradeBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const { pointsEarned, pointsPossible } = parsed.data;
+  if (pointsEarned !== null && pointsPossible !== null && pointsEarned > pointsPossible) {
+    return c.json({ error: "A score cannot be higher than the total it is out of." }, 400);
+  }
+
+  // Fall back to the item's own points when the student gives only a score — the syllabus
+  // already said what it was out of, and making them retype it invites a mismatch.
+  const outOf = pointsPossible ?? existing.item.pointsPossible ?? null;
+
+  await db.delete(gradeResults).where(eq(gradeResults.workItemId, id));
+  const [grade] = await db
+    .insert(gradeResults)
+    .values({
+      id: newId("gradeResult"),
+      workItemId: id,
+      pointsEarned,
+      pointsPossible: outOf,
+      letterGrade: parsed.data.letterGrade,
+      postedAt: new Date().toISOString(),
+      confirmationStatus: parsed.data.confirmationStatus,
+      sourceDocumentId: null,
+      dropped: false,
+    })
+    .returning();
+
+  // Recording a result means the work is done, whatever the item still said.
+  if (existing.item.status !== "completed" && existing.item.status !== "submitted") {
+    await db.update(workItems).set({ status: "completed" }).where(eq(workItems.id, id));
+  }
+
+  return c.json({ grade }, 201);
 });

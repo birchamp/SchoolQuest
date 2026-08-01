@@ -4,6 +4,7 @@ import { z } from "zod";
 import { newId, toEpochMinutes } from "@schoolquest/domain";
 import {
   buildSessionBrief,
+  computeCourseHealth,
   computeCourseLoad,
   computeProjectProgress,
   computeTermProgress,
@@ -241,6 +242,20 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     now: new Date().toISOString(),
   });
 
+  // Which class needs me? Folded together here rather than on the client because it draws on
+  // five separate derivations, and a client assembling them itself would be free to disagree
+  // with the screens each one already feeds.
+  const health = computeCourseHealth({
+    courses: snapshot.courses,
+    workItems: snapshot.workItems,
+    grades: snapshot.grades,
+    gradingCategories: snapshot.gradingCategories,
+    standings: snapshot.standings,
+    load: courseLoad.courses,
+    projects: projectRows,
+    now: new Date().toISOString(),
+  });
+
   const projects = {
     rows: projectRows,
     summary: summarizeProjects(projectRows, {
@@ -289,6 +304,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     }),
     projects,
     courseLoad,
+    health,
     // What the weeks that already happened have to say about the week being planned. Asked
     // here rather than on its own screen because the answer changes the plan, and a question
     // the student has to go looking for is a question nobody answers.

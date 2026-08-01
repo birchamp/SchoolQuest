@@ -15,6 +15,7 @@ import { SessionBrief } from "./components/SessionBrief";
 import { WeeklyReview } from "./components/WeeklyReview";
 import { MealWindows } from "./components/MealWindows";
 import { Stats } from "./components/Stats";
+import { Dashboard } from "./components/Dashboard";
 import { CampaignTable } from "./components/CampaignTable";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 
@@ -248,6 +249,17 @@ export function App() {
           {/* Where the big things stand. Its own screen rather than another card on the
               week: "am I going to make it" is a question about months, and answering it
               underneath a seven-day grid buries it. */}
+          {/* The term page opens with the one question no other screen answers — which
+              course needs me — and only then goes into the detail behind it. */}
+          {tab === "stats" && plan.health && (
+            <Dashboard
+              health={plan.health}
+              courses={plan.courses}
+              workItems={plan.workItems}
+              theme={theme}
+              onChanged={refreshPlan}
+            />
+          )}
           {tab === "stats" && plan.projects && (
             <Stats
               projects={plan.projects}
