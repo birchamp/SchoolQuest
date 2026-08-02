@@ -56,8 +56,17 @@ packages/
   ai/              OpenRouter provider, coach prompt, scope guardrail
   theme-language/  Semantic key → Quest / Mission / Plain labels
   fixtures/        The reference semester used by tests and the demo seed
-docs/          The original product specification (8 documents)
+docs/          The original product specification (8 documents), plus notes added since:
+                 09-syllabus-ingest-passes.md   why ingest is one call, and what a pass
+                                                boundary would have to buy to be worth it
+                 10-syllabus-gotchas.md         a running log of what real syllabi actually
+                                                do that breaks a reasonable assumption
 ```
+
+`docs/10-syllabus-gotchas.md` is the one that keeps growing. Every entry quotes a real
+syllabus, says what it costs the student, and is marked handled, partial, or open — and the
+checkable ones are pinned by `packages/ai/src/extraction/gotchas.test.ts`, so an entry cannot
+quietly stop being true. **Add to it whenever a new one turns up.**
 
 Three rules hold this together:
 
