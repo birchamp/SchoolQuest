@@ -14,6 +14,7 @@ import { CampaignArc } from "./components/CampaignArc";
 import { SessionBrief } from "./components/SessionBrief";
 import { WeeklyReview } from "./components/WeeklyReview";
 import { MealWindows } from "./components/MealWindows";
+import { EffortSurvey } from "./components/EffortSurvey";
 import { StudyHours } from "./components/StudyHours";
 import { Stats } from "./components/Stats";
 import { Dashboard } from "./components/Dashboard";
@@ -389,6 +390,7 @@ export function App() {
           {tab === "setup" && (
             <>
               <CourseManager termId={term.id} onChanged={refreshPlan} />
+              <EffortSurvey termId={term.id} onChanged={regenerate} />
               <StudyHours termId={term.id} onChanged={regenerate} />
               <MealWindows term={term} onChanged={regenerate} />
               <SyllabusUpload courses={plan.courses} onPlanChanged={regenerate} />

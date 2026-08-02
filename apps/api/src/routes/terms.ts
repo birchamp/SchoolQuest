@@ -9,11 +9,14 @@ import {
   type WorkItem,
 } from "@schoolquest/domain";
 import {
+  applyEffortAnswer,
+  buildEffortSurvey,
   canDecompose,
   DEFAULT_EFFORT_MINUTES,
   proposeStages,
 } from "@schoolquest/planning-engine";
 import {
+  auditEvents,
   availabilityRules,
   commitments,
   courses,
@@ -127,6 +130,145 @@ termsRoute.get("/terms/:id/snapshot", async (c) => {
     return c.json({ error: "Term not found" }, 404);
   }
   return c.json(await loadTermSnapshot(db, id));
+});
+
+// --- How long things take ----------------------------------------------------
+
+/**
+ * `entityType` for the record that a question was handed to the instructor.
+ *
+ * Kept in `audit_events` rather than a table of its own because that is exactly what it is:
+ * an event, with a date, that happened once. "I asked my professor on 3 September" is history,
+ * not state, and the screen only needs the latest one per question.
+ */
+const EFFORT_ASK_ENTITY = "effort_question";
+
+/** The questions still worth asking, with anything already handed off marked as such. */
+termsRoute.get("/terms/:id/effort-survey", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+  const userId = c.get("userId");
+  if (!(await assertTermOwner(db, id, userId))) return c.json({ error: "Term not found" }, 404);
+
+  const snapshot = await loadTermSnapshot(db, id);
+  const survey = buildEffortSurvey({
+    workItems: snapshot.workItems,
+    courses: snapshot.courses,
+    gradingCategories: snapshot.gradingCategories,
+  });
+
+  const asks = (
+    await db.select().from(auditEvents).where(eq(auditEvents.userId, userId))
+  ).filter((event) => event.entityType === EFFORT_ASK_ENTITY);
+  // Latest event per question wins, so asking and then un-asking reads correctly.
+  const askedAt = new Map<string, string>();
+  for (const event of asks.sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    if (event.action === "asked_instructor") askedAt.set(event.entityId, event.createdAt);
+    else askedAt.delete(event.entityId);
+  }
+
+  return c.json({
+    ...survey,
+    questions: survey.questions.map((q) => ({ ...q, askedInstructorAt: askedAt.get(q.id) ?? null })),
+  });
+});
+
+const effortAnswersBody = z.object({
+  answers: z
+    .array(
+      z.object({
+        questionId: z.string(),
+        /** Minutes per item, or null for "I don't know — I'll ask". */
+        minutes: z.number().int().positive().max(24 * 60).nullable(),
+      }),
+    )
+    .min(1)
+    .max(40),
+});
+
+/**
+ * Applies the student's answers about how long their work takes.
+ *
+ * One answer writes a whole family, which is the entire point: thirteen quizzes settled by one
+ * choice rather than thirteen. The survey is rebuilt from current data on every call rather
+ * than trusting ids sent by the client, so an answer can only ever reach items that the server
+ * itself just decided were unestimated — a stale question id from a screen left open overnight
+ * resolves to nothing instead of overwriting work that has since been estimated by hand.
+ *
+ * A null answer is not a failure to answer. It records that the student does not know, which is
+ * true for a first-year facing their first lab report, and hands them the sentence to send. The
+ * estimate stays assumed, because that is the honest state until somebody actually knows.
+ */
+termsRoute.post("/terms/:id/effort-answers", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+  const userId = c.get("userId");
+  if (!(await assertTermOwner(db, id, userId))) return c.json({ error: "Term not found" }, 404);
+
+  const parsed = effortAnswersBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const snapshot = await loadTermSnapshot(db, id);
+  const survey = buildEffortSurvey({
+    workItems: snapshot.workItems,
+    courses: snapshot.courses,
+    gradingCategories: snapshot.gradingCategories,
+  });
+  const byId = new Map(survey.questions.map((q) => [q.id, q]));
+
+  const applied: { questionId: string; itemsUpdated: number; minutes: number | null }[] = [];
+  const unknown: string[] = [];
+  const now = new Date().toISOString();
+
+  for (const answer of parsed.data.answers) {
+    const question = byId.get(answer.questionId);
+    if (!question) {
+      unknown.push(answer.questionId);
+      continue;
+    }
+
+    if (answer.minutes === null) {
+      await db.insert(auditEvents).values({
+        id: newId("auditEvent"),
+        userId,
+        entityType: EFFORT_ASK_ENTITY,
+        entityId: question.id,
+        action: "asked_instructor",
+        beforeJson: null,
+        afterJson: JSON.stringify({ question: question.askProfessor, itemCount: question.itemCount }),
+        actorType: "user",
+        createdAt: now,
+      });
+      applied.push({ questionId: question.id, itemsUpdated: 0, minutes: null });
+      continue;
+    }
+
+    const writes = applyEffortAnswer(question, answer.minutes, snapshot.workItems);
+    for (const write of writes) {
+      await db
+        .update(workItems)
+        .set({ estimatedMinutes: write.estimatedMinutes, remainingMinutes: write.remainingMinutes })
+        .where(eq(workItems.id, write.workItemId));
+    }
+    applied.push({ questionId: question.id, itemsUpdated: writes.length, minutes: answer.minutes });
+  }
+
+  // Rebuilt after the writes so the caller can show the grounding move without a second call.
+  const after = await loadTermSnapshot(db, id);
+  const remaining = buildEffortSurvey({
+    workItems: after.workItems,
+    courses: after.courses,
+    gradingCategories: after.gradingCategories,
+  });
+
+  return c.json({
+    applied,
+    // Reported rather than dropped: a question id the server does not recognise means the
+    // screen is out of date, and silently doing nothing would look like it worked.
+    unknownQuestionIds: unknown,
+    groundedFraction: remaining.groundedFraction,
+    questionsLeft: remaining.questions.length,
+  });
 });
 
 // --- Courses -----------------------------------------------------------------

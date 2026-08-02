@@ -8,6 +8,7 @@ import { computeProjectProgress } from "./project-progress.js";
 import { computeCourseHealth } from "./course-health.js";
 import { buildTerrain } from "./terrain.js";
 import { buildWeeklyReview } from "./interruptions.js";
+import { buildEffortSurvey } from "./effort-survey.js";
 
 /**
  * A whole semester, week by week.
@@ -128,11 +129,20 @@ interface Walk {
  * does not. Those are different products in effect — the first is about ordering, the second is
  * about triage — and only one of them had ever been run.
  */
-function walkSemester(options: { availability?: AvailabilityRule[] } = {}): Walk {
+function walkSemester(
+  options: {
+    availability?: AvailabilityRule[];
+    /** Rewrites every item's effort before the term starts — see `answerTheSurvey`. */
+    effort?: (item: WorkItem) => WorkItem;
+  } = {},
+): Walk {
 const seed = {
   ...INGESTED_SEMESTER,
   // The engines want plain arrays they can hold on to; the fixture is shared across tests.
-  workItems: INGESTED_SEMESTER.workItems.map((w) => structuredClone(w)),
+  workItems: INGESTED_SEMESTER.workItems.map((w) => {
+    const clone = structuredClone(w);
+    return options.effort ? options.effort(clone) : clone;
+  }),
   gradingCategories: [],
   dependencies: [],
   grades: [],
@@ -770,11 +780,70 @@ describe("is every assignment accounted for", () => {
      * Asserted as a *ceiling* rather than a floor, deliberately: this test should start failing
      * as soon as the app begins asking the student and the professor for real numbers, and that
      * failure is the signal to raise the bar rather than a regression.
+     *
+     * The asking now exists (`buildEffortSurvey`, and the Setup card that drives it), so this
+     * number measures the *starting* state of an unanswered term rather than a dead end. The
+     * test above shows what the same sixteen weeks look like once it is answered: 111 booked
+     * hours become 158, which is the size of the thing this lookup table was standing in for.
      */
     const rows = slack.shortfalls;
     const open = rows.reduce((sum, r) => sum + r.openSchedulable, 0);
     const withEffort = rows.reduce((sum, r) => sum + r.realEffort, 0);
     expect(withEffort / open).toBeLessThan(0.5);
+  });
+
+  /**
+   * The same term after the student answers the effort survey.
+   *
+   * `buildEffortSurvey` collapses the fixture's 60 open items into 14 questions. This answers
+   * every one of them one rung up the ladder from what the app assumes, which is not a random
+   * perturbation — it is the direction students reliably answer in. The per-type defaults are
+   * optimistic (an hour and a half for a problem set, four hours for a paper), and the whole
+   * premise of this app is a reader who under-estimates how long things take.
+   *
+   * The point is not that this particular multiplier is right. It is that **nobody knows**
+   * whether it is right until the student is asked, and until then every hour the plan shows is
+   * a number the app made up. This measures how much of the picture rides on that.
+   */
+  const answered = walkSemester({
+    effort: (item) => {
+      if (item.estimatedMinutes !== null || item.remainingMinutes !== null) return item;
+      const survey = buildEffortSurvey({
+        workItems: [item],
+        courses: INGESTED_SEMESTER.courses,
+        gradingCategories: INGESTED_SEMESTER.gradingCategories,
+      });
+      const options = survey.questions[0]?.options ?? [];
+      const current = options.findIndex((o) => o.isCurrentAssumption);
+      const chosen = options[Math.min(current + 1, options.length - 1)];
+      if (!chosen) return item;
+      return { ...item, estimatedMinutes: chosen.minutes, remainingMinutes: chosen.minutes };
+    },
+  });
+
+  it("shows what the plan looks like once somebody actually says how long things take", () => {
+    const before = summarise("assumed", slack);
+    const after = summarise("answered", answered);
+    const hours = (walk: Walk) =>
+      Math.round(
+        walk.reports.reduce((sum, r) => sum + r.bookedMinutes, 0) / 60,
+      );
+
+    console.log(
+      "\nEFFORT SURVEY: the same term, before and after the student answers\n" +
+        `  assumed   real effort ${String(`${before.effortPercent}%`).padStart(4)}  ` +
+        `booked ${hours(slack)}h across the term\n` +
+        `  answered  real effort ${String(`${after.effortPercent}%`).padStart(4)}  ` +
+        `booked ${hours(answered)}h across the term\n` +
+        `  14 questions cover all 60 unestimated items.`,
+    );
+
+    // Answering settles it: nothing is left resting on the work-type lookup.
+    expect(after.effortPercent).toBe(100);
+    expect(before.effortPercent).toBeLessThan(20);
+    // And nothing falls out of view in the process — the part of the goal that already held
+    // has to keep holding when the numbers get bigger.
+    expect(after.unaccounted).toBe(0);
   });
 
   it("has work it cannot place in time at all, because nobody stated a date", () => {
