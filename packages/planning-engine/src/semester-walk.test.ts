@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { WorkItem, WorkSession } from "@schoolquest/domain";
+import type { AvailabilityRule, WorkItem, WorkSession } from "@schoolquest/domain";
 import { MINUTES_PER_DAY, toEpochMinutes } from "@schoolquest/domain";
 import { INGESTED_SEMESTER } from "@schoolquest/fixtures";
 import { DEFAULT_EFFORT_MINUTES, generatePlan } from "./scheduler.js";
@@ -93,231 +93,293 @@ interface WeekReport {
   litOnMap: number;
 }
 
-describe("a whole semester, walked week by week", () => {
-  const seed = {
-    ...INGESTED_SEMESTER,
-    // The engines want plain arrays they can hold on to; the fixture is shared across tests.
-    workItems: INGESTED_SEMESTER.workItems.map((w) => structuredClone(w)),
-    gradingCategories: [],
-    dependencies: [],
-    grades: [],
-  };
+/** What one run of a term leaves behind, for the assertions to read. */
+interface Walk {
+  reports: WeekReport[];
+  reviews: { week: number; minutesLost: number; questions: number }[];
+  sessionsById: Map<string, WorkSession>;
+  items: Map<string, WorkItem>;
+  problems: string[];
+  weeks: string[];
+  totalItems: number;
+  /** Per week: what the plan said it could not fit, and why. */
+  shortfalls: {
+    week: number;
+    /** How many of the term's courses got any time at all that week. */
+    coursesTouched: number;
+    coursesTotal: number;
+    noWindow: number;
+    notEnoughTime: number;
+    unscheduled: string[];
+  }[];
+}
 
-  // The term runs to mid-December; the walk stops at the last Monday inside it.
-  const lastDay = seed.term.endDate;
-  const weeks: string[] = [];
-  for (let d = FIRST_MONDAY; d <= lastDay; d = addDays(d, 7)) weeks.push(d);
+/**
+ * Walk a term once.
+ *
+ * Parameterised so the same sixteen weeks can be run against a student who has time and one who
+ * does not. Those are different products in effect — the first is about ordering, the second is
+ * about triage — and only one of them had ever been run.
+ */
+function walkSemester(options: { availability?: AvailabilityRule[] } = {}): Walk {
+const seed = {
+  ...INGESTED_SEMESTER,
+  // The engines want plain arrays they can hold on to; the fixture is shared across tests.
+  workItems: INGESTED_SEMESTER.workItems.map((w) => structuredClone(w)),
+  gradingCategories: [],
+  dependencies: [],
+  grades: [],
+};
 
-  /**
-   * The whole run happens once, in a single pass, and every assertion below reads its record.
-   *
-   * Fifteen replans is a second or two of work, but splitting it across `it` blocks would run
-   * the semester once per assertion and — worse — let two assertions disagree about which
-   * semester they were describing.
-   */
-  const reports: WeekReport[] = [];
-  /** What the weekly review said each week, gathered where there is recent history to read. */
-  const reviews: { week: number; minutesLost: number; questions: number }[] = [];
-  const sessionsById = new Map<string, WorkSession>();
-  const items = new Map<string, WorkItem>(seed.workItems.map((w) => [w.id, structuredClone(w)]));
-  /** Every complaint the walk collects, so one failure does not hide the fourteen behind it. */
-  const problems: string[] = [];
+// The term runs to mid-December; the walk stops at the last Monday inside it.
+const lastDay = seed.term.endDate;
+const weeks: string[] = [];
+for (let d = FIRST_MONDAY; d <= lastDay; d = addDays(d, 7)) weeks.push(d);
 
-  for (const [index, weekStart] of weeks.entries()) {
-    const now = planningMoment(weekStart);
-    const nowMinutes = toEpochMinutes(now);
+/**
+ * The whole run happens once, in a single pass, and every assertion below reads its record.
+ *
+ * Fifteen replans is a second or two of work, but splitting it across `it` blocks would run
+ * the semester once per assertion and — worse — let two assertions disagree about which
+ * semester they were describing.
+ */
+const reports: WeekReport[] = [];
+/** What the weekly review said each week, gathered where there is recent history to read. */
+const reviews: { week: number; minutesLost: number; questions: number }[] = [];
+const sessionsById = new Map<string, WorkSession>();
+const items = new Map<string, WorkItem>(seed.workItems.map((w) => [w.id, structuredClone(w)]));
+/** Every complaint the walk collects, so one failure does not hide the fourteen behind it. */
+const problems: string[] = [];
+/** What each plan admitted it could not fit. The whole point of the crunch run. */
+const shortfalls: Walk["shortfalls"] = [];
 
-    const plan = generatePlan(
-      {
-        termId: seed.term.id,
-        horizonStart: weekStart,
-        horizonDays: HORIZON_DAYS,
-        now,
-        preferences: seed.term.planningPreferences,
-        courses: seed.courses,
-        gradingCategories: seed.gradingCategories,
-        meetingPatterns: seed.meetingPatterns,
-        commitments: seed.commitments,
-        availabilityRules: seed.availabilityRules,
-        workItems: [...items.values()],
-        dependencies: seed.dependencies,
-        // Last week's blocks, exactly as the API passes them: the record of what happened.
-        existingSessions: [...sessionsById.values()],
-      },
-      `plv_week_${index + 1}`,
+for (const [index, weekStart] of weeks.entries()) {
+  const now = planningMoment(weekStart);
+  const nowMinutes = toEpochMinutes(now);
+
+  const plan = generatePlan(
+    {
+      termId: seed.term.id,
+      horizonStart: weekStart,
+      horizonDays: HORIZON_DAYS,
+      now,
+      preferences: seed.term.planningPreferences,
+      courses: seed.courses,
+      gradingCategories: seed.gradingCategories,
+      meetingPatterns: seed.meetingPatterns,
+      commitments: seed.commitments,
+      availabilityRules: options.availability ?? seed.availabilityRules,
+      workItems: [...items.values()],
+      dependencies: seed.dependencies,
+      // Last week's blocks, exactly as the API passes them: the record of what happened.
+      existingSessions: [...sessionsById.values()],
+    },
+    `plv_week_${index + 1}`,
+  );
+
+  // --- Invariants that must hold on every single plan, not just the first. ---
+  for (const s of plan.sessions) {
+    if (toEpochMinutes(s.startAt) < nowMinutes) {
+      problems.push(`week ${index + 1}: scheduled ${s.id} at ${s.startAt}, before now (${now})`);
+    }
+    const item = items.get(s.workItemId);
+    if (!item) {
+      problems.push(`week ${index + 1}: scheduled ${s.id} for an unknown work item`);
+    } else if (item.status === "completed" || item.status === "submitted") {
+      problems.push(`week ${index + 1}: scheduled ${s.id} for ${item.id}, already finished`);
+    }
+  }
+  if (plan.capacity.usedMinutes > plan.capacity.availableMinutes) {
+    problems.push(
+      `week ${index + 1}: booked ${plan.capacity.usedMinutes}m into ${plan.capacity.availableMinutes}m of capacity`,
     );
+  }
 
-    // --- Invariants that must hold on every single plan, not just the first. ---
-    for (const s of plan.sessions) {
-      if (toEpochMinutes(s.startAt) < nowMinutes) {
-        problems.push(`week ${index + 1}: scheduled ${s.id} at ${s.startAt}, before now (${now})`);
-      }
+  // --- Record the new plan, retiring last week's blocks the way the API does. ---
+  for (const [id, s] of sessionsById) {
+    if (s.status === "planned" && toEpochMinutes(s.startAt) >= nowMinutes) sessionsById.delete(id);
+  }
+  for (const s of plan.sessions) {
+    // The real `WorkSession`, not a lookalike: a simulation that models its own shape can
+    // drift from the thing it claims to be simulating without anything noticing.
+    sessionsById.set(s.id, {
+      id: s.id,
+      planVersionId: `plv_week_${index + 1}`,
+      workItemId: s.workItemId,
+      startAt: s.startAt,
+      endAt: s.endAt,
+      status: "planned",
+      locked: false,
+      acceptedByUser: false,
+      actualMinutes: null,
+      outcomeCode: null,
+    });
+  }
+
+  // --- Live the week. ---
+  let completed = 0;
+  let partial = 0;
+  let missed = 0;
+  for (const s of plan.sessions) {
+    const record = sessionsById.get(s.id)!;
+    const roll = hash01(s.id);
+    if (roll < ATTENDANCE.completes) {
+      const short = hash01(`${s.id}:short`) < ATTENDANCE.partial;
+      record.status = short ? "partial" : "completed";
+      record.actualMinutes = short ? Math.round(minutesOf(s) * 0.55) : minutesOf(s);
+      record.outcomeCode = short ? "partially_completed" : "completed";
+      if (short) partial += 1;
+      else completed += 1;
+
+      // Finishing the last of an item's work retires it, the same as the complete endpoint.
       const item = items.get(s.workItemId);
-      if (!item) {
-        problems.push(`week ${index + 1}: scheduled ${s.id} for an unknown work item`);
-      } else if (item.status === "completed" || item.status === "submitted") {
-        problems.push(`week ${index + 1}: scheduled ${s.id} for ${item.id}, already finished`);
-      }
-    }
-    if (plan.capacity.usedMinutes > plan.capacity.availableMinutes) {
-      problems.push(
-        `week ${index + 1}: booked ${plan.capacity.usedMinutes}m into ${plan.capacity.availableMinutes}m of capacity`,
-      );
-    }
-
-    // --- Record the new plan, retiring last week's blocks the way the API does. ---
-    for (const [id, s] of sessionsById) {
-      if (s.status === "planned" && toEpochMinutes(s.startAt) >= nowMinutes) sessionsById.delete(id);
-    }
-    for (const s of plan.sessions) {
-      // The real `WorkSession`, not a lookalike: a simulation that models its own shape can
-      // drift from the thing it claims to be simulating without anything noticing.
-      sessionsById.set(s.id, {
-        id: s.id,
-        planVersionId: `plv_week_${index + 1}`,
-        workItemId: s.workItemId,
-        startAt: s.startAt,
-        endAt: s.endAt,
-        status: "planned",
-        locked: false,
-        acceptedByUser: false,
-        actualMinutes: null,
-        outcomeCode: null,
-      });
-    }
-
-    // --- Live the week. ---
-    let completed = 0;
-    let partial = 0;
-    let missed = 0;
-    for (const s of plan.sessions) {
-      const record = sessionsById.get(s.id)!;
-      const roll = hash01(s.id);
-      if (roll < ATTENDANCE.completes) {
-        const short = hash01(`${s.id}:short`) < ATTENDANCE.partial;
-        record.status = short ? "partial" : "completed";
-        record.actualMinutes = short ? Math.round(minutesOf(s) * 0.55) : minutesOf(s);
-        record.outcomeCode = short ? "partially_completed" : "completed";
-        if (short) partial += 1;
-        else completed += 1;
-
-        // Finishing the last of an item's work retires it, the same as the complete endpoint.
-        const item = items.get(s.workItemId);
-        if (item && !short) {
-          const done = [...sessionsById.values()]
-            .filter((x) => x.workItemId === item.id && (x.status === "completed" || x.status === "partial"))
-            .reduce((sum, x) => sum + minutesOf(x), 0);
-          const required = item.estimatedMinutes ?? DEFAULT_EFFORT_MINUTES[item.workType] ?? 60;
-          if (done >= required) {
-            items.set(item.id, { ...item, status: "completed" });
-            // Finishing the last stage finishes the project, exactly as the complete endpoint
-            // does. Without it a decomposed paper sits at "5 of 5 stages cleared" and still
-            // reports itself unfinished forever, because the parent has no blocks of its own —
-            // the scheduler plans through the stages.
-            const parentId = item.parentWorkItemId;
-            if (parentId) {
-              const siblings = [...items.values()].filter((w) => w.parentWorkItemId === parentId);
-              if (siblings.every((w) => w.status === "completed" || w.status === "submitted")) {
-                const parent = items.get(parentId);
-                if (parent) items.set(parentId, { ...parent, status: "completed" });
-              }
+      if (item && !short) {
+        const done = [...sessionsById.values()]
+          .filter((x) => x.workItemId === item.id && (x.status === "completed" || x.status === "partial"))
+          .reduce((sum, x) => sum + minutesOf(x), 0);
+        const required = item.estimatedMinutes ?? DEFAULT_EFFORT_MINUTES[item.workType] ?? 60;
+        if (done >= required) {
+          items.set(item.id, { ...item, status: "completed" });
+          // Finishing the last stage finishes the project, exactly as the complete endpoint
+          // does. Without it a decomposed paper sits at "5 of 5 stages cleared" and still
+          // reports itself unfinished forever, because the parent has no blocks of its own —
+          // the scheduler plans through the stages.
+          const parentId = item.parentWorkItemId;
+          if (parentId) {
+            const siblings = [...items.values()].filter((w) => w.parentWorkItemId === parentId);
+            if (siblings.every((w) => w.status === "completed" || w.status === "submitted")) {
+              const parent = items.get(parentId);
+              if (parent) items.set(parentId, { ...parent, status: "completed" });
             }
           }
         }
-      } else {
-        record.status = "missed";
-        record.outcomeCode = "did_not_start";
-        missed += 1;
       }
+    } else {
+      record.status = "missed";
+      record.outcomeCode = "did_not_start";
+      missed += 1;
     }
-
-    // --- Read the week the way the app does, with the clock at the end of it. ---
-    const endOfWeek = planningMoment(addDays(weekStart, 6));
-    const all = [...sessionsById.values()];
-    const load = computeCourseLoad({
-      courseIds: seed.courses.map((c) => c.id),
-      workItems: [...items.values()],
-      booked: all.filter((s) => s.status === "planned").map((s) => ({ workItemId: s.workItemId, minutes: minutesOf(s) })),
-      completed: all
-        .filter((s) => s.status === "completed" || s.status === "partial")
-        .map((s) => ({ workItemId: s.workItemId, endAt: s.endAt, minutes: minutesOf(s) })),
-      capacityMinutes: plan.capacity.availableMinutes,
-      now: endOfWeek,
-    });
-    const projects = computeProjectProgress({
-      workItems: [...items.values()],
-      completed: all
-        .filter((s) => s.status === "completed" || s.status === "partial")
-        .map((s) => ({ workItemId: s.workItemId, endAt: s.endAt, minutes: minutesOf(s) })),
-      booked: all.filter((s) => s.status === "planned").map((s) => ({ workItemId: s.workItemId, minutes: minutesOf(s) })),
-      now: endOfWeek,
-      weeklyCapacityMinutes: plan.capacity.availableMinutes,
-    });
-    const health = computeCourseHealth({
-      courses: seed.courses,
-      workItems: [...items.values()],
-      grades: seed.grades,
-      gradingCategories: seed.gradingCategories,
-      standings: {},
-      // computeCourseLoad returns the term roll-up; health wants the per-course rows.
-      load: load.courses,
-      projects,
-      now: endOfWeek,
-    });
-
-    const bookedByItem: Record<string, number> = {};
-    for (const s of all) bookedByItem[s.workItemId] = (bookedByItem[s.workItemId] ?? 0) + minutesOf(s);
-    const terrain = buildTerrain({
-      workItems: [...items.values()],
-      bookedByItem,
-      courseIds: seed.courses.map((c) => c.id),
-      now: endOfWeek,
-      defaultEffortMinutes: DEFAULT_EFFORT_MINUTES,
-    });
-
-    // The review reads the weeks behind it, so it is run here — at the end of each week, with
-    // the history that week just produced — rather than once at the end of term, when every
-    // missed block is months old and outside the lookback by design.
-    const review = buildWeeklyReview({
-      lost: [...sessionsById.values()]
-        .filter((s) => s.status === "missed")
-        .map((s) => ({
-          sessionId: s.id,
-          workItemId: s.workItemId,
-          startAt: s.startAt,
-          endAt: s.endAt,
-          source: "reported" as const,
-        })),
-      reported: [],
-      resolutions: [],
-      now: endOfWeek,
-    });
-    reviews.push({ week: index + 1, minutesLost: review.minutesLost, questions: review.questions.length });
-
-    const open = [...items.values()].filter(
-      (w) => w.status !== "completed" && w.status !== "submitted" && w.status !== "canceled",
-    );
-    const overdue = open.filter(
-      (w) => w.dueAt !== null && toEpochMinutes(w.dueAt) < toEpochMinutes(endOfWeek),
-    ).length;
-
-    reports.push({
-      week: index + 1,
-      weekStart,
-      planned: plan.sessions.length,
-      completed,
-      partial,
-      missed,
-      bookedMinutes: plan.capacity.usedMinutes,
-      capacityMinutes: plan.capacity.availableMinutes,
-      openItems: open.length,
-      overdue,
-      atRisk: health.coursesAtRisk,
-      needsAttention: health.coursesNeedingAttention,
-      unscheduled: plan.unscheduledWorkItemIds.length,
-      litOnMap: terrain.counts.overdue + terrain.counts.needs_time,
-    });
   }
+
+  // --- Read the week the way the app does, with the clock at the end of it. ---
+  const endOfWeek = planningMoment(addDays(weekStart, 6));
+  const all = [...sessionsById.values()];
+  const load = computeCourseLoad({
+    courseIds: seed.courses.map((c) => c.id),
+    workItems: [...items.values()],
+    booked: all.filter((s) => s.status === "planned").map((s) => ({ workItemId: s.workItemId, minutes: minutesOf(s) })),
+    completed: all
+      .filter((s) => s.status === "completed" || s.status === "partial")
+      .map((s) => ({ workItemId: s.workItemId, endAt: s.endAt, minutes: minutesOf(s) })),
+    capacityMinutes: plan.capacity.availableMinutes,
+    now: endOfWeek,
+  });
+  const projects = computeProjectProgress({
+    workItems: [...items.values()],
+    completed: all
+      .filter((s) => s.status === "completed" || s.status === "partial")
+      .map((s) => ({ workItemId: s.workItemId, endAt: s.endAt, minutes: minutesOf(s) })),
+    booked: all.filter((s) => s.status === "planned").map((s) => ({ workItemId: s.workItemId, minutes: minutesOf(s) })),
+    now: endOfWeek,
+    weeklyCapacityMinutes: plan.capacity.availableMinutes,
+  });
+  const health = computeCourseHealth({
+    courses: seed.courses,
+    workItems: [...items.values()],
+    grades: seed.grades,
+    gradingCategories: seed.gradingCategories,
+    standings: {},
+    // computeCourseLoad returns the term roll-up; health wants the per-course rows.
+    load: load.courses,
+    projects,
+    now: endOfWeek,
+  });
+
+  const bookedByItem: Record<string, number> = {};
+  for (const s of all) bookedByItem[s.workItemId] = (bookedByItem[s.workItemId] ?? 0) + minutesOf(s);
+  const terrain = buildTerrain({
+    workItems: [...items.values()],
+    bookedByItem,
+    courseIds: seed.courses.map((c) => c.id),
+    now: endOfWeek,
+    defaultEffortMinutes: DEFAULT_EFFORT_MINUTES,
+  });
+
+  // The review reads the weeks behind it, so it is run here — at the end of each week, with
+  // the history that week just produced — rather than once at the end of term, when every
+  // missed block is months old and outside the lookback by design.
+  const review = buildWeeklyReview({
+    lost: [...sessionsById.values()]
+      .filter((s) => s.status === "missed")
+      .map((s) => ({
+        sessionId: s.id,
+        workItemId: s.workItemId,
+        startAt: s.startAt,
+        endAt: s.endAt,
+        source: "reported" as const,
+      })),
+    reported: [],
+    resolutions: [],
+    now: endOfWeek,
+  });
+  reviews.push({ week: index + 1, minutesLost: review.minutesLost, questions: review.questions.length });
+
+  const open = [...items.values()].filter(
+    (w) => w.status !== "completed" && w.status !== "submitted" && w.status !== "canceled",
+  );
+  const overdue = open.filter(
+    (w) => w.dueAt !== null && toEpochMinutes(w.dueAt) < toEpochMinutes(endOfWeek),
+  ).length;
+
+  // Which courses got any time at all. Under scarcity this is the number that matters: a week
+  // that spends every hour on one problem set leaves four courses untouched.
+  const touched = new Set(
+    plan.sessions.map((x) => items.get(x.workItemId)?.courseId).filter((id): id is string => Boolean(id)),
+  );
+
+  shortfalls.push({
+    week: index + 1,
+    coursesTouched: touched.size,
+    coursesTotal: seed.courses.length,
+    noWindow: plan.risks.filter((r) => r.code === "NO_FEASIBLE_WINDOW").length,
+    notEnoughTime: plan.risks.filter((r) => r.code === "INSUFFICIENT_CAPACITY").length,
+    unscheduled: [...plan.unscheduledWorkItemIds],
+  });
+
+  reports.push({
+    week: index + 1,
+    weekStart,
+    planned: plan.sessions.length,
+    completed,
+    partial,
+    missed,
+    bookedMinutes: plan.capacity.usedMinutes,
+    capacityMinutes: plan.capacity.availableMinutes,
+    openItems: open.length,
+    overdue,
+    atRisk: health.coursesAtRisk,
+    needsAttention: health.coursesNeedingAttention,
+    unscheduled: plan.unscheduledWorkItemIds.length,
+    litOnMap: terrain.counts.overdue + terrain.counts.needs_time,
+  });
+}
+
+
+  return {
+    reports,
+    reviews,
+    sessionsById,
+    items,
+    problems,
+    weeks,
+    totalItems: seed.workItems.length,
+    shortfalls,
+  };
+}
+
+describe("a whole semester, walked week by week", () => {
+  const walk = walkSemester();
+  const { reports, reviews, sessionsById, items, problems, weeks, totalItems } = walk;
 
   it("walks the whole term", () => {
     console.log(
@@ -370,7 +432,6 @@ describe("a whole semester, walked week by week", () => {
     // see, so a term ending with most of its work overdue would mean the engine stopped
     // rescuing deadlines rather than that the student stopped studying.
     const worst = Math.max(...reports.map((r) => r.overdue));
-    const totalItems = seed.workItems.length;
     expect(worst).toBeLessThan(totalItems * 0.4);
   });
 
@@ -411,7 +472,7 @@ describe("a whole semester, walked week by week", () => {
 
   it("finishes the term with most of its work actually done", () => {
     const done = [...items.values()].filter((w) => w.status === "completed").length;
-    expect(done).toBeGreaterThan(seed.workItems.length * 0.4);
+    expect(done).toBeGreaterThan(totalItems * 0.4);
   });
 
   it("notices the weeks that went wrong, without inventing weeks that did not", () => {
@@ -452,6 +513,149 @@ describe("a whole semester, walked week by week", () => {
       "plv_week_1",
     );
     expect(plan.sessions.length).toBe(reports[0]!.planned);
+  });
+});
+
+/**
+ * The same term, for a student who does not have the hours.
+ *
+ * The walk above runs at roughly a quarter of capacity, which makes almost every decision in it
+ * a question about *ordering*. Overload is a different product: the question stops being "what
+ * first" and becomes "what gets left", and the app's job stops being a schedule and becomes an
+ * honest account of what will not fit.
+ *
+ * None of that had ever been run. `NO_FEASIBLE_WINDOW`, `INSUFFICIENT_CAPACITY` and the line
+ * "There is not enough time this week to finish everything" all existed and were exercised only
+ * by unit tests holding a single contrived moment. This runs them against a real term.
+ *
+ * The squeeze is applied to *availability*, not to the work: the syllabuses stay exactly as they
+ * were extracted, and the student simply has far fewer hours. That is the shape of the real
+ * problem — a full course load and a job — and it avoids inventing assignments to make a point.
+ */
+describe("a term with more work than hours", () => {
+  // One two-hour window on four evenings: eight hours a week against a term that wants roughly
+  // twenty-five. Deliberately not survivable, because the question is what the app does then.
+  const SQUEEZED: AvailabilityRule[] = [1, 2, 3, 4].map((dayOfWeek) => ({
+    id: `avl_squeeze_${dayOfWeek}`,
+    termId: INGESTED_SEMESTER.term.id,
+    dayOfWeek,
+    startTime: "19:00",
+    endTime: "21:00",
+    energyLevel: "low",
+    location: "anywhere",
+    hardness: "soft",
+  }));
+
+  const walk = walkSemester({ availability: SQUEEZED });
+  const { reports, problems, items, shortfalls, totalItems } = walk;
+
+  it("walks the term under pressure", () => {
+    console.log(
+      "\nCRUNCH  (8h/week against a full five-course load)\n" +
+        "wk  starting     planned  done  miss   booked/cap   open  overdue  risk  watch  nowin  short  courses\n" +
+        reports
+          .map((r, i) => {
+            const s = shortfalls[i]!;
+            return (
+              `${String(r.week).padStart(2)}  ${r.weekStart}  ` +
+              `${String(r.planned).padStart(7)}  ${String(r.completed).padStart(4)}  ` +
+              `${String(r.missed).padStart(4)}  ` +
+              `${String(`${r.bookedMinutes}/${r.capacityMinutes}`).padStart(11)}  ` +
+              `${String(r.openItems).padStart(4)}  ${String(r.overdue).padStart(7)}  ` +
+              `${String(r.atRisk).padStart(4)}  ${String(r.needsAttention).padStart(5)}  ` +
+              `${String(s.noWindow).padStart(5)}  ${String(s.notEnoughTime).padStart(5)}  ` +
+              `${s.coursesTouched}/${s.coursesTotal}`
+            );
+          })
+          .join("\n"),
+    );
+    expect(reports.length).toBeGreaterThanOrEqual(14);
+  });
+
+  it("still never books more time than the student has", () => {
+    // The one guarantee that must not bend under pressure. A planner that solves overload by
+    // quietly overbooking has not solved anything — it has moved the failure to a Tuesday
+    // evening when the student discovers the day was never possible.
+    expect(problems).toEqual([]);
+  });
+
+  it("uses the little time there is rather than freezing", () => {
+    // Deadlock is the plausible failure here: everything is late, everything is urgent, and a
+    // scheduler that cannot choose plans nothing at all.
+    const idle = reports.filter((r) => r.planned === 0).map((r) => `week ${r.week}`);
+    expect(idle).toEqual([]);
+    const utilisation =
+      reports.reduce((sum, r) => sum + r.bookedMinutes, 0) /
+      reports.reduce((sum, r) => sum + r.capacityMinutes, 0);
+    expect(utilisation).toBeGreaterThan(0.6);
+  });
+
+  it("says out loud that it cannot fit everything", () => {
+    // The thing that separates an honest planner from one that hides the problem. Silence here
+    // would mean a student being handed a tidy eight-hour week with no indication that thirty
+    // hours of work went somewhere else.
+    const spoke = shortfalls.filter((s) => s.noWindow + s.notEnoughTime > 0);
+    expect(spoke.length).toBeGreaterThan(reports.length / 2);
+  });
+
+  it("never drops work silently — everything unplanned is named", () => {
+    // Unscheduled ids and the risk list have to agree. Work that vanishes from the plan without
+    // appearing in the risks is work the student has no way to discover.
+    const silent = shortfalls.filter((s) => s.unscheduled.length > 0 && s.noWindow + s.notEnoughTime === 0);
+    expect(silent).toEqual([]);
+  });
+
+  it("keeps the work rather than deleting it", () => {
+    // Overload must not look like progress. Nothing may be marked finished that was not done,
+    // and the term should end with real work still open — that is the truth of the situation.
+    const done = [...items.values()].filter((w) => w.status === "completed").length;
+    const open = totalItems - done;
+    expect(open).toBeGreaterThan(0);
+    expect(done).toBeLessThan(totalItems);
+  });
+
+  it("concentrates rather than spreads — a known gap, recorded so it cannot be forgotten", () => {
+    /**
+     * This is the one thing overload exposes that the app does *not* currently handle well, and
+     * it is asserted loosely on purpose: the test exists to make the behaviour visible and to
+     * fail loudly if it gets worse, not to bless it.
+     *
+     * With eight hours against five courses the planner touches a median of three courses a
+     * week and twice drops to one. The mechanism is not a bug in the ordinary sense —
+     * `horizonAllocation` hands an item its *entire* remaining effort once the deadline is
+     * inside the horizon, which is right when there is slack and ruinous when there is not. One
+     * problem set due Friday can take nine of ten blocks, and four courses get nothing.
+     *
+     * Whether that is wrong is a product judgement rather than a defect. Finishing one thing
+     * beats half-finishing five, sometimes; and in a five-course term where a student is already
+     * drowning, partial credit in four courses usually beats full credit in one. Deciding it
+     * needs a person, so this records the number and leaves the decision open.
+     */
+    const coverage = shortfalls.map((s) => s.coursesTouched);
+    const sorted = [...coverage].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)]!;
+    const total = shortfalls[0]!.coursesTotal;
+
+    console.log(
+      `\ncourse coverage under overload: median ${median} of ${total} per week, ` +
+        `worst ${Math.min(...coverage)}, best ${Math.max(...coverage)}`,
+    );
+
+    // Never zero: a week that touches no course at all would be the deadlock this run exists
+    // to rule out, and that guarantee is real.
+    expect(Math.min(...coverage)).toBeGreaterThan(0);
+    // The floor this must not slip below. If a change drops the median to one, the planner has
+    // stopped spreading altogether and somebody should have to argue for that.
+    expect(median).toBeGreaterThanOrEqual(2);
+  });
+
+  it("spends its scarce hours on graded work before optional work", () => {
+    // Triage is the whole product under overload. With eight hours a week the app has to be
+    // choosing, and the thing it should choose is work that counts.
+    const scheduledIds = new Set([...walk.sessionsById.values()].map((s) => s.workItemId));
+    const scheduled = [...items.values()].filter((w) => scheduledIds.has(w.id));
+    const graded = scheduled.filter((w) => w.gradingCategoryId !== null).length;
+    expect(graded / Math.max(1, scheduled.length)).toBeGreaterThan(0.5);
   });
 });
 
