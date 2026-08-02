@@ -26,6 +26,7 @@ function assignment(overrides: Partial<ExtractedAssignment> = {}): ExtractedAssi
     pointsPossible: 250,
     category: "Major Projects",
     isMajorProject: true,
+    recurrence: null,
     evidence: { page: 1, excerpt: "Developmental Analysis Paper (250 points) due October 18" },
     confidence: 0.95,
     ...overrides,

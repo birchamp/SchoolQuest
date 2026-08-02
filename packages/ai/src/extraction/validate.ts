@@ -1,3 +1,4 @@
+import { expandAll } from "./expand-recurrence.js";
 import type { ConfidenceStatus } from "@schoolquest/domain";
 import type { DocumentPage } from "./prompt.js";
 import { isWithinTerm } from "./resolve-dates.js";
@@ -29,6 +30,8 @@ export type ClaimIssue =
   | "EVIDENCE_PAGE_MISSING"
   /** The model produced an ISO date it could not have read (e.g. from "Week 5"). */
   | "DATE_NOT_IN_SOURCE"
+  /** Computed by us from a recurrence the document stated, so nobody can point at it. */
+  | "DATE_DERIVED_FROM_RULE"
   /** The document states a different year beside this date — usually a stale syllabus. */
   | "DATE_YEAR_MISMATCH"
   | "DATE_OUTSIDE_TERM"
@@ -199,7 +202,27 @@ export function validateExtraction(
     extraction.gradingCategories.map((c) => c.name.trim().toLowerCase()),
   );
 
-  for (const assignment of extraction.assignments) {
+  /**
+   * Work stated as a rule becomes work, before anything else looks at it.
+   *
+   * Expanding here rather than downstream means every generated occurrence goes through the
+   * same evidence check, date resolution and duplicate detection as an assignment the model
+   * listed itself — which is the point: an instance the app invented must be held to exactly
+   * the standard as one it read, or expansion becomes a way to smuggle unverified work in.
+   *
+   * Needs the term dates to know how many Tuesdays there are. Without them the rule cannot be
+   * counted, so the assignment stays as the single item the model reported and the missing
+   * dates are raised as questions in the ordinary way.
+   */
+  const assignments =
+    context.termStartDate && context.termEndDate
+      ? expandAll(extraction.assignments, {
+          termStartDate: context.termStartDate,
+          termEndDate: context.termEndDate,
+        })
+      : extraction.assignments;
+
+  for (const assignment of assignments) {
     const issues: ClaimIssue[] = [];
     const text = pageText.get(assignment.evidence.page);
 
@@ -220,7 +243,32 @@ export function validateExtraction(
 
     // --- Date checks.
     const date = assignment.dueDate;
-    if (date.iso !== null) {
+    if (date.iso !== null && date.ambiguity === "derived_recurrence") {
+      /**
+       * A date this codebase computed, not one the model claimed to read.
+       *
+       * `dateAppearsInSource` cannot tell those apart — neither is printed on the page — so
+       * without this branch the validator strips every occurrence it has just generated, which
+       * is what it did on the first run of this change: fourteen fitness logs survived with
+       * fourteen null dates.
+       *
+       * It is still not treated as confirmed. The rule was read by a model and the arithmetic
+       * assumes the term dates are right, so it enters review as an inference for the student
+       * to correct, which is the same standing a resolved "Week 3" gets.
+       */
+      issues.push("DATE_DERIVED_FROM_RULE");
+      // The dates were generated from these bounds, so they cannot fall outside them — unless
+      // a caller expanded against one term and validated against another, which is worth
+      // catching rather than assuming away.
+      if (
+        context.termStartDate !== undefined &&
+        context.termEndDate !== undefined &&
+        !isWithinTerm(date.iso, context.termStartDate, context.termEndDate)
+      ) {
+        issues.push("DATE_OUTSIDE_TERM");
+        date.iso = null;
+      }
+    } else if (date.iso !== null) {
       const { found, statedYear } = dateAppearsInSource(date.iso, text);
 
       if (!found) {

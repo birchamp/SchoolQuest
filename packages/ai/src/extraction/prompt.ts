@@ -60,6 +60,20 @@ Set iso to null only when the document genuinely gives you no calendar date to r
 - Report each assignment once. If the same item appears in both a table and a paragraph, choose the fuller mention.
 - Confidence reflects how clearly the document states the fact, not how plausible it sounds. Use below 0.5 when you are reading between the lines.
 
+## Work stated as a rule instead of listed
+
+Some coursework is never enumerated. The syllabus states a pattern — "a short response is due each Tuesday", "a weekly log is due each Sunday; there are 14 logs" — and expects the reader to work out that this means sixteen responses or fourteen logs.
+
+Report that as **one** assignment with recurrence filled in. Do not list the occurrences yourself and do not try to count them:
+
+- dayOfWeek — the weekday named, 0 for Sunday through 6 for Saturday. Null if the document never names one.
+- count — only when the document states a number outright ("there are 14 logs", "four submissions"). Null otherwise.
+- dropLowest — what the document says is dropped, if anything.
+
+The occurrences are generated afterwards from the real term dates. Counting Tuesdays between two dates is arithmetic, and every date you get wrong is a day a student turns up on — so read the rule and leave the counting alone.
+
+Leave recurrence null for anything the document lists item by item. A schedule table with Quiz 1 through Quiz 13 in it is thirteen assignments, not a recurrence: report all thirteen.
+
 ## Clarification questions
 
 Ask only when the answer would change how the work gets scheduled: an unresolved date, unknown class meeting times, whether something is optional or dropped, or a contradiction you found. Do not ask about contact details, office hours, or anything already stated clearly. Phrase each question for a student, and say plainly why the plan needs it.

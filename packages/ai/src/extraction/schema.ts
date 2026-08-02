@@ -66,6 +66,15 @@ export const extractedDate = z.object({
       "missing",
       /** "the Friday before spring break" and similar. */
       "relative_event",
+      /**
+       * Computed by `expandRecurrence` from a rule the document stated, not read off the page.
+       *
+       * Never produced by the model — it is set by our own code after extraction, and it exists
+       * so the validator can tell a date it derived from a date the model invented. Those look
+       * identical to `dateAppearsInSource`, which finds neither on the page, and without this the
+       * validator strips every occurrence it just generated.
+       */
+      "derived_recurrence",
     ])
     .default("none"),
 });
@@ -99,6 +108,32 @@ export const extractedAssignment = z.object({
   category: z.string().nullable(),
   /** True when the syllabus frames this as a major project or exam worth decomposing. */
   isMajorProject: z.boolean().default(false),
+  /**
+   * Set when the syllabus states the work as a *rule* rather than listing it.
+   *
+   * "A short response is due each Tuesday", "a weekly fitness log ... there are 14 logs". The
+   * model reads the rule and does not enumerate; `expandRecurrence` turns it into instances
+   * against the real term dates. That split is deliberate and is the same one `resolve-dates`
+   * uses for "Week 3": reading is the model's job and calendar arithmetic is not.
+   *
+   * Recall against the fixture syllabuses was 67% without this, and every single miss was work
+   * stated this way — fourteen fitness logs and sixteen reading responses arriving as one
+   * undated item each, which on a student's screen looks like one small thing rather than
+   * thirty. Work listed row by row in a schedule table was already captured perfectly, so this
+   * is the whole of the gap.
+   */
+  recurrence: z
+    .object({
+      frequency: z.literal("weekly"),
+      /** 0 = Sunday. Null when the syllabus gives a count but never names a day. */
+      dayOfWeek: z.number().int().min(0).max(6).nullable(),
+      /** Stated outright ("There are 14 logs"). Null when only the rule is given. */
+      count: z.number().int().positive().max(60).nullable(),
+      /** How many the syllabus says are dropped, which does not reduce what must be done. */
+      dropLowest: z.number().int().nonnegative().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
   evidence: evidence,
   confidence: z.number().min(0).max(1),
 });
@@ -272,6 +307,7 @@ export const SYLLABUS_EXTRACTION_JSON_SCHEMA = {
           "pointsPossible",
           "category",
           "isMajorProject",
+          "recurrence",
           "evidence",
           "confidence",
         ],
@@ -296,6 +332,17 @@ export const SYLLABUS_EXTRACTION_JSON_SCHEMA = {
           pointsPossible: { type: ["number", "null"] },
           category: { type: ["string", "null"] },
           isMajorProject: { type: "boolean" },
+          recurrence: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            required: ["frequency", "dayOfWeek", "count", "dropLowest"],
+            properties: {
+              frequency: { type: "string", enum: ["weekly"] },
+              dayOfWeek: { type: ["number", "null"] },
+              count: { type: ["number", "null"] },
+              dropLowest: { type: ["number", "null"] },
+            },
+          },
           evidence: evidenceSchema,
           confidence: { type: "number" },
         },
