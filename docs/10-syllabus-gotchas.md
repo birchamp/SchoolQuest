@@ -130,8 +130,37 @@ end-of-day is an assumption rather than a reading.
 
 > Laboratory Reports 25% · Exams 40% · Quizzes 15% · Participation 10% = **90%** — BIO 240
 
-Ten per cent of the grade is unaccounted for and the document does not say so. Raised as
-`CATEGORY_WEIGHTS_DO_NOT_SUM`.
+Ten per cent of the grade is unaccounted for and the document does not say so.
+
+This entry read as one fault and is three, with three different costs. Probing the validator
+across the shapes showed it was reporting the least useful thing about each — and missing the
+most important one entirely.
+
+| Shape | What it means | What it costs |
+| --- | --- | --- |
+| **Short of 100** (BIO 240, 90%) | A category is *missing* from the list | Work the student is never shown |
+| **Over 100** (e.g. 115%) | Something is double counted — or one of them is extra credit, which is not a fault at all | A skewed standing, or a false alarm |
+| **A category with no weight** | The number was never printed | Everything the other two cost, invisibly |
+
+The third was **silent**. A null weight was filtered out before summing, so a syllabus reading
+"Exams 50%, Papers 50%, Participation" — no number beside participation — totalled 100 and
+passed without a word.
+
+Worse than a plain miss: `course-health.ts` *does* check for missing weights and raises
+`GRADE_STRUCTURE_INCOMPLETE`. So the student was told, weeks later, from the dashboard —
+rather than at ingest, at the one moment they are looking at the syllabus and could still fix
+it. Two layers disagreeing, and the earlier one was the weaker.
+
+All three now produce distinct warnings and distinct questions. Short of 100 asks *"What makes
+up the other 10% of your grade?"*, because the actionable fact is a missing category, not a
+suspect arithmetic. A ±1 tolerance keeps three categories of 33.3% from being reported as a
+defect — a warning that fires on correct input trains the student to ignore the one that
+matters.
+
+**Also removed:** `CATEGORY_WEIGHTS_DO_NOT_SUM` was declared in the `ClaimIssue` union and
+given a label in the review UI's `ISSUE_TEXT`, and **nothing ever raised it**. The same
+pattern as §5.4 — code that looks handled from every angle except the one that matters. The
+warning and question path is what actually reaches the student, so the dead member is gone.
 
 ### 2.2 The weight is glued to the end of a prose paragraph — **OPEN**
 
@@ -476,6 +505,7 @@ Kept so the log's own value is measurable rather than assumed.
 | --- | --- | --- |
 | Writing §3.6 | Problem Set 6 dated to Thanksgiving week | **Fixed** — term calendar |
 | Writing §3.6 | ENG 230 expanded to 16 reading responses, one on Thanksgiving Tuesday. The answer key said 16 too, for the same reason. | **Fixed** — 15, and the key corrected |
+| Checking §2.1 | A grading category with no weight passed silently when the others summed to 100 | **Fixed** — and a dead issue code removed |
 | Checking §3.6 | LAN 200 numbers one break and skips the other, defeating the per-term flag | Open (§3.7) — pinned by a test |
 | Writing §5.4 | Policy claims are stored and rendered nowhere | Open — pinned by a test |
 | Reading D1 | A weekday answer dating a registrar-scheduled final | Fixed (§1.3) |

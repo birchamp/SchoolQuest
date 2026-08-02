@@ -80,7 +80,6 @@ export const ISSUE_TEXT: Record<string, string> = {
   DUPLICATE_OF_EARLIER_CLAIM: "This looks like the same item as an earlier one.",
   CONFLICTING_DATE_FOR_SAME_ITEM:
     "The syllabus gives this item two different dates. Pick the one you want to plan against.",
-  CATEGORY_WEIGHTS_DO_NOT_SUM: "The grading weights do not add up to 100%.",
   UNKNOWN_CATEGORY: "This grading category was not found elsewhere in the syllabus.",
   LOW_MODEL_CONFIDENCE: "This one was read with low confidence — worth a careful look.",
 };

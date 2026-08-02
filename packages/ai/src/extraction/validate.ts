@@ -47,7 +47,6 @@ export type ClaimIssue =
   | "DUPLICATE_OF_EARLIER_CLAIM"
   /** Same assignment, two different dates — the syllabus contradicts itself. */
   | "CONFLICTING_DATE_FOR_SAME_ITEM"
-  | "CATEGORY_WEIGHTS_DO_NOT_SUM"
   | "UNKNOWN_CATEGORY"
   | "LOW_MODEL_CONFIDENCE";
 
@@ -412,22 +411,64 @@ export function validateExtraction(
   }
 
   // --- Grading weights should describe a whole course.
-  const weights = extraction.gradingCategories
+  /**
+   * "The weights do not add up" is three different faults with three different costs, and
+   * lumping them together said the least useful thing about each.
+   *
+   * The one that mattered most was silent. A category with no weight was *filtered out* before
+   * summing, so a syllabus with "Exams 50%, Papers 50%, Participation" — no number on
+   * participation — totalled 100 and passed without a word. The student is then told nothing
+   * at the one moment they are looking at the syllabus and could still fix it, and finds out
+   * later from the dashboard, because `course-health.ts` does check for missing weights. Two
+   * layers disagreeing, and the earlier one was the weaker.
+   *
+   * Under and over are also not the same thing. Short of 100 means a category is *missing*, and
+   * a missing category means work the student may never be shown. Over 100 means something is
+   * counted twice, or there is extra credit — which genuinely can exceed 100 and is not a
+   * fault at all. Saying "may be missing or misread" to both was accurate about neither.
+   */
+  const unweighted = extraction.gradingCategories.filter((c) => c.weightPercent === null);
+  const stated = extraction.gradingCategories
     .map((c) => c.weightPercent)
     .filter((w): w is number => w !== null);
-  if (weights.length > 0) {
-    const total = weights.reduce((sum, w) => sum + w, 0);
-    if (Math.abs(total - 100) > 1) {
-      warnings.push(
-        `The grading categories add up to ${total}%, not 100%. Some weights may be missing or misread.`,
-      );
-      derivedQuestions.push({
-        question: "Do these grading categories and weights look right?",
-        why: `They currently total ${total}%, so course-standing estimates would be off.`,
-        relatesToTitle: null,
-        kind: "conflicting_information",
-      });
-    }
+  const total = stated.reduce((sum, w) => sum + w, 0);
+  // A point of slack, so three categories of 33.3% are not reported as a defect.
+  const TOLERANCE = 1;
+
+  if (unweighted.length > 0) {
+    const names = unweighted.map((c) => c.name).join(", ");
+    warnings.push(
+      `No weight was found for ${names}. The rest add up to ${round(total)}%, so what ` +
+        `${unweighted.length === 1 ? "it is" : "they are"} worth is unknown.`,
+    );
+    derivedQuestions.push({
+      question: `What ${unweighted.length === 1 ? "is" : "are"} ${names} worth?`,
+      why: "Without it, this course's standing cannot be worked out and its work cannot be ranked against your other courses.",
+      relatesToTitle: null,
+      kind: "conflicting_information",
+    });
+  } else if (stated.length > 0 && total < 100 - TOLERANCE) {
+    warnings.push(
+      `The grading categories add up to ${round(total)}%, not 100%. ` +
+        `${round(100 - total)}% of the grade is unaccounted for — a category may be missing entirely.`,
+    );
+    derivedQuestions.push({
+      question: `What makes up the other ${round(100 - total)}% of your grade in this course?`,
+      why: "A category the syllabus does not list is work you would never be shown.",
+      relatesToTitle: null,
+      kind: "conflicting_information",
+    });
+  } else if (stated.length > 0 && total > 100 + TOLERANCE) {
+    warnings.push(
+      `The grading categories add up to ${round(total)}%, more than 100%. ` +
+        `Something may be counted twice, or one of these may be extra credit.`,
+    );
+    derivedQuestions.push({
+      question: "Is one of these grading categories extra credit, or counted twice?",
+      why: `They total ${round(total)}%. Extra credit is fine and worth marking; a double count would skew every estimate.`,
+      relatesToTitle: null,
+      kind: "conflicting_information",
+    });
   }
 
   if (extraction.meetingPatterns.length === 0) {
@@ -577,4 +618,9 @@ export function toDueAt(date: ExtractedDate): string | null {
   // deadline still has to land somewhere, so it lands at the end of that day and the
   // TIME_NOT_STATED issue tells the student it was assumed.
   return `${date.iso}T${date.time ?? "23:59"}:00.000Z`;
+}
+
+/** Weights are often written 33.3; a whole number reads better in a sentence. */
+function round(value: number): number {
+  return Math.round(value * 10) / 10;
 }
