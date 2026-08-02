@@ -105,6 +105,13 @@ interface Walk {
   /** Per week: what the plan said it could not fit, and why. */
   shortfalls: {
     week: number;
+    /** Open work the scheduler could act on — projects are counted through their stages. */
+    openSchedulable: number;
+    /** Neither booked nor named in a risk: it fell out of view entirely. */
+    unaccounted: number;
+    /** Of the schedulable open work, how much carries a real estimate rather than a guess. */
+    realEffort: number;
+    undated: number;
     /** How many of the term's courses got any time at all that week. */
     coursesTouched: number;
     coursesTotal: number;
@@ -337,8 +344,35 @@ for (const [index, weekStart] of weeks.entries()) {
     plan.sessions.map((x) => items.get(x.workItemId)?.courseId).filter((id): id is string => Boolean(id)),
   );
 
+  /**
+   * The loop's actual target: is every open assignment *accounted for* this week?
+   *
+   * Accounted for means one of two things — the plan booked time for it, or the plan named it as
+   * something it could not fit. Anything in neither bucket has silently fallen out of the
+   * student's view, which is the failure the whole app exists to prevent.
+   *
+   * `realEffort` is the second half of the goal. An item whose minutes come from the work-type
+   * lookup has *a* number, not a realistic one, and counting those as planned would let the app
+   * claim a precision it does not have.
+   */
+  const openNow = [...items.values()].filter(
+    (w) => w.status !== "completed" && w.status !== "submitted" && w.status !== "canceled",
+  );
+  const parentOf = new Set(
+    [...items.values()].filter((w) => w.parentWorkItemId).map((w) => w.parentWorkItemId!),
+  );
+  const schedulable = openNow.filter((w) => !parentOf.has(w.id));
+  const bookedThisWeek = new Set(plan.sessions.map((x) => x.workItemId));
+  const namedInRisks = new Set(
+    plan.risks.map((r) => r.workItemId).filter((id): id is string => Boolean(id)),
+  );
+
   shortfalls.push({
     week: index + 1,
+    openSchedulable: schedulable.length,
+    unaccounted: schedulable.filter((w) => !bookedThisWeek.has(w.id) && !namedInRisks.has(w.id)).length,
+    realEffort: schedulable.filter((w) => w.estimatedMinutes !== null || w.remainingMinutes !== null).length,
+    undated: schedulable.filter((w) => w.dueAt === null).length,
     coursesTouched: touched.size,
     coursesTotal: seed.courses.length,
     noWindow: plan.risks.filter((r) => r.code === "NO_FEASIBLE_WINDOW").length,
@@ -656,6 +690,98 @@ describe("a term with more work than hours", () => {
     const scheduled = [...items.values()].filter((w) => scheduledIds.has(w.id));
     const graded = scheduled.filter((w) => w.gradingCategoryId !== null).length;
     expect(graded / Math.max(1, scheduled.length)).toBeGreaterThan(0.5);
+  });
+});
+
+/**
+ * The standing goal, measured rather than asserted into existence.
+ *
+ * "Every week, every assignment in every course is seen, planned, and accounted for, with
+ * realistic time allotted to each — unless the student says time is not needed."
+ *
+ * That is three separate claims and only one of them currently holds. This reports all three
+ * every run so progress is visible, and asserts only the part that is already true, so the suite
+ * stays honest about the rest instead of quietly encoding today's shortfall as correct.
+ */
+describe("is every assignment accounted for", () => {
+  const slack = walkSemester();
+  const crunch = walkSemester({
+    availability: [1, 2, 3, 4].map((dayOfWeek) => ({
+      id: `avl_squeeze_${dayOfWeek}`,
+      termId: INGESTED_SEMESTER.term.id,
+      dayOfWeek,
+      startTime: "19:00",
+      endTime: "21:00",
+      energyLevel: "low" as const,
+      location: "anywhere" as const,
+      hardness: "soft" as const,
+    })),
+  });
+
+  const summarise = (name: string, walk: Walk) => {
+    const rows = walk.shortfalls;
+    const open = rows.reduce((sum, r) => sum + r.openSchedulable, 0);
+    const withEffort = rows.reduce((sum, r) => sum + r.realEffort, 0);
+    const unaccounted = rows.reduce((sum, r) => sum + r.unaccounted, 0);
+    const undated = Math.max(...rows.map((r) => r.undated));
+    return {
+      name,
+      open,
+      effortPercent: open === 0 ? 100 : Math.round((withEffort / open) * 100),
+      unaccounted,
+      worstWeekUnaccounted: Math.max(...rows.map((r) => r.unaccounted)),
+      undated,
+    };
+  };
+
+  it("reports where the goal actually stands", () => {
+    const both = [summarise("slack", slack), summarise("crunch", crunch)];
+    console.log(
+      "\nGOAL: every assignment seen, planned and accounted for, with realistic time\n" +
+        both
+          .map(
+            (r) =>
+              `  ${r.name.padEnd(7)} open-week-slots ${String(r.open).padStart(4)}  ` +
+              `real effort ${String(`${r.effortPercent}%`).padStart(4)}  ` +
+              `unaccounted ${String(r.unaccounted).padStart(4)} (worst week ${r.worstWeekUnaccounted})  ` +
+              `undated ${r.undated}`,
+          )
+          .join("\n"),
+    );
+    expect(both).toHaveLength(2);
+  });
+
+  it("never lets an assignment fall out of view: booked, or named as not fitting", () => {
+    // The one part of the goal that already holds, and the one that matters most. Work the
+    // student cannot see is work they cannot decide about, and this is what would break first
+    // if the scheduler started dropping candidates quietly.
+    for (const walk of [slack, crunch]) {
+      const lost = walk.shortfalls.filter((r) => r.unaccounted > 0);
+      expect(lost).toEqual([]);
+    }
+  });
+
+  it("still cannot claim realistic time for most work — the gap this loop exists to close", () => {
+    /**
+     * Five of sixty-one assignments arrived from extraction with an effort estimate. Every other
+     * number in the plan comes from a thirteen-entry lookup keyed on work type, so "45 minutes
+     * for a quiz" is a category average wearing the clothes of a measurement.
+     *
+     * Asserted as a *ceiling* rather than a floor, deliberately: this test should start failing
+     * as soon as the app begins asking the student and the professor for real numbers, and that
+     * failure is the signal to raise the bar rather than a regression.
+     */
+    const rows = slack.shortfalls;
+    const open = rows.reduce((sum, r) => sum + r.openSchedulable, 0);
+    const withEffort = rows.reduce((sum, r) => sum + r.realEffort, 0);
+    expect(withEffort / open).toBeLessThan(0.5);
+  });
+
+  it("has work it cannot place in time at all, because nobody stated a date", () => {
+    // Eight items came out of five syllabuses with no due date. They are scheduled without
+    // deadline pressure and flagged DUE_DATE_UNKNOWN, which is honest and is not the same as
+    // being planned. Also a ceiling: it should fall as the setup conversation gets built.
+    expect(Math.max(...slack.shortfalls.map((r) => r.undated))).toBeGreaterThan(0);
   });
 });
 

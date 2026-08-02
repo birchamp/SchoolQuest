@@ -2,6 +2,7 @@ import type {
   AvailabilityRule,
   Commitment,
   Course,
+  GradingCategory,
   MeetingPattern,
   Term,
   WorkItem,
@@ -30,6 +31,7 @@ import type {
 export interface IngestedSemester {
   term: Term;
   courses: Course[];
+  gradingCategories: GradingCategory[];
   meetingPatterns: MeetingPattern[];
   commitments: Commitment[];
   availabilityRules: AvailabilityRule[];
@@ -240,6 +242,164 @@ export const INGESTED_SEMESTER = {
       "name": "Lifetime Fitness (PED 110)",
       "targetGrade": null,
       "termId": "trm_e32f96fa8cf84b0d95c9"
+    }
+  ],
+  "gradingCategories": [
+    {
+      "id": "gcat_a0fa838dcd734b47ba41",
+      "courseId": "crs_11b55b2455c04e4195f7",
+      "name": "Fitness Assessments",
+      "weightPercent": 40.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_9d2552a79aa249eb865f",
+      "courseId": "crs_11b55b2455c04e4195f7",
+      "name": "Participation",
+      "weightPercent": 20.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_63769864d4f64f168253",
+      "courseId": "crs_11b55b2455c04e4195f7",
+      "name": "Weekly Fitness Logs",
+      "weightPercent": 40.0,
+      "dropRule": {
+        "dropLowest": 2
+      },
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_5fa139e7f8c8415e8f46",
+      "courseId": "crs_386b1d199c6941f08e73",
+      "name": "Final Portfolio",
+      "weightPercent": 25.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_1dd4be7f490945dca366",
+      "courseId": "crs_386b1d199c6941f08e73",
+      "name": "Reading Responses",
+      "weightPercent": 15.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_406c1fd31d364a949244",
+      "courseId": "crs_386b1d199c6941f08e73",
+      "name": "Workshop Participation",
+      "weightPercent": 20.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_2c50f3c4938640a998c2",
+      "courseId": "crs_386b1d199c6941f08e73",
+      "name": "Workshop Submissions",
+      "weightPercent": 40.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_173f2ba40d9042edbc26",
+      "courseId": "crs_a0b6293b8e4e4e1d89a4",
+      "name": "Exams",
+      "weightPercent": 40.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_6082a18a042544cc9274",
+      "courseId": "crs_a0b6293b8e4e4e1d89a4",
+      "name": "Laboratory Reports",
+      "weightPercent": 25.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_51a0ed2725ff478695d3",
+      "courseId": "crs_a0b6293b8e4e4e1d89a4",
+      "name": "Participation",
+      "weightPercent": 10.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_e77a03ef2ded4d6dad42",
+      "courseId": "crs_a0b6293b8e4e4e1d89a4",
+      "name": "Quizzes",
+      "weightPercent": 15.0,
+      "dropRule": {
+        "dropLowest": 1
+      },
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_ac397b3a27584f2fb103",
+      "courseId": "crs_cae3d9f6aa6b4eb8a65a",
+      "name": "Exam 1",
+      "weightPercent": 20.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_90cc32462ba94c08b037",
+      "courseId": "crs_cae3d9f6aa6b4eb8a65a",
+      "name": "Exam 2",
+      "weightPercent": 20.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_748ff6b7fe134873b361",
+      "courseId": "crs_cae3d9f6aa6b4eb8a65a",
+      "name": "Final Exam",
+      "weightPercent": 30.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_c406d85b37f74f8b9dba",
+      "courseId": "crs_cae3d9f6aa6b4eb8a65a",
+      "name": "Problem Sets",
+      "weightPercent": 30.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_102fa137131544af8547",
+      "courseId": "crs_dbe1efa61050427dbdd4",
+      "name": "Final Exam",
+      "weightPercent": 25.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_541f97d25c104083bfd2",
+      "courseId": "crs_dbe1efa61050427dbdd4",
+      "name": "Primary Source Essays",
+      "weightPercent": 30.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_32be3fc6c4e843368d93",
+      "courseId": "crs_dbe1efa61050427dbdd4",
+      "name": "Reading Quizzes",
+      "weightPercent": 20.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
+    },
+    {
+      "id": "gcat_ad1663c40548449ebc3b",
+      "courseId": "crs_dbe1efa61050427dbdd4",
+      "name": "Research Paper",
+      "weightPercent": 25.0,
+      "dropRule": null,
+      "confidenceStatus": "high_inference"
     }
   ],
   "meetingPatterns": [
