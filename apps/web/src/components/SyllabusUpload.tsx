@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { extractPdfText } from "../lib/pdf-text";
 import type { ExtractionResponse } from "../lib/extraction-types";
 import { ExtractionReview } from "./ExtractionReview";
+import { useBodyTheme } from "../lib/use-body-theme";
 
 /**
  * Syllabus upload and extraction.
@@ -30,33 +31,6 @@ type Phase =
       created: { workItems: number; categories: number; meetingPatterns: number };
     };
 
-/**
- * The Setup tab is mounted by App without a `theme` prop, and threading one through would
- * mean editing App.tsx. The active theme is already published on the document — App writes
- * `document.body.dataset.theme` on every render — so it is read from there instead. The
- * observer is not optional: the theme switcher lives on this very screen.
- *
- * Duplicated from CourseManager rather than shared, because a shared home for it would be
- * a new module in lib/ and this pass owns only the two Setup components.
- *
- * `override` is the seam for wiring a real prop through later; nothing passes it today.
- */
-function useBodyTheme(override?: ThemeName): ThemeName {
-  const [theme, setTheme] = useState<ThemeName>(
-    () => (document.body.dataset["theme"] as ThemeName | undefined) ?? "plain",
-  );
-
-  useEffect(() => {
-    const read = () =>
-      setTheme((document.body.dataset["theme"] as ThemeName | undefined) ?? "plain");
-    read();
-    const observer = new MutationObserver(read);
-    observer.observe(document.body, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => observer.disconnect();
-  }, []);
-
-  return override ?? theme;
-}
 
 /** Themed wording on screen, plain wording for assistive technology. */
 function Themed({ visible, plain }: { visible: string; plain: string }) {
@@ -115,11 +89,21 @@ export function SyllabusUpload({
   courses,
   onPlanChanged,
   theme: themeProp,
+  hasCalendar = true,
 }: {
   courses: Course[];
   onPlanChanged: () => void;
   /** Optional. Omitted by the current call site, which is why the theme is read off body. */
   theme?: ThemeName;
+  /**
+   * Whether the term has a break calendar yet.
+   *
+   * Not a gate — extraction runs fine without one and flags the dates it cannot settle. But a
+   * syllabus is full of "Week 14" and "each Tuesday in class", and reading those with no
+   * calendar is the difference between a date and a coin flip, so the screen says so at the
+   * moment the student is about to upload rather than leaving them to find out afterwards.
+   */
+  hasCalendar?: boolean;
 }) {
   const theme = useBodyTheme(themeProp);
   const quest = theme === "quest";
@@ -238,6 +222,22 @@ export function SyllabusUpload({
             plain="Upload a course syllabus PDF and its dates, grading weights, and assignments are read out of it."
           />
         </p>
+      )}
+
+      {/*
+        Ordering, said where it matters. Not a gate — extraction runs and flags what it cannot
+        settle — but "Problem Set 6 due Week 14" is a coin flip without the term's breaks, and
+        finding that out after uploading five syllabuses is worse than reading one line now.
+      */}
+      {!hasCalendar && (
+        <div className="risk" data-level="watch" style={{ margin: "0 0 0.7rem" }}>
+          <span className="level">check</span>
+          <span>
+            Your semester calendar is empty. Dates written as &ldquo;Week 14&rdquo; or
+            &ldquo;each Tuesday&rdquo; will be flagged rather than settled — filling it in first
+            is worth the thirty seconds.
+          </span>
+        </div>
       )}
 
       {/* Quest gets a visible label as well as the accessible one: with the native arrow

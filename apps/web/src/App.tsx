@@ -15,6 +15,7 @@ import { SessionBrief } from "./components/SessionBrief";
 import { WeeklyReview } from "./components/WeeklyReview";
 import { MealWindows } from "./components/MealWindows";
 import { EffortSurvey } from "./components/EffortSurvey";
+import { TermCalendar } from "./components/TermCalendar";
 import { StudyHours } from "./components/StudyHours";
 import { Stats } from "./components/Stats";
 import { Dashboard } from "./components/Dashboard";
@@ -389,11 +390,21 @@ export function App() {
           )}
           {tab === "setup" && (
             <>
+              {/*
+                First on the screen, and the order is the argument. Every relative date a
+                syllabus contains — "Week 14", "each Tuesday in class", "finals week" — is read
+                against this, so a syllabus uploaded before it is read against guesses.
+              */}
+              <TermCalendar termId={term.id} onChanged={regenerate} />
               <CourseManager termId={term.id} onChanged={refreshPlan} />
               <EffortSurvey termId={term.id} onChanged={regenerate} />
               <StudyHours termId={term.id} onChanged={regenerate} />
               <MealWindows term={term} onChanged={regenerate} />
-              <SyllabusUpload courses={plan.courses} onPlanChanged={regenerate} />
+              <SyllabusUpload
+                courses={plan.courses}
+                onPlanChanged={regenerate}
+                hasCalendar={(term.calendar?.exceptions.length ?? 0) > 0}
+              />
               <section className="card">
                 <h2>Preferences</h2>
                 <div className="button-row">

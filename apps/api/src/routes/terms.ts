@@ -298,6 +298,36 @@ termsRoute.post("/terms/:id/effort-answers", async (c) => {
 
 // --- The academic calendar -----------------------------------------------------
 
+/**
+ * The term's calendar as the interface needs it: the stored exceptions plus the views derived
+ * from them.
+ *
+ * Derived here rather than in the client so the bedrock has exactly one implementation. A
+ * screen recomputing "which runs are breaks" from day records would be a second answer to a
+ * question that already has one.
+ */
+termsRoute.get("/terms/:id/calendar", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+  if (!(await assertTermOwner(db, id, c.get("userId")))) return c.json({ error: "Term not found" }, 404);
+
+  const [term] = await db.select().from(terms).where(eq(terms.id, id));
+  const calendar = termCalendar.parse(JSON.parse(term!.calendarJson || "{}"));
+  const window = { termStartDate: term!.startDate, termEndDate: term!.endDate, calendar };
+
+  return c.json({
+    startDate: term!.startDate,
+    endDate: term!.endDate,
+    calendar,
+    breaks: breaksFromCalendar(window),
+    finals: finalsWindow(window),
+    /** Days running another weekday's schedule — not a break, and easy to miss. */
+    scheduleSwaps: calendar.exceptions
+      .filter((e) => e.followsWeekday !== null)
+      .map((e) => ({ date: e.date, label: e.label, followsWeekday: e.followsWeekday })),
+  });
+});
+
 const calendarPasteBody = z.object({
   /** The registrar's calendar page, pasted as text. */
   text: z.string().min(20).max(20_000),

@@ -424,6 +424,8 @@ export interface Term {
   status: string;
   /** Absent from older payloads that predate preferences being returned. */
   planningPreferences?: PlanningPreferencesView;
+  /** Breaks, finals and the week-numbering convention. Absent means nobody has supplied one. */
+  calendar?: { exceptions: { date: string }[] };
 }
 
 export interface Me {

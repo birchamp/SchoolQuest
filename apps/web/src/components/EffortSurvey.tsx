@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ThemeName } from "@schoolquest/domain";
 import { api } from "../lib/api";
+import { useBodyTheme } from "../lib/use-body-theme";
 
 /**
  * Asking the student how long their work actually takes.
@@ -73,20 +73,6 @@ function Themed({ visible, plain }: { visible: string; plain: string }) {
   );
 }
 
-function useBodyTheme(): ThemeName {
-  const [theme, setTheme] = useState<ThemeName>(
-    () => (document.body.dataset["theme"] as ThemeName | undefined) ?? "plain",
-  );
-  useEffect(() => {
-    const read = () =>
-      setTheme((document.body.dataset["theme"] as ThemeName | undefined) ?? "plain");
-    read();
-    const observer = new MutationObserver(read);
-    observer.observe(document.body, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => observer.disconnect();
-  }, []);
-  return theme;
-}
 
 export function EffortSurvey({ termId, onChanged }: { termId: string; onChanged: () => void }) {
   const theme = useBodyTheme();

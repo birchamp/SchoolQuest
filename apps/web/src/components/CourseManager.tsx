@@ -4,6 +4,7 @@ import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { DayPicker, TimeRange } from "./DayPicker";
 import { courseTincture } from "../lib/course-colour";
+import { useBodyTheme } from "../lib/use-body-theme";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -39,33 +40,6 @@ interface Snapshot {
   commitments: SnapshotCommitment[];
 }
 
-/**
- * The Setup tab is mounted by App without a `theme` prop, and threading one through would
- * mean editing App.tsx. The active theme is already published on the document — App writes
- * `document.body.dataset.theme` on every render — so it is read from there instead. The
- * observer is not optional: the theme switcher lives on this very screen, so without it
- * these cards would keep the previous chrome until some unrelated re-render happened to
- * come along.
- *
- * `override` exists so a future call site can hand the theme down properly; nothing passes
- * it today.
- */
-function useBodyTheme(override?: ThemeName): ThemeName {
-  const [theme, setTheme] = useState<ThemeName>(
-    () => (document.body.dataset["theme"] as ThemeName | undefined) ?? "plain",
-  );
-
-  useEffect(() => {
-    const read = () =>
-      setTheme((document.body.dataset["theme"] as ThemeName | undefined) ?? "plain");
-    read();
-    const observer = new MutationObserver(read);
-    observer.observe(document.body, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => observer.disconnect();
-  }, []);
-
-  return override ?? theme;
-}
 
 /**
  * Themed wording on screen, plain wording for assistive technology. Screen-reader output
