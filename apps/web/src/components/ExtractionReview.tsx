@@ -94,37 +94,64 @@ export function ExtractionReview({
     try {
       const result = await api.post<{
         weekday: string;
-        resolved: { claimId: string; title: string; dueDate: string }[];
+        resolved: {
+          claimId: string;
+          title: string;
+          dueDate: string;
+          needsAttention: boolean;
+          reason: string | null;
+        }[];
         unresolved: { title: string; reason: string }[];
       }>(`/api/documents/${documentId}/extraction/resolve-weekday`, { weekday });
 
-      const byClaim = new Map(result.resolved.map((r) => [r.claimId, r.dueDate]));
+      const byClaim = new Map(result.resolved.map((r) => [r.claimId, r]));
       setClaims((prev) =>
         prev.map((c) => {
-          const iso = byClaim.get(c.id);
-          if (!iso) return c;
+          const hit = byClaim.get(c.id);
+          if (!hit) return c;
           const payload = c.payload as unknown as AssignmentPayload;
           return {
             ...c,
             payload: {
               ...c.payload,
-              dueDate: { ...payload.dueDate, iso, ambiguity: "none" },
+              dueDate: {
+                ...payload.dueDate,
+                iso: hit.dueDate,
+                ...(hit.needsAttention ? {} : { ambiguity: "none" }),
+              },
               issues: (payload.issues ?? []).filter(
                 (i) => i !== "AMBIGUOUS_DATE" && i !== "MISSING_DATE",
               ),
-              confidenceStatus: "confirmed",
+              // Mirrors the server exactly. This used to say "confirmed" for everything,
+              // which told the student a machine's reading had been settled by their click.
+              confidenceStatus: hit.needsAttention ? "low_inference" : "high_inference",
             },
           };
         }),
       );
 
+      const settled = result.resolved.filter((r) => !r.needsAttention).length;
+      const flagged = result.resolved.filter((r) => r.needsAttention);
       setResolution(
-        `Dated ${result.resolved.length} item${result.resolved.length === 1 ? "" : "s"} to the ` +
+        `Dated ${settled} item${settled === 1 ? "" : "s"} to the ` +
           `${result.weekday} of each listed week.` +
+          (flagged.length > 0
+            ? ` ${flagged.length} could not be settled that way: ${flagged
+                .map((r) => r.title)
+                .join(", ")}.`
+            : "") +
           (result.unresolved.length > 0
             ? ` ${result.unresolved.length} could not use that day — check those below.`
             : ""),
       );
+      // The server may have raised a finals-week question, so pull the list back rather than
+      // leaving the screen showing a set of questions that no longer matches.
+      if (flagged.length > 0) {
+        const fresh = await api.get<{ claims: ClaimView[] }>(
+          `/api/documents/${documentId}/extraction`,
+        );
+        setClaims(fresh.claims);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not apply that day.");
     } finally {

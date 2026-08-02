@@ -35,6 +35,8 @@ export type ClaimIssue =
   /** The document states a different year beside this date — usually a stale syllabus. */
   | "DATE_YEAR_MISMATCH"
   | "DATE_OUTSIDE_TERM"
+  /** Dated into a finals window the registrar has not published a day for. */
+  | "DATE_SET_BY_REGISTRAR"
   | "TIME_NOT_STATED"
   | "AMBIGUOUS_DATE"
   | "MISSING_DATE"

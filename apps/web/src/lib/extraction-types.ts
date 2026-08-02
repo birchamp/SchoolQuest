@@ -67,6 +67,8 @@ export const ISSUE_TEXT: Record<string, string> = {
   EVIDENCE_PAGE_MISSING: "The cited page does not exist in this document.",
   DATE_NOT_IN_SOURCE: "No date was found in the source text, so the suggested date was removed.",
   DATE_OUTSIDE_TERM: "This date falls outside your term. It may be from a previous year.",
+  DATE_SET_BY_REGISTRAR:
+    "The syllabus gives finals week, not a day — the registrar sets that later. This is planned from the first day of that week, the earliest it could be.",
   TIME_NOT_STATED: "No time of day was given. End of day is assumed.",
   AMBIGUOUS_DATE: "The date is relative or incomplete and needs confirming.",
   MISSING_DATE: "No due date was given anywhere in the document.",

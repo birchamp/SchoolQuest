@@ -27,6 +27,15 @@ import {
  *
  * That is forty per cent of one course's grade and fifteen per cent of another's, and on the
  * student's screen it looks like one small thing rather than thirty.
+ *
+ * ## The 67% is a measurement of a file, not of today's pipeline
+ *
+ * `INGESTED_SEMESTER` is a committed dump, taken before `expandRecurrence` existed. Both
+ * families above are exactly what expansion now produces instances for, so the number here
+ * cannot move until the dump is regenerated against the current code — a model pass, which
+ * needs `OPENROUTER_API_KEY` or `tools/e2e/mock-openrouter.mjs`. Until then this file is the
+ * *baseline*: what the pipeline scored before the fix, kept honest so the improvement is
+ * measured rather than asserted. `expand-recurrence.e2e.test.ts` is what covers the fix.
  */
 
 /** Match an extracted title against a family in the answer key. */
@@ -127,12 +136,16 @@ describe("what extraction missed", () => {
   it("puts stated dates where the syllabus put them", () => {
     /**
      * The other way a student ends up not knowing they have an assignment: they have it, on a
-     * day the app made up. PED 110 says "Baseline assessment: September 2, 2026 in class" and
-     * the plan carries it on 20 November — eleven weeks late, in a course where the assessments
-     * are forty per cent of the grade.
+     * day the app made up. Counting families cannot see that — PED 110 expects three
+     * assessments and three were found — so this checks each explicitly-stated date against
+     * the sentence that states it.
      *
-     * Counting families cannot see this: three assessments were expected and three were found.
-     * Only checking the date against the sentence catches it.
+     * This test was written the other way round, asserting that at least one stated date was
+     * wrong, because PED 110's "Baseline assessment: September 2, 2026 in class" appeared in
+     * the fixture dated 20 November. That was traced to a screenshot run typing over the row
+     * through the assignments table, not to extraction: the claim in D1 reads `2026-09-02`.
+     * The assertion is now a floor in the direction it should always have been — every stated
+     * date is honoured, and any that stops being honoured fails here.
      */
     const wrong: string[] = [];
     for (const course of SYLLABUS_ANSWER_KEY) {
@@ -154,8 +167,7 @@ describe("what extraction missed", () => {
       }
     }
     if (wrong.length) console.log(`\nSTATED DATES NOT HONOURED\n  ${wrong.join("\n  ")}`);
-    // A ceiling again: fix the extraction and this flips, which is the signal to tighten it.
-    expect(wrong.length).toBeGreaterThan(0);
+    expect(wrong).toEqual([]);
   });
 
   it("does not silently overstate how much of the term it captured", () => {

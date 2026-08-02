@@ -7,9 +7,8 @@ import {
   createOpenRouterProvider,
   extractSyllabus,
   ExtractionError,
-  isWithinTerm,
   parseWeekday,
-  resolveRawDate,
+  resolveWeekdayForClaim,
   toDueAt,
   WEEKDAY_NAMES,
   type ValidatedAssignment,
@@ -252,9 +251,16 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
       .where(eq(extractionClaims.sourceDocumentId, documentId))
   ).filter((claim) => claim.claimType === "assignment" && (!restrictTo || restrictTo.has(claim.id)));
 
-  const resolved: { claimId: string; title: string; dueDate: string; needsAttention: boolean }[] =
-    [];
+  const resolved: {
+    claimId: string;
+    title: string;
+    dueDate: string;
+    needsAttention: boolean;
+    reason: string | null;
+  }[] = [];
   const unresolved: { title: string; reason: string }[] = [];
+  /** Items dated into a finals window, which need a question raised rather than an answer. */
+  const registrarPending: string[] = [];
 
   for (const claim of claims) {
     const payload = JSON.parse(claim.payloadJson) as ClaimAssignmentPayload & {
@@ -265,8 +271,8 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
     if (payload.dueDate.iso !== null) continue;
     if (payload.dueDate.raw === null) continue;
 
-    const iso = resolveRawDate(payload.dueDate.raw, weekday, owned.term.startDate);
-    if (iso === null) {
+    const result = resolveWeekdayForClaim(payload.dueDate.raw, weekday, owned.term);
+    if (result === null) {
       unresolved.push({
         title: payload.title,
         reason: `${WEEKDAY_NAMES[weekday]} is not inside "${payload.dueDate.raw}"`,
@@ -274,29 +280,54 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
       continue;
     }
 
-    const dueDate = { ...payload.dueDate, iso, ambiguity: "none" as const };
     // Drop the date issues this answer settles, and keep any that it does not.
     const issues = (payload.issues ?? []).filter(
       (issue) => issue !== "AMBIGUOUS_DATE" && issue !== "MISSING_DATE",
     );
 
-    // Resolving a range does not launder the year it was printed with. Greek's finals row
-    // reads "Dec. 16-19, 2025" in a 2026 term, and answering "Wednesday" would otherwise
-    // turn a known-stale date into one the student appears to have confirmed. The weekday
-    // answer settles which day of a week something falls on — nothing more.
-    const outsideTerm = !isWithinTerm(iso, owned.term.startDate, owned.term.endDate);
-    if (outsideTerm && !issues.includes("DATE_OUTSIDE_TERM")) issues.push("DATE_OUTSIDE_TERM");
+    let reason: string | null = null;
+    switch (result.basis) {
+      case "registrar_window":
+        // The span is after the last day of instruction, so there is no class meeting for the
+        // student's weekday to name. The date stands as the earliest day it could be — enough
+        // to plan revision against — and the real question goes back on the board below.
+        if (!issues.includes("DATE_SET_BY_REGISTRAR")) issues.push("DATE_SET_BY_REGISTRAR");
+        issues.push("AMBIGUOUS_DATE");
+        registrarPending.push(payload.title);
+        reason =
+          `Finals week: the exact day is set by the registrar, not by class. ` +
+          `Planned from ${result.iso}, the earliest it could be.`;
+        break;
+
+      case "stale_year":
+        // Resolving a range does not launder the year it was printed with. Greek's finals row
+        // reads "Dec. 16-19, 2025" in a 2026 term, and answering "Wednesday" would otherwise
+        // turn a known-stale date into one the student appears to have confirmed.
+        if (!issues.includes("DATE_OUTSIDE_TERM")) issues.push("DATE_OUTSIDE_TERM");
+        reason = "This falls outside the term — the syllabus may be a previous year's.";
+        break;
+
+      case "class_meeting":
+        break;
+    }
 
     await db
       .update(extractionClaims)
       .set({
         payloadJson: JSON.stringify({
           ...payload,
-          dueDate,
+          dueDate: {
+            ...payload.dueDate,
+            iso: result.iso,
+            ambiguity: result.basis === "class_meeting" ? ("none" as const) : payload.dueDate.ambiguity,
+          },
           issues,
-          // The student answered the weekday, so an in-term result is settled. A result
-          // outside the term still has an unanswered question attached to it.
-          confidenceStatus: outsideTerm ? "low_inference" : "confirmed",
+          // Never "confirmed". The student answered a weekday; the row it was applied to is
+          // still a machine's reading of the page, so this cannot come out more trusted than
+          // the same item does through the confirm route, which writes `high_inference` for
+          // exactly that reason. Marking these settled is what let a registrar-scheduled final
+          // exam show up as a fact.
+          confidenceStatus: result.basis === "class_meeting" ? "high_inference" : "low_inference",
           resolvedFromWeekday: WEEKDAY_NAMES[weekday],
         }),
       })
@@ -305,9 +336,17 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
     resolved.push({
       claimId: claim.id,
       title: payload.title,
-      dueDate: iso,
-      needsAttention: outsideTerm,
+      dueDate: result.iso,
+      needsAttention: result.basis !== "class_meeting",
+      reason,
     });
+  }
+
+  // A finals window is not something the student can answer from memory and not something the
+  // document knows — the registrar publishes it later. That makes it a question worth carrying
+  // rather than a warning to read once, so it joins the others on the review screen.
+  if (registrarPending.length > 0) {
+    await raiseRegistrarQuestion(db, documentId, registrarPending);
   }
 
   // Mark the questions this answered so the review screen stops asking.
@@ -338,6 +377,67 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
     unresolved,
   });
 });
+
+/**
+ * Puts the registrar's finals date back on the review screen as an open question.
+ *
+ * Kind is `missing_date`, not `relative_date`, and the difference matters on screen: a
+ * relative-date question renders weekday buttons, which is exactly the wrong control here —
+ * the student clicking one is what created the problem. A missing-date question renders a
+ * free-text box they can fill in when the registrar publishes, and "I don't know yet" stays a
+ * real answer in the meantime.
+ *
+ * Rewritten in place rather than appended, so answering a weekday twice does not stack up
+ * duplicate questions on the screen.
+ */
+async function raiseRegistrarQuestion(db: Db, documentId: string, titles: string[]) {
+  const question = {
+    question:
+      titles.length === 1
+        ? `What day is "${titles[0]}" actually on?`
+        : `What days are these ${titles.length} finals-week items actually on?`,
+    why:
+      "The syllabus gives finals week rather than a day, because the registrar sets it. " +
+      "Until then this is planned from the first day of that week, which is the earliest it " +
+      "could be — worth asking your instructor if they know yet.",
+    relatesToTitle: titles[0] ?? null,
+    ...(titles.length > 1 ? { relatesToTitles: titles } : {}),
+    kind: "missing_date" as const,
+    /** Marks this as ours so a second weekday answer replaces it instead of adding another. */
+    source: "registrar_window" as const,
+  };
+
+  const existing = (
+    await db
+      .select()
+      .from(extractionClaims)
+      .where(eq(extractionClaims.sourceDocumentId, documentId))
+  ).find((claim) => {
+    if (claim.claimType !== "clarification_question") return false;
+    return (JSON.parse(claim.payloadJson) as { source?: string }).source === "registrar_window";
+  });
+
+  if (existing) {
+    await db
+      .update(extractionClaims)
+      .set({ payloadJson: JSON.stringify(question), reviewStatus: "pending" })
+      .where(eq(extractionClaims.id, existing.id));
+    return;
+  }
+
+  await db.insert(extractionClaims).values({
+    id: newId("extractionClaim"),
+    sourceDocumentId: documentId,
+    claimType: "clarification_question",
+    payloadJson: JSON.stringify(question),
+    pageNumber: null,
+    sourceExcerpt: null,
+    confidence: null,
+    reviewStatus: "pending",
+    promptVersion: "resolve-weekday",
+    model: "none",
+  });
+}
 
 const confirmBody = z.object({
   /** Claim ids the student accepted. Anything omitted is left alone, not silently applied. */

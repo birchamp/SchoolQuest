@@ -161,6 +161,65 @@ export function resolveRawDate(
   return null;
 }
 
+/**
+ * What a weekday answer is actually evidence *of*, for one claim.
+ *
+ * The student is asked one question — "these are listed by week; what day are they due?" — and
+ * the answer is applied to every item in the document still listed that way. That is the whole
+ * value of asking: thirteen quizzes get dated by one click instead of thirteen. It is also how
+ * an answer about one kind of work reaches a different kind entirely, so the answer has to
+ * carry with it what it can and cannot be trusted to have settled.
+ *
+ * The case that forced this is real, and it was found in the fixture semester's own data. MAT
+ * 205 says "The final exam is scheduled by the registrar for finals week, December 14-18,
+ * 2026." Answering "Monday" — about problem sets, which are due at the beginning of class —
+ * dated the final exam to December 14 and marked it settled. Instruction ends December 11.
+ * There are no class meetings in that span at all, so the weekday the student answered about
+ * cannot possibly be a fact about the final. A student reading that screen has been told, at
+ * full confidence, a date that is one of five and was never announced.
+ */
+export type WeekdayBasis =
+  /** The span is inside instruction: the answer names a real class meeting. */
+  | "class_meeting"
+  /** The span sits after the last day of instruction — a registrar's finals window. */
+  | "registrar_window"
+  /** The date resolved outside the term entirely; the year is likely left over. */
+  | "stale_year";
+
+export interface ResolvedWeekdayDate {
+  iso: string;
+  basis: WeekdayBasis;
+}
+
+/**
+ * Resolves one claim's raw date against a weekday answer, and says how far that answer goes.
+ *
+ * A finals window is dated to the *first* day of the span rather than to the answered weekday.
+ * Neither is the announced date, and neither pretends to be — but the first day is the one a
+ * student can prepare against and still be ready for every other day in the span, and the
+ * answered weekday is not even that. It is a floor, not a guess.
+ */
+export function resolveWeekdayForClaim(
+  raw: string,
+  weekday: number,
+  term: { startDate: string; endDate: string },
+): ResolvedWeekdayDate | null {
+  const range = parseDateRange(raw);
+
+  // Entirely after instruction ends, but still close enough to be this term's finals.
+  if (range && range.start > term.endDate && isWithinTerm(range.start, term.startDate, term.endDate)) {
+    return { iso: range.start, basis: "registrar_window" };
+  }
+
+  const iso = resolveRawDate(raw, weekday, term.startDate);
+  if (iso === null) return null;
+
+  return {
+    iso,
+    basis: isWithinTerm(iso, term.startDate, term.endDate) ? "class_meeting" : "stale_year",
+  };
+}
+
 export const WEEKDAY_NAMES = [
   "Sunday",
   "Monday",

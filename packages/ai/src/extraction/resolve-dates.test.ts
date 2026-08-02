@@ -5,6 +5,7 @@ import {
   parseWeekday,
   rangeForWeekNumber,
   resolveRawDate,
+  resolveWeekdayForClaim,
   resolveWeekdayInRange,
   weekNumberFromRaw,
   weekdayWithinRange,
@@ -193,5 +194,62 @@ describe("week-number resolution against the term calendar", () => {
 
   it("leaves week references unresolved without a term start, rather than guessing", () => {
     expect(resolveRawDate("Week 5", 3)).toBeNull();
+  });
+});
+
+describe("how far one weekday answer is allowed to reach", () => {
+  /** The fixture semester: instruction 24 August – 11 December 2026. */
+  const TERM = { startDate: "2026-08-24", endDate: "2026-12-11" };
+
+  it("dates a week-schedule row to the answered weekday and trusts it", () => {
+    // BIO 240's quiz table, verbatim. Thirteen of these are settled by one click, which is
+    // the whole reason the question is worth asking.
+    const out = resolveWeekdayForClaim("Week 13 (Nov. 16-20, 2026)", 3, TERM);
+    expect(out).toEqual({ iso: "2026-11-18", basis: "class_meeting" });
+  });
+
+  it("resolves a bare week number the same way", () => {
+    expect(resolveWeekdayForClaim("Week 5", 1, TERM)).toEqual({
+      iso: "2026-09-21",
+      basis: "class_meeting",
+    });
+  });
+
+  it("will not let a weekday answer name the day of a finals-week exam", () => {
+    /**
+     * MAT 205, verbatim: "The final exam is scheduled by the registrar for finals week,
+     * December 14-18, 2026." Instruction ends December 11, so there is no class meeting
+     * anywhere in that span for a weekday to refer to.
+     *
+     * Found in the fixture semester's own database: answering "Monday" — a question about
+     * problem sets, which are due at the beginning of class — had dated this final exam to
+     * December 14 and marked it settled. The date it gets now is the floor of the window,
+     * not a claim about which day it is, and the basis says so.
+     */
+    const out = resolveWeekdayForClaim("December 14-18, 2026", 1, TERM);
+    expect(out).toEqual({ iso: "2026-12-14", basis: "registrar_window" });
+  });
+
+  it("gives a finals window the same floor whatever weekday was answered", () => {
+    for (const weekday of [0, 1, 2, 3, 4, 5, 6]) {
+      expect(resolveWeekdayForClaim("December 14-18, 2026", weekday, TERM)).toEqual({
+        iso: "2026-12-14",
+        basis: "registrar_window",
+      });
+    }
+  });
+
+  it("still flags a date whose year is left over from a previous syllabus", () => {
+    // The Greek syllabus's finals row, in a 2026 term. Answering a weekday must not launder
+    // the year it was printed with.
+    const out = resolveWeekdayForClaim("Dec. 16-19, 2025  16", 3, TERM);
+    expect(out).toEqual({ iso: "2025-12-17", basis: "stale_year" });
+  });
+
+  it("returns nothing when the answered day is not in the range", () => {
+    // A Saturday answer against a Monday-Friday week means the student has misremembered,
+    // and a nearby guess would hide that.
+    expect(resolveWeekdayForClaim("Sept. 8-11, 2026", 6, TERM)).toBeNull();
+    expect(resolveWeekdayForClaim("sometime after the break", 3, TERM)).toBeNull();
   });
 });

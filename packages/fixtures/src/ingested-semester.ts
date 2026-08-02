@@ -27,6 +27,24 @@ import type {
  * exposes them, so anything reading this runs with no grade data — which is the honest state of
  * a term where nothing has been handed back yet, and the state the health engine is written to
  * survive.
+ *
+ * ## Two dates in here were typed by a test, not read from a syllabus
+ *
+ * The UI walkthroughs (`tools/e2e/workflows.mjs` and friends) sign in to this same account and
+ * exercise the assignments table's date editor, which is a real feature and worth testing. The
+ * edits land in the same rows this file is dumped from, and they arrive marked `confirmed`,
+ * because a hand-typed date is confirmed — the app is right about that.
+ *
+ * PED 110's "Baseline assessment" reached this file dated 20 November, eleven weeks after the
+ * "September 2, 2026" its syllabus prints, and was read here as an extraction failure. It was
+ * not: the extraction claim in D1 reads `2026-09-02` at `high_inference`, exactly right. A
+ * screenshot run had typed over it. The value below is restored to what ingest produced, and
+ * the lesson is the more useful half — **a fixture dumped from a shared account records
+ * whatever else touched that account**, and it will look like the pipeline's work.
+ *
+ * HIS 210's "Research Paper" carries the other one (4 December → 1 December, plus the stages
+ * planned from it). That one stays: `workflows.mjs` sets it deliberately every run, so pinning
+ * it here would only break the next dump.
  */
 export interface IngestedSemester {
   term: Term;
@@ -554,7 +572,7 @@ export const INGESTED_SEMESTER = {
       "courseId": "crs_11b55b2455c04e4195f7",
       "description": null,
       "divisibility": "divisible",
-      "dueAt": "2026-11-20T23:59:00.000Z",
+      "dueAt": "2026-09-02T23:59:00.000Z",
       "estimatedMinutes": null,
       "gradingCategoryId": "gcat_a0fa838dcd734b47ba41",
       "id": "wi_7706ad7f31e24170bd35",
@@ -562,7 +580,7 @@ export const INGESTED_SEMESTER = {
       "parentWorkItemId": null,
       "pointsPossible": null,
       "remainingMinutes": null,
-      "sourceConfidence": "confirmed",
+      "sourceConfidence": "high_inference",
       "status": "not_started",
       "title": "Baseline assessment",
       "userPriority": 0,
