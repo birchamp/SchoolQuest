@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { TermCalendar } from "@schoolquest/domain";
-import { academicWeeks, breakCovering, lookupWeek, mondayOnOrBefore } from "./academic-weeks.js";
+import {
+  academicWeeks,
+  breakCovering,
+  breaksFromCalendar,
+  dayAt,
+  exceptionsFromRange,
+  finalsWindow,
+  lookupWeek,
+  mondayOnOrBefore,
+  termDays,
+} from "./academic-weeks.js";
 import { expandRecurrence } from "./expand-recurrence.js";
 import { resolveWeekdayForClaim } from "./resolve-dates.js";
 import type { ExtractedAssignment } from "./schema.js";
@@ -13,10 +23,24 @@ import type { ExtractedAssignment } from "./schema.js";
  * which MAT 205 states verbatim.
  */
 const CALENDAR: TermCalendar = {
-  breaks: [{ name: "Thanksgiving Break", startDate: "2026-11-23", endDate: "2026-11-27" }],
-  finalsStartDate: "2026-12-14",
-  finalsEndDate: "2026-12-18",
+  exceptions: [
+    // A one-day holiday, which is the case a range list handles badly and the whole reason
+    // the bedrock is by day: Labor Day is a single Monday, not a week.
+    { date: "2026-09-07", kind: "no_class", label: "Labor Day", followsWeekday: null },
+    ...exceptionsFromRange({
+      startDate: "2026-11-23",
+      endDate: "2026-11-27",
+      label: "Thanksgiving Break",
+    }),
+    ...exceptionsFromRange({
+      startDate: "2026-12-14",
+      endDate: "2026-12-18",
+      label: "Finals",
+      kind: "finals",
+    }),
+  ],
   breaksTakeWeekNumbers: false,
+  source: "manual",
 };
 const TERM = { termStartDate: "2026-08-24", termEndDate: "2026-12-11", calendar: CALENDAR };
 const NO_CALENDAR = { termStartDate: "2026-08-24", termEndDate: "2026-12-11" };
@@ -48,13 +72,68 @@ describe("laying out the term's weeks", () => {
     // so that week is an instructional week and keeps its number.
     const partial = academicWeeks({
       ...NO_CALENDAR,
-      calendar: { ...CALENDAR, breaks: [{ name: "Thanksgiving", startDate: "2026-11-25", endDate: "2026-11-27" }] },
+      calendar: {
+        ...CALENDAR,
+        exceptions: exceptionsFromRange({
+          startDate: "2026-11-25",
+          endDate: "2026-11-27",
+          label: "Thanksgiving",
+        }),
+      },
     });
     const week = partial.find((w) => w.start === "2026-11-23")!;
     expect(week.isBreak).toBe(false);
     expect(week.instructionalNumber).not.toBeNull();
     // Still named, so a caller can say "this week is short" without dropping it.
     expect(week.breakName).toBe("Thanksgiving");
+  });
+
+  it("treats a one-day holiday as exactly that", () => {
+    // Labor Day is a single Monday. A range list can encode it, but only by pretending it is
+    // the same kind of thing as a week-long recess; by day it just is what it is.
+    const day = dayAt("2026-09-07", TERM)!;
+    expect(day.hasClass).toBe(false);
+    expect(day.label).toBe("Labor Day");
+    // ...and its week is still an ordinary instructional week.
+    const week = academicWeeks(TERM).find((w) => w.start === "2026-09-07")!;
+    expect(week.isBreak).toBe(false);
+    expect(week.instructionalNumber).not.toBeNull();
+  });
+
+  it("materialises whole weeks so nothing has to special-case the ends", () => {
+    const days = termDays(TERM);
+    expect(days[0]!.date).toBe("2026-08-24");
+    expect(days[0]!.weekday).toBe(1);
+    expect(days.length % 7).toBe(0);
+    // Every day belongs to a week, and weeks run Monday to Sunday.
+    expect(days.at(-1)!.weekday).toBe(0);
+  });
+
+  it("carries a day that runs another weekday's schedule", () => {
+    // Real calendars do this after a break: "Tuesday, Nov 24 — classes follow a Friday
+    // schedule". A Friday class does meet that Tuesday, and only a day-level record can say so.
+    const swapped = dayAt("2026-10-06", {
+      ...NO_CALENDAR,
+      calendar: {
+        ...CALENDAR,
+        exceptions: [{ date: "2026-10-06", kind: "reading", label: "Follows Friday", followsWeekday: 5 }],
+      },
+    })!;
+    expect(swapped.weekday).toBe(2);
+    expect(swapped.followsWeekday).toBe(5);
+  });
+
+  it("summarises the day calendar back into ranges for display", () => {
+    // The bedrock is days; this is the human-readable view of it. Finals are not a break.
+    expect(breaksFromCalendar(TERM)).toEqual([
+      { name: "Labor Day", startDate: "2026-09-07", endDate: "2026-09-07" },
+      { name: "Thanksgiving Break", startDate: "2026-11-23", endDate: "2026-11-27" },
+    ]);
+  });
+
+  it("derives the finals window from the days marked finals", () => {
+    expect(finalsWindow(TERM)).toEqual({ start: "2026-12-14", end: "2026-12-18" });
+    expect(finalsWindow(NO_CALENDAR)).toBeNull();
   });
 
   it("finds the break covering a date", () => {

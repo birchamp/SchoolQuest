@@ -87,7 +87,51 @@ export const planningPreferences = z.object({
 export type PlanningPreferences = z.infer<typeof planningPreferences>;
 
 /**
- * A stretch of the term with no class meetings: Thanksgiving, reading week, fall break.
+ * What one day of the term is.
+ *
+ * Day granularity rather than ranges because real academic calendars are not made of weeks.
+ * A single Monday for Labor Day, one Wednesday afternoon before Thanksgiving, two days of
+ * fall break, a reading day before finals — a range list can encode all of those, but only by
+ * pretending they are the same kind of thing as a week-long break, and the moment you ask
+ * "does this class meet on the 7th" you want a day, not a range.
+ */
+export const termDayKind = z.enum([
+  /** An ordinary class day. The default for anything not listed as an exception. */
+  "instruction",
+  /** Holiday or break: no classes. Deadlines outside class hours may still stand. */
+  "no_class",
+  /** Reading/study day: no classes, and work is very much expected. */
+  "reading",
+  /** Inside the exam period. */
+  "finals",
+]);
+export type TermDayKind = z.infer<typeof termDayKind>;
+
+/**
+ * A day that departs from ordinary instruction.
+ *
+ * Stored as exceptions rather than one row per day: a 110-day term is ~15 exceptions and 95
+ * unremarkable Mondays, and storing the 95 buys nothing. The *bedrock* is still by day —
+ * `termDays()` materialises every date in the term from these — so everything downstream reads
+ * days and nothing has to reason about ranges.
+ */
+export const termCalendarException = z.object({
+  date: isoDate,
+  /** Never "instruction": an exception is by definition a departure from it. */
+  kind: z.enum(["no_class", "reading", "finals"]),
+  /** What the academic calendar called it: "Thanksgiving Recess", "Labor Day". */
+  label: z.string().nullable().default(null),
+  /**
+   * Set when the calendar says this date runs another weekday's class schedule — "Tuesday,
+   * November 24: classes follow a Friday schedule". Real calendars do this after a break to
+   * even out contact hours, and a class that meets Fridays does meet that Tuesday.
+   */
+  followsWeekday: dayOfWeek.nullable().default(null),
+});
+export type TermCalendarException = z.infer<typeof termCalendarException>;
+
+/**
+ * A stretch of the term with no class meetings, derived from the day calendar for display.
  *
  * Dates are inclusive, so a Monday-to-Friday break is `2026-11-23` to `2026-11-27`.
  */
@@ -99,48 +143,50 @@ export const termBreak = z.object({
 export type TermBreak = z.infer<typeof termBreak>;
 
 /**
- * The academic calendar the whole term is read against.
+ * The academic calendar the whole term is read against — the bedrock.
  *
- * This is deliberately separate from `startDate`/`endDate`, and it is a *prerequisite* for
- * reading a syllabus rather than something a syllabus tells you. Three mechanisms need it and
- * all three are wrong without it:
+ * This is a *prerequisite* for reading a syllabus, not something a syllabus tells you. A
+ * syllabus says "Week 14", "each Tuesday in class", "finals week"; every one of those points
+ * at dates the syllabus does not contain, and getting them wrong is silent.
  *
- * - **Week numbers.** "Problem Set 6 due Week 14" can only be resolved by counting weeks, and
- *   a syllabus that stops counting through Thanksgiving disagrees with one that does not.
- *   Without the break, both readings are equally defensible and one of them is a week wrong.
- * - **Recurrence.** "A response is due each Tuesday in class" has as many instances as there
- *   are Tuesdays *with class in them*. Counting raw Tuesdays over-counts by one per break and
- *   dates one of them to a week the student is away.
+ * Three mechanisms need it and all three were measurably wrong without it:
+ *
+ * - **Week numbers.** "Problem Set 6 due Week 14" resolved to Thanksgiving week, for work due
+ *   at the beginning of class.
+ * - **Recurrence.** "A response is due each Tuesday in class" produced sixteen instances, one
+ *   of them on a Tuesday with no class. Fifteen is right.
  * - **Finals.** An exam after the last day of instruction is ordinary, not suspicious, and the
- *   day inside finals week is set by the registrar rather than by the syllabus.
+ *   day inside finals week is the registrar's to set.
+ *
+ * The normal form is **days**, materialised by `termDays()`. Everything a student or a pasted
+ * academic calendar supplies is normalised into `exceptions` first, so no consumer ever has to
+ * know which shape the information arrived in.
  *
  * Every field is optional and an empty calendar behaves exactly as the two-date term always
- * did, so nothing breaks for a term that has not supplied one — it is simply less certain, and
- * says so.
+ * did — less certain, and now able to say so.
  */
 export const termCalendar = z.object({
-  breaks: z.array(termBreak).default([]),
-  /** First day of the finals period, when it is a distinct block after instruction. */
-  finalsStartDate: isoDate.nullable().default(null),
-  /** Last day of the finals period. */
-  finalsEndDate: isoDate.nullable().default(null),
+  /** Days that are not ordinary instruction. Everything else in the term is. */
+  exceptions: z.array(termCalendarException).default([]),
   /**
    * Whether this school's syllabi keep counting week numbers through a break.
    *
-   * Real syllabi disagree, and one of the three real ones checked disagrees *with itself* —
-   * BIB301 numbers Research Week 8 and gives Thanksgiving no number at all. `null` means
-   * nobody has said, which is honest and makes any bare "Week N" after a break an open
-   * question rather than a confident guess.
+   * A weak signal, kept as a last resort. Two of the three real syllabi checked number one
+   * break and skip another *inside the same document*, so no per-term value is right for them
+   * — see `docs/10-syllabus-gotchas.md` §3.7. Prefer calibrating against the week/date pairs a
+   * document prints for itself. `null` means nobody has said, which makes a bare "Week N"
+   * after a break an open question rather than a confident guess.
    */
   breaksTakeWeekNumbers: z.boolean().nullable().default(null),
+  /** Where this came from, so the interface can say how much to trust it. */
+  source: z.enum(["pasted_calendar", "manual", "unknown"]).default("unknown"),
 });
 export type TermCalendar = z.infer<typeof termCalendar>;
 
 export const EMPTY_TERM_CALENDAR: TermCalendar = {
-  breaks: [],
-  finalsStartDate: null,
-  finalsEndDate: null,
+  exceptions: [],
   breaksTakeWeekNumbers: null,
+  source: "unknown",
 };
 
 export const term = z.object({

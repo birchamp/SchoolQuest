@@ -8,6 +8,15 @@ import {
 } from "./prompt.js";
 import { syllabusExtraction, SYLLABUS_EXTRACTION_JSON_SCHEMA } from "./schema.js";
 import { validateExtraction, type ValidationResult } from "./validate.js";
+import {
+  academicCalendarReading,
+  ACADEMIC_CALENDAR_JSON_SCHEMA,
+  ACADEMIC_CALENDAR_PROMPT_VERSION,
+  ACADEMIC_CALENDAR_SYSTEM_PROMPT,
+  buildAcademicCalendarMessage,
+  validateAcademicCalendar,
+  type CalendarValidationResult,
+} from "./academic-calendar.js";
 
 export interface ExtractionRequest {
   pages: DocumentPage[];
@@ -81,8 +90,9 @@ export async function extractSyllabus(
         content: buildExtractionUserMessage(pages, {
           ...(request.termStartDate ? { termStartDate: request.termStartDate } : {}),
           ...(request.termEndDate ? { termEndDate: request.termEndDate } : {}),
-      ...(request.termCalendar ? { termCalendar: request.termCalendar } : {}),
-          ...(request.termCalendar ? { termCalendar: request.termCalendar } : {}),
+          // The calendar is deliberately *not* in the prompt. The model is forbidden from
+          // doing date arithmetic; breaks and week numbers are resolved after it answers,
+          // by `academic-weeks.ts`, over text the document really contains.
           ...(request.courseName ? { courseName: request.courseName } : {}),
         }),
       },
@@ -119,4 +129,58 @@ function preparePages(pages: DocumentPage[]): DocumentPage[] {
       page: p.page,
       text: p.text.length > MAX_CHARS_PER_PAGE ? p.text.slice(0, MAX_CHARS_PER_PAGE) : p.text,
     }));
+}
+
+/**
+ * Reads a pasted academic calendar into day-level exceptions.
+ *
+ * Same discipline as syllabus extraction and for a sharper reason: an invented holiday deletes
+ * a day the student really does have class, and nothing on screen would look wrong.
+ * `validateAcademicCalendar` discards any entry whose quoted line is not in the pasted text.
+ */
+export async function readAcademicCalendar(
+  provider: AiProvider,
+  request: {
+    text: string;
+    termStartDate?: string;
+    termEndDate?: string;
+    model?: string;
+  },
+): Promise<CalendarValidationResult & { promptVersion: string; model: string }> {
+  const text = request.text.trim();
+  if (text.length === 0) {
+    throw new ExtractionError("There was no calendar text to read.");
+  }
+
+  const completion = await provider.complete({
+    model: request.model ?? MODELS.EXTRACTION,
+    // A reading task. Creativity here is purely a fabrication risk.
+    temperature: 0,
+    maxTokens: 4000,
+    jsonSchema: {
+      name: "academic_calendar",
+      schema: ACADEMIC_CALENDAR_JSON_SCHEMA as unknown as Record<string, unknown>,
+    },
+    messages: [
+      { role: "system", content: ACADEMIC_CALENDAR_SYSTEM_PROMPT },
+      { role: "user", content: buildAcademicCalendarMessage(text) },
+    ],
+  });
+
+  let parsed;
+  try {
+    parsed = academicCalendarReading.parse(JSON.parse(completion.text));
+  } catch (cause) {
+    throw new ExtractionError("The calendar reading did not match the expected schema.", cause);
+  }
+
+  return {
+    ...validateAcademicCalendar(parsed, {
+      pastedText: text,
+      ...(request.termStartDate ? { termStartDate: request.termStartDate } : {}),
+      ...(request.termEndDate ? { termEndDate: request.termEndDate } : {}),
+    }),
+    promptVersion: ACADEMIC_CALENDAR_PROMPT_VERSION,
+    model: completion.model,
+  };
 }

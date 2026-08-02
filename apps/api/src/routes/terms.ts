@@ -10,6 +10,14 @@ import {
   type WorkItem,
 } from "@schoolquest/domain";
 import {
+  AiProviderError,
+  breaksFromCalendar,
+  createOpenRouterProvider,
+  ExtractionError,
+  finalsWindow,
+  readAcademicCalendar,
+} from "@schoolquest/ai";
+import {
   applyEffortAnswer,
   buildEffortSurvey,
   canDecompose,
@@ -284,6 +292,101 @@ termsRoute.post("/terms/:id/effort-answers", async (c) => {
     unknownQuestionIds: unknown,
     groundedFraction: remaining.groundedFraction,
     questionsLeft: remaining.questions.length,
+  });
+});
+
+
+// --- The academic calendar -----------------------------------------------------
+
+const calendarPasteBody = z.object({
+  /** The registrar's calendar page, pasted as text. */
+  text: z.string().min(20).max(20_000),
+});
+
+/**
+ * Reads a pasted academic calendar into the term's day-level bedrock.
+ *
+ * The student pastes the registrar's page; the model reads it; every entry is checked against
+ * the text it claims to have come from before anything is stored. An invented holiday silently
+ * deletes a day the student really does have class, so the evidence check matters more here
+ * than it does for a syllabus.
+ *
+ * Nothing is written until the reading validates. A term whose calendar cannot be read keeps
+ * the one it had.
+ */
+termsRoute.post("/terms/:id/calendar/paste", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+  if (!(await assertTermOwner(db, id, c.get("userId")))) return c.json({ error: "Term not found" }, 404);
+
+  if (!c.env.OPENROUTER_API_KEY) {
+    return c.json({ error: "Reading a calendar is not configured: OPENROUTER_API_KEY is missing." }, 503);
+  }
+
+  const parsed = calendarPasteBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const [existing] = await db.select().from(terms).where(eq(terms.id, id));
+  const provider = createOpenRouterProvider({
+    apiKey: c.env.OPENROUTER_API_KEY,
+    defaultModel: c.env.OPENROUTER_EXTRACTION_MODEL,
+    appUrl: c.env.APP_URL,
+    appName: c.env.APP_NAME,
+    ...(c.env.OPENROUTER_BASE_URL ? { baseUrl: c.env.OPENROUTER_BASE_URL } : {}),
+  });
+
+  let result;
+  try {
+    result = await readAcademicCalendar(provider, {
+      text: parsed.data.text,
+      termStartDate: existing!.startDate,
+      termEndDate: existing!.endDate,
+    });
+  } catch (error) {
+    if (error instanceof AiProviderError) {
+      return c.json(
+        { error: "The reader is unreachable right now. Nothing was changed — try again.", retryable: error.retryable },
+        502,
+      );
+    }
+    if (error instanceof ExtractionError) {
+      return c.json({ error: error.message }, 422);
+    }
+    throw error;
+  }
+
+  const calendar = termCalendar.parse({
+    ...JSON.parse(existing!.calendarJson || "{}"),
+    exceptions: result.exceptions,
+    source: "pasted_calendar",
+  });
+
+  const patch: Record<string, unknown> = { calendarJson: JSON.stringify(calendar) };
+  // The calendar's own instruction bounds outrank whatever was typed during onboarding, but
+  // only where a quoted entry supports them.
+  if (result.instructionStartDate) patch["startDate"] = result.instructionStartDate;
+  if (result.instructionEndDate) patch["endDate"] = result.instructionEndDate;
+
+  const [updated] = await db.update(terms).set(patch).where(eq(terms.id, id)).returning();
+
+  return c.json({
+    term: { ...updated, calendar },
+    /** Contiguous no-class runs, so the screen can show "Fall Break, 12-13 October". */
+    breaks: breaksFromCalendar({
+      termStartDate: updated!.startDate,
+      termEndDate: updated!.endDate,
+      calendar,
+    }),
+    finals: finalsWindow({
+      termStartDate: updated!.startDate,
+      termEndDate: updated!.endDate,
+      calendar,
+    }),
+    accepted: result.accepted,
+    // Reported, never hidden: a discarded line is the student's cue to add it by hand.
+    rejected: result.rejected,
+    unreadableLines: result.unreadableLines,
+    warnings: result.warnings,
   });
 });
 

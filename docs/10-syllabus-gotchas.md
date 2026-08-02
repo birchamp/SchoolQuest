@@ -284,6 +284,40 @@ Only weeks after the term's first break can be ambiguous, so weeks 1–12 stay c
 
 Everything below is `pdf.js` flattening a table, and it is what the extractor actually receives.
 
+### 3.7 A syllabus's week numbers are wrong by its own convention — **PARTIAL**
+
+Not "two conventions exist" (§3.6). One document using **both**, so no single setting can make
+it right.
+
+LAN 200 numbers its Research Week and skips its Thanksgiving:
+
+> "Oct. 13-16, 2026 / Research Week / **8**"      *(a break week, numbered)*
+> "Thanksgiving Break / Nov. 24-27, 2026 / ***"   *(a break week, not numbered)*
+> "December 1-4, 2026 / **14**"
+
+Its printed numbers track strict elapsed weeks exactly through week 13, then drift by one for
+the last three rows:
+
+```
+2026-11-17  printed 13  strict 13
+2026-12-01  printed 14  strict 15   <- drift
+2026-12-08  printed 15  strict 16   <- drift
+```
+
+BIB301 does the same thing — Research Week numbered 8, Thanksgiving unnumbered — so this is
+**two of the three real syllabi**, not one careless author.
+
+**This defeats `breaksTakeWeekNumbers`.** A per-term boolean has no value that is right for
+LAN 200: `true` puts week 14 at 23 November, `false` puts it at 30 November, and the syllabus
+means 1 December. The flag added in §3.6 is correct for a document that is internally
+consistent and cannot help one that is not.
+
+**The fix that does work**: calibrate per document. LAN 200 prints the week number *and* its
+date range on fifteen rows — `"Nov. 17-20, 2026  13"` — so the mapping is stated, not derived,
+and a bare "Week 14" elsewhere in the same document should be read against it. The term
+calendar stays the fallback for a document that never pairs them (MAT 205 says only "Week 3",
+"Week 5" in prose), and that is exactly the case where a clarification question is honest.
+
 ### 4.1 The week number lands after the date, on the same line — **HANDLED**
 
 > "September 1-4, 2026  2" · "Sept. 8-11, 2026  3" · "Dec. 15-18, 2026 (Finals Week)"
@@ -386,13 +420,35 @@ the database of every account that uploaded LAN 200.
 
 Ordered by what it costs the student, not by how hard it is to fix:
 
-1. **§5.1** — a weekday contradiction would date a whole quiz series to a day with no class.
+1. **§3.7** — two of three real syllabi number one break and skip another, which no per-term
+   setting can resolve. Per-document calibration is the fix and is not built.
+2. **§5.1** — a weekday contradiction would date a whole quiz series to a day with no class.
    Both facts are already extracted; comparing them is one line and is not done.
-2. **§2.5** — LAN 200's study teams: an hour a week, every week, worth 10%, with no shape in the
+3. **§2.5** — LAN 200's study teams: an hour a week, every week, worth 10%, with no shape in the
    data model to hold it.
-3. **§1.8** — 8 of 61 items undated, with no instructor question generated yet.
-4. **§3.3** — category-ordered grading vs date-ordered schedule, reconciled by nothing.
-5. **§5.4** — policy claims stored and rendered nowhere.
+4. **§1.8** — 8 of 61 items undated, with no instructor question generated yet.
+5. **§3.3** — category-ordered grading vs date-ordered schedule, reconciled by nothing.
+6. **§5.4** — policy claims stored and rendered nowhere.
+
+### 1.10 A weekly deadline lands on a single-day holiday — **HANDLED**
+
+Not a break week: one Monday.
+
+MAT 205 says "Problem Set 1 due Week 3", and problem sets are due "at the beginning of class".
+Week 3's Monday in the fixture term is **7 September — Labor Day**. There is no class, so there
+is no beginning of class to hand it in at.
+
+Found by pasting a real academic calendar through the running Worker, and it is the case a
+range-based break list cannot see: Labor Day is one day, and the week around it is an entirely
+ordinary week. It only becomes visible once the calendar is stored by day, which is why the
+bedrock is by day. `DATE_IN_BREAK` now fires: *"That lands inside a break, when there is no
+class."*
+
+The same run showed the flip side. That calendar's Thanksgiving is 25–27 November, Wednesday
+to Friday — **not** the whole week — so Monday and Tuesday still hold class, that week is an
+ordinary instructional week, and the §3.6 numbering ambiguity does not arise at all. Week 14
+is 23 November under both conventions and nothing is flagged. The right answer depends on the
+real calendar, which is the entire argument for having one.
 
 ### The ordering this log actually argues for
 
@@ -420,5 +476,6 @@ Kept so the log's own value is measurable rather than assumed.
 | --- | --- | --- |
 | Writing §3.6 | Problem Set 6 dated to Thanksgiving week | **Fixed** — term calendar |
 | Writing §3.6 | ENG 230 expanded to 16 reading responses, one on Thanksgiving Tuesday. The answer key said 16 too, for the same reason. | **Fixed** — 15, and the key corrected |
+| Checking §3.6 | LAN 200 numbers one break and skips the other, defeating the per-term flag | Open (§3.7) — pinned by a test |
 | Writing §5.4 | Policy claims are stored and rendered nowhere | Open — pinned by a test |
 | Reading D1 | A weekday answer dating a registrar-scheduled final | Fixed (§1.3) |

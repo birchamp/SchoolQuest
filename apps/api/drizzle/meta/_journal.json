@@ -36,6 +36,13 @@
       "when": 1785381565104,
       "tag": "0004_term_calendar",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785381565105,
+      "tag": "0005_calendar_days",
+      "breakpoints": true
     }
   ]
 }
