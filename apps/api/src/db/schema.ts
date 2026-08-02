@@ -56,8 +56,18 @@ export const terms = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /** First day of instruction. */
     startDate: text("start_date").notNull(),
+    /** Last day of instruction. Finals may follow it — see `calendarJson`. */
     endDate: text("end_date").notNull(),
+    /**
+     * Breaks, the finals window, and whether this school's syllabi number break weeks.
+     *
+     * A JSON column rather than a `term_breaks` table because nothing queries into it: it is
+     * read whole, every time, by the code that resolves a week number or expands a recurrence.
+     * `{}` parses to the empty calendar, which behaves exactly as a two-date term always did.
+     */
+    calendarJson: text("calendar_json").notNull().default("{}"),
     status: text("status").notNull().default("planning"),
     planningPreferencesJson: text("planning_preferences_json").notNull().default("{}"),
   },

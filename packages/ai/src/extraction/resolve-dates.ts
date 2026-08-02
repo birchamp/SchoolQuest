@@ -17,6 +17,9 @@
  * Nothing here calls a model. It is date arithmetic over text the document really contains.
  */
 
+import type { TermCalendar } from "@schoolquest/domain";
+import { breakCovering, finalsWindow, lookupWeek, type TermWindow } from "./academic-weeks.js";
+
 const MONTHS: Record<string, number> = {
   jan: 1, january: 1,
   feb: 2, february: 2,
@@ -114,10 +117,18 @@ export function weekNumberFromRaw(raw: string): number | null {
 
 /**
  * The Monday–Sunday span of week N, counting the week containing the term's first day as
- * week 1. This is the convention every syllabus checked uses: a term starting Tuesday
- * Aug 25 has "Week 1: Aug 25-28" and "Week 2: Sept 1-4", both inside the Monday-anchored
- * weeks this produces. Breaks and research weeks do not shift the count — syllabi number
- * them too ("Week 8: Research Week").
+ * week 1. A term starting Tuesday Aug 25 has "Week 1: Aug 25-28" and "Week 2: Sept 1-4", both
+ * inside the Monday-anchored weeks this produces.
+ *
+ * **This counts every calendar week, including breaks, and that is only one of two readings.**
+ * The docstring here used to claim breaks never shift the count — "syllabi number them too" —
+ * and that was wrong. Two of the three real syllabi checked leave their Thanksgiving row
+ * unnumbered and resume at the next number, and a third does it both ways inside one document.
+ * The cost was MAT 205's Problem Set 6, dated 23 November, in a week with no class.
+ *
+ * Prefer `lookupWeek` from `academic-weeks.ts`, which reads the term's break calendar and says
+ * when the two conventions disagree. This is kept for a term that has supplied no calendar,
+ * where counting raw weeks is the only thing left to do.
  */
 export function rangeForWeekNumber(week: number, termStartDate: string): DateRange | null {
   if (week < 1 || week > 30) return null;
@@ -184,11 +195,20 @@ export type WeekdayBasis =
   /** The span sits after the last day of instruction — a registrar's finals window. */
   | "registrar_window"
   /** The date resolved outside the term entirely; the year is likely left over. */
-  | "stale_year";
+  | "stale_year"
+  /**
+   * "Week N" after a break, in a term that has not said whether its syllabi count through
+   * breaks. Two dates a week apart are equally defensible and neither is a reading.
+   */
+  | "week_number_ambiguous"
+  /** The stated weekday is not a day this class meets — the syllabus contradicts itself. */
+  | "not_a_class_day";
 
 export interface ResolvedWeekdayDate {
   iso: string;
   basis: WeekdayBasis;
+  /** The other candidate date, set only for `week_number_ambiguous`. */
+  alternativeIso?: string;
 }
 
 /**
@@ -202,22 +222,63 @@ export interface ResolvedWeekdayDate {
 export function resolveWeekdayForClaim(
   raw: string,
   weekday: number,
-  term: { startDate: string; endDate: string },
+  term: { startDate: string; endDate: string; calendar?: TermCalendar },
 ): ResolvedWeekdayDate | null {
-  const range = parseDateRange(raw);
+  const window: TermWindow = {
+    termStartDate: term.startDate,
+    termEndDate: term.endDate,
+    ...(term.calendar ? { calendar: term.calendar } : {}),
+  };
 
-  // Entirely after instruction ends, but still close enough to be this term's finals.
-  if (range && range.start > term.endDate && isWithinTerm(range.start, term.startDate, term.endDate)) {
+  // A stated finals window beats inferring one from "after instruction ends". Both readings
+  // agree on the fixture term; only the stated one is right for a school whose finals do not
+  // start the Monday after classes stop.
+  const finals = finalsWindow(window);
+  const range = parseDateRange(raw);
+  if (range && ((finals && range.start >= finals.start && range.start <= finals.end) ||
+      (!finals && range.start > term.endDate && isWithinTerm(range.start, term.startDate, term.endDate)))) {
     return { iso: range.start, basis: "registrar_window" };
   }
 
-  const iso = resolveRawDate(raw, weekday, term.startDate);
-  if (iso === null) return null;
+  // An explicit range in the document outranks any arithmetic over week numbers.
+  if (range) return classify(weekdayWithinRange(range, weekday), term, window, weekday);
 
-  return {
-    iso,
-    basis: isWithinTerm(iso, term.startDate, term.endDate) ? "class_meeting" : "stale_year",
-  };
+  const week = weekNumberFromRaw(raw);
+  if (week !== null) {
+    const lookup = lookupWeek(week, window);
+    if (!lookup) return null;
+    const iso = weekdayWithinRange({ start: lookup.start, end: lookup.end }, weekday);
+    if (iso === null) return null;
+
+    // The two conventions disagree and nobody has said which this school uses. Returning the
+    // instructional reading with the other one attached is the whole point: this is the shape
+    // that put Problem Set 6 in Thanksgiving week when it was silently a single answer.
+    if (lookup.ambiguous && lookup.alternative) {
+      const other = weekdayWithinRange(lookup.alternative, weekday);
+      return {
+        iso,
+        basis: "week_number_ambiguous",
+        ...(other ? { alternativeIso: other } : {}),
+      };
+    }
+    return classify(iso, term, window, weekday);
+  }
+
+  return null;
+}
+
+function classify(
+  iso: string | null,
+  term: { startDate: string; endDate: string },
+  window: TermWindow,
+  _weekday: number,
+): ResolvedWeekdayDate | null {
+  if (iso === null) return null;
+  if (!isWithinTerm(iso, term.startDate, term.endDate)) return { iso, basis: "stale_year" };
+  // Landing inside a break means the answer cannot be describing a class meeting, whatever
+  // else is true about it.
+  if (breakCovering(iso, window) !== null) return { iso, basis: "not_a_class_day" };
+  return { iso, basis: "class_meeting" };
 }
 
 export const WEEKDAY_NAMES = [

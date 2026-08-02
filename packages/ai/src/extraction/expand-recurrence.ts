@@ -1,4 +1,5 @@
 import type { ExtractedAssignment } from "./schema.js";
+import { breakCovering, type TermWindow } from "./academic-weeks.js";
 
 /**
  * Turn a stated recurrence into the assignments a student actually faces.
@@ -31,12 +32,7 @@ import type { ExtractedAssignment } from "./schema.js";
 /** Nobody's syllabus has more than this, and a runaway count should not become 400 rows. */
 const MAX_INSTANCES = 60;
 
-export interface TermWindow {
-  /** "YYYY-MM-DD", first day of instruction. */
-  termStartDate: string;
-  /** "YYYY-MM-DD", last day of instruction. */
-  termEndDate: string;
-}
+export type { TermWindow } from "./academic-weeks.js";
 
 function toUtc(dateOnly: string): Date {
   return new Date(`${dateOnly}T00:00:00.000Z`);
@@ -46,7 +42,18 @@ function iso(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Every date in the term falling on `dayOfWeek` (0 = Sunday). */
+/**
+ * Every date in the term falling on `dayOfWeek` (0 = Sunday), **skipping breaks**.
+ *
+ * The break skip is not a refinement, it is the difference between right and wrong. ENG 230
+ * says "a short response to the assigned reading is due each Tuesday in class"; counting raw
+ * Tuesdays over the term gives sixteen, one of them Tuesday 24 November — Thanksgiving week,
+ * when there is no class to be in. The right answer is fifteen, and a term that has not
+ * supplied a break calendar cannot know that.
+ *
+ * A term with no calendar behaves exactly as before, which is the honest fallback: it produces
+ * the count the raw calendar implies and nothing here can tell that it is one too many.
+ */
 function weekdaysInTerm(term: TermWindow, dayOfWeek: number): string[] {
   const out: string[] = [];
   const end = toUtc(term.termEndDate);
@@ -56,7 +63,8 @@ function weekdaysInTerm(term: TermWindow, dayOfWeek: number): string[] {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   while (cursor <= end && out.length < MAX_INSTANCES) {
-    out.push(iso(cursor));
+    const date = iso(cursor);
+    if (breakCovering(date, term) === null) out.push(date);
     cursor.setUTCDate(cursor.getUTCDate() + 7);
   }
   return out;

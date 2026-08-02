@@ -1,4 +1,4 @@
-import { DEFAULT_MEAL_WINDOWS } from "@schoolquest/domain";
+import { DEFAULT_MEAL_WINDOWS, EMPTY_TERM_CALENDAR } from "@schoolquest/domain";
 import type {
   AvailabilityRule,
   Commitment,
@@ -51,6 +51,7 @@ export function buildSeedSemester(userId = "usr_seed"): SeedSemester {
     name: "Fall 2026",
     startDate: "2026-08-31",
     endDate: "2026-12-18",
+    calendar: EMPTY_TERM_CALENDAR,
     status: "active",
     planningPreferences: {
       maxDailyAcademicMinutes: 240,

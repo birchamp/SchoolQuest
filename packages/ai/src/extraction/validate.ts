@@ -1,5 +1,5 @@
 import { expandAll } from "./expand-recurrence.js";
-import type { ConfidenceStatus } from "@schoolquest/domain";
+import type { ConfidenceStatus, TermCalendar } from "@schoolquest/domain";
 import type { DocumentPage } from "./prompt.js";
 import { isWithinTerm } from "./resolve-dates.js";
 import type {
@@ -37,6 +37,10 @@ export type ClaimIssue =
   | "DATE_OUTSIDE_TERM"
   /** Dated into a finals window the registrar has not published a day for. */
   | "DATE_SET_BY_REGISTRAR"
+  /** "Week N" after a break, in a term that has not said how its syllabi count breaks. */
+  | "WEEK_NUMBER_AMBIGUOUS"
+  /** Resolved onto a day inside a break, when there is no class. */
+  | "DATE_IN_BREAK"
   | "TIME_NOT_STATED"
   | "AMBIGUOUS_DATE"
   | "MISSING_DATE"
@@ -75,6 +79,12 @@ export interface ValidationContext {
   pages: DocumentPage[];
   termStartDate?: string;
   termEndDate?: string;
+  /**
+   * Breaks, finals and the week-numbering convention. Optional, and its absence is exactly
+   * what it looks like: a term nobody has given a calendar, whose recurrence counts will be
+   * one too many per break and cannot know it.
+   */
+  termCalendar?: TermCalendar;
 }
 
 /** Collapses whitespace and punctuation variants so quoting is robust to PDF text quirks. */
@@ -221,6 +231,7 @@ export function validateExtraction(
       ? expandAll(extraction.assignments, {
           termStartDate: context.termStartDate,
           termEndDate: context.termEndDate,
+          ...(context.termCalendar ? { calendar: context.termCalendar } : {}),
         })
       : extraction.assignments;
 

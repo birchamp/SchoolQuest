@@ -113,7 +113,12 @@ export const SYLLABUS_ANSWER_KEY: CourseAnswerKey[] = [
         evidence: "Each student submits four pieces for workshop ... Submission 1 during Sept. 14-18, 2026 ...",
       },
       readingResponses: {
-        count: 16,
+        // Fifteen, not sixteen. There are sixteen Tuesdays between 24 August and 11 December,
+        // and one of them — 24 November — is Thanksgiving. The syllabus says "in class", and
+        // there is no class that day. This key said sixteen until the term gained a break
+        // calendar, which is the same mistake the extractor was making and for the same
+        // reason: a count derived from a calendar nobody had supplied the breaks for.
+        count: 15,
         derived: true,
         evidence: "A short response to the assigned reading is due each Tuesday in class.",
       },

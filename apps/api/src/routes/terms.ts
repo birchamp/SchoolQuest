@@ -5,6 +5,7 @@ import {
   COURSE_COLOR_TOKENS,
   newId,
   planningPreferences,
+  termCalendar,
   workStatus,
   type WorkItem,
 } from "@schoolquest/domain";
@@ -46,6 +47,8 @@ const termBody = z.object({
   startDate: isoDate,
   endDate: isoDate,
   planningPreferences: planningPreferences.partial().optional(),
+  /** Breaks, finals, and the week-numbering convention. See `termCalendar` in the domain. */
+  calendar: termCalendar.partial().optional(),
 });
 
 termsRoute.get("/terms", async (c) => {
@@ -55,6 +58,7 @@ termsRoute.get("/terms", async (c) => {
     terms: rows.map((t) => ({
       ...t,
       planningPreferences: planningPreferences.parse(JSON.parse(t.planningPreferencesJson || "{}")),
+      calendar: termCalendar.parse(JSON.parse(t.calendarJson || "{}")),
     })),
   });
 });
@@ -75,6 +79,7 @@ termsRoute.post("/terms", async (c) => {
     startDate: parsed.data.startDate,
     endDate: parsed.data.endDate,
     status: "active",
+    calendarJson: JSON.stringify(termCalendar.parse(parsed.data.calendar ?? {})),
     planningPreferencesJson: JSON.stringify(
       planningPreferences.parse(parsed.data.planningPreferences ?? {}),
     ),
@@ -98,6 +103,17 @@ termsRoute.patch("/terms/:id", async (c) => {
   if (parsed.data.name) patch["name"] = parsed.data.name;
   if (parsed.data.startDate) patch["startDate"] = parsed.data.startDate;
   if (parsed.data.endDate) patch["endDate"] = parsed.data.endDate;
+  if (parsed.data.calendar) {
+    const [existing] = await db.select().from(terms).where(eq(terms.id, id));
+    // Merged rather than replaced, so a screen that only knows about breaks cannot wipe the
+    // finals window a different screen set.
+    patch["calendarJson"] = JSON.stringify(
+      termCalendar.parse({
+        ...JSON.parse(existing!.calendarJson || "{}"),
+        ...parsed.data.calendar,
+      }),
+    );
+  }
   if (parsed.data.planningPreferences) {
     const [existing] = await db.select().from(terms).where(eq(terms.id, id));
     patch["planningPreferencesJson"] = JSON.stringify(

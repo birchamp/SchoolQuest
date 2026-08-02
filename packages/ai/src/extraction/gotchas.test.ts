@@ -98,12 +98,15 @@ describe("gotchas §3 — where the work is written down", () => {
 
   it("§3.6 the drift has already mis-dated real work in the fixture semester", () => {
     /**
-     * MAT 205: "Problem Set 6 due Week 14", due "at the beginning of class". It is carried on
-     * 23 November — Thanksgiving week, when there is no class. Both other courses in the same
-     * term print week 14 as 30 November, because neither numbers the break.
+     * MAT 205: "Problem Set 6 due Week 14", due "at the beginning of class". It reached the
+     * fixture dump on 23 November — Thanksgiving week, with no class in it — because week
+     * numbers were counted as raw calendar weeks.
      *
-     * Asserted as the *wrong* value on purpose. This test failing is the fix landing, not a
-     * regression, and it is the only thing standing between this entry and being forgotten.
+     * The fixture still holds that value, because it is a dump taken before the term had a
+     * calendar. What fixed it is `lookupWeek`, covered in `academic-weeks.test.ts` and
+     * verified through the running Worker: with the break supplied, the same "Week 14" plus
+     * the same "Monday" answer now resolves to 30 November. This assertion stays as the
+     * before-picture and flips when the fixture is regenerated.
      */
     const mat = INGESTED_SEMESTER.courses.find((c) => c.code?.includes("MAT 205"))!;
     const six = INGESTED_SEMESTER.workItems.find(

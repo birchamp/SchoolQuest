@@ -50,8 +50,10 @@ may have "corrected" a year that was right, so the student is asked which.
 Every one of the eight syllabuses does this. A naive "is this date inside the term" check flags
 every final exam in the corpus as suspicious.
 
-`FINALS_GRACE_DAYS = 21` in `resolve-dates.ts`. Instruction end is not the term's end for
-coursework.
+`FINALS_GRACE_DAYS = 21` in `resolve-dates.ts` for a term with no calendar. A term that has
+supplied `finalsStartDate`/`finalsEndDate` uses those instead, which is exact rather than
+approximately right — a school whose finals do not start the Monday after classes stop is not
+served by a flat 21 days.
 
 ### 1.3 The registrar sets the finals day, so the syllabus gives a week — **HANDLED**
 
@@ -233,7 +235,7 @@ The reading it covers is in the title, spanning several lines. Titles come throu
 covered material is not separated from the name, so `Quiz 3` and `Quiz 3 Over Chapters 2 & 3`
 do not match each other across sections.
 
-### 3.6 A break stops the week count, and week-N resolution does not — **OPEN, and live**
+### 3.6 A break stops the week count, and week-N resolution did not — **HANDLED**
 
 > "Oct. 13, 2026 / **Research Week** / 8 / *** / ***" — BIB301 *(numbered)*
 > "**Thanksgiving Break** / Nov. 24, 2026 / *** / NONE / ***" — BIB301 *(not numbered)*
@@ -248,8 +250,8 @@ all — **inconsistent within a single document**.
 syllabus that numbers its breaks and wrong for one that skips them, and there is no way to tell
 which from the week number alone.
 
-**This is not hypothetical. It has already mis-dated real work.** MAT 205 says "Problem Set 6
-due Week 14", and the ingested semester carries:
+**This was not hypothetical. It had already mis-dated real work.** MAT 205 says "Problem Set 6
+due Week 14", and the ingested semester carried:
 
 ```
 Problem Set 1 | raw "Week 3"  -> 2026-09-07
@@ -264,12 +266,17 @@ Five of six are right, because they all fall before the break. The sixth is a we
 "at the beginning of class" in a week with no class. Both other courses in the same term put
 week 14 at 30 November. Nothing flags it.
 
-**The fix that fits the data**: stop computing the mapping and read it. BIO 240 and HIS 210
-print the week number *and* its date range in the same row — `"Week 13 (Nov. 16-20, 2026)"` —
-so a document that does this can calibrate its own week numbering, and arithmetic is only the
-fallback. MAT 205 cannot self-calibrate (its weeks appear only as bare "Week N" in prose), so
-for that shape the honest answer is a clarification question naming the break, not a better
-guess.
+**Fixed by making the term calendar a prerequisite** (`termCalendar` on the term,
+`academic-weeks.ts`). Knowing the break turns one guess into two derivable readings:
+
+- `breaksTakeWeekNumbers: false` — Problem Set 6 resolves to **30 November**, matching what
+  both other courses in the same term print. Verified through the running Worker.
+- `breaksTakeWeekNumbers: true` — 23 November, which is right for BIB301's Research Week.
+- `null`, nobody has said — the date is still planned from the instructional reading, but it
+  carries `WEEK_NUMBER_AMBIGUOUS`, drops to `low_inference`, and says so on screen: *"Week 14"
+  is after a break. Counting break weeks gives 2026-11-23; not counting them gives 2026-11-30.*
+
+Only weeks after the term's first break can be ambiguous, so weeks 1–12 stay clean.
 
 ---
 
@@ -379,15 +386,31 @@ the database of every account that uploaded LAN 200.
 
 Ordered by what it costs the student, not by how hard it is to fix:
 
-1. **§3.6** — a break stops the syllabus's week count and nothing else stops with it. Already
-   wrong in the fixture semester: Problem Set 6 sits in Thanksgiving week. This is the only
-   entry currently producing a wrong date in shipped data.
-2. **§5.1** — a weekday contradiction would date a whole quiz series to a day with no class.
+1. **§5.1** — a weekday contradiction would date a whole quiz series to a day with no class.
    Both facts are already extracted; comparing them is one line and is not done.
-3. **§2.5** — LAN 200's study teams: an hour a week, every week, worth 10%, with no shape in the
+2. **§2.5** — LAN 200's study teams: an hour a week, every week, worth 10%, with no shape in the
    data model to hold it.
-4. **§1.8** — 8 of 61 items undated, with no instructor question generated yet.
-5. **§3.3** — category-ordered grading vs date-ordered schedule, reconciled by nothing.
+3. **§1.8** — 8 of 61 items undated, with no instructor question generated yet.
+4. **§3.3** — category-ordered grading vs date-ordered schedule, reconciled by nothing.
+5. **§5.4** — policy claims stored and rendered nowhere.
+
+### The ordering this log actually argues for
+
+Two of the three worst entries (§3.6, §1.3) came down to the same thing, and it is not a
+parsing problem: **the term's calendar has to be known before a syllabus can be read.** A
+syllabus says "Week 14", "each Tuesday in class", "finals week" — every one of those is
+relative to a calendar the syllabus does not contain, and getting it wrong is silent.
+
+So ingest has a real prerequisite, and it runs in this order:
+
+1. **Term calendar** — first and last day of instruction, breaks, finals window, and whether
+   this school's syllabi number break weeks. From the student or the registrar's academic
+   calendar, *not* from a syllabus.
+2. **Syllabus ingest** — everything relative can now be resolved, and what cannot be is a
+   question with both candidate answers rather than a coin flip.
+
+Breaks are the part students will not think to supply, and the part that silently breaks the
+most. Whatever collects the calendar has to ask for them explicitly.
 
 ### Things this log has already caught
 
@@ -395,6 +418,7 @@ Kept so the log's own value is measurable rather than assumed.
 
 | Found by | Entry | Outcome |
 | --- | --- | --- |
-| Writing §3.6 | Problem Set 6 dated to Thanksgiving week | Open — pinned by a test |
-| Writing §5.4 | Policy claims are stored and rendered nowhere | Open — pinned below |
+| Writing §3.6 | Problem Set 6 dated to Thanksgiving week | **Fixed** — term calendar |
+| Writing §3.6 | ENG 230 expanded to 16 reading responses, one on Thanksgiving Tuesday. The answer key said 16 too, for the same reason. | **Fixed** — 15, and the key corrected |
+| Writing §5.4 | Policy claims are stored and rendered nowhere | Open — pinned by a test |
 | Reading D1 | A weekday answer dating a registrar-scheduled final | Fixed (§1.3) |

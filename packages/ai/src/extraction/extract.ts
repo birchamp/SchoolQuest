@@ -1,3 +1,4 @@
+import type { TermCalendar } from "@schoolquest/domain";
 import { MODELS, type AiProvider } from "../provider.js";
 import {
   buildExtractionUserMessage,
@@ -12,6 +13,8 @@ export interface ExtractionRequest {
   pages: DocumentPage[];
   termStartDate?: string;
   termEndDate?: string;
+  /** Breaks, finals and the week-numbering convention, when the term has supplied one. */
+  termCalendar?: TermCalendar;
   courseName?: string;
   model?: string;
 }
@@ -78,6 +81,8 @@ export async function extractSyllabus(
         content: buildExtractionUserMessage(pages, {
           ...(request.termStartDate ? { termStartDate: request.termStartDate } : {}),
           ...(request.termEndDate ? { termEndDate: request.termEndDate } : {}),
+      ...(request.termCalendar ? { termCalendar: request.termCalendar } : {}),
+          ...(request.termCalendar ? { termCalendar: request.termCalendar } : {}),
           ...(request.courseName ? { courseName: request.courseName } : {}),
         }),
       },
@@ -96,6 +101,7 @@ export async function extractSyllabus(
       pages,
       ...(request.termStartDate ? { termStartDate: request.termStartDate } : {}),
       ...(request.termEndDate ? { termEndDate: request.termEndDate } : {}),
+      ...(request.termCalendar ? { termCalendar: request.termCalendar } : {}),
     }),
     promptVersion: EXTRACTION_PROMPT_VERSION,
     model: completion.model,

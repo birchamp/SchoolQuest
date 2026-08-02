@@ -86,12 +86,72 @@ export const planningPreferences = z.object({
 });
 export type PlanningPreferences = z.infer<typeof planningPreferences>;
 
+/**
+ * A stretch of the term with no class meetings: Thanksgiving, reading week, fall break.
+ *
+ * Dates are inclusive, so a Monday-to-Friday break is `2026-11-23` to `2026-11-27`.
+ */
+export const termBreak = z.object({
+  name: z.string().min(1),
+  startDate: isoDate,
+  endDate: isoDate,
+});
+export type TermBreak = z.infer<typeof termBreak>;
+
+/**
+ * The academic calendar the whole term is read against.
+ *
+ * This is deliberately separate from `startDate`/`endDate`, and it is a *prerequisite* for
+ * reading a syllabus rather than something a syllabus tells you. Three mechanisms need it and
+ * all three are wrong without it:
+ *
+ * - **Week numbers.** "Problem Set 6 due Week 14" can only be resolved by counting weeks, and
+ *   a syllabus that stops counting through Thanksgiving disagrees with one that does not.
+ *   Without the break, both readings are equally defensible and one of them is a week wrong.
+ * - **Recurrence.** "A response is due each Tuesday in class" has as many instances as there
+ *   are Tuesdays *with class in them*. Counting raw Tuesdays over-counts by one per break and
+ *   dates one of them to a week the student is away.
+ * - **Finals.** An exam after the last day of instruction is ordinary, not suspicious, and the
+ *   day inside finals week is set by the registrar rather than by the syllabus.
+ *
+ * Every field is optional and an empty calendar behaves exactly as the two-date term always
+ * did, so nothing breaks for a term that has not supplied one — it is simply less certain, and
+ * says so.
+ */
+export const termCalendar = z.object({
+  breaks: z.array(termBreak).default([]),
+  /** First day of the finals period, when it is a distinct block after instruction. */
+  finalsStartDate: isoDate.nullable().default(null),
+  /** Last day of the finals period. */
+  finalsEndDate: isoDate.nullable().default(null),
+  /**
+   * Whether this school's syllabi keep counting week numbers through a break.
+   *
+   * Real syllabi disagree, and one of the three real ones checked disagrees *with itself* —
+   * BIB301 numbers Research Week 8 and gives Thanksgiving no number at all. `null` means
+   * nobody has said, which is honest and makes any bare "Week N" after a break an open
+   * question rather than a confident guess.
+   */
+  breaksTakeWeekNumbers: z.boolean().nullable().default(null),
+});
+export type TermCalendar = z.infer<typeof termCalendar>;
+
+export const EMPTY_TERM_CALENDAR: TermCalendar = {
+  breaks: [],
+  finalsStartDate: null,
+  finalsEndDate: null,
+  breaksTakeWeekNumbers: null,
+};
+
 export const term = z.object({
   id: z.string(),
   userId: z.string(),
   name: z.string().min(1),
+  /** First day of instruction. */
   startDate: isoDate,
+  /** Last day of instruction — not the last day of the term, which finals may follow. */
   endDate: isoDate,
+  calendar: termCalendar.default(EMPTY_TERM_CALENDAR),
   status: termStatus.default("planning"),
   planningPreferences: planningPreferences.default({}),
 });

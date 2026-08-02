@@ -29,6 +29,13 @@
       "when": 1785381565103,
       "tag": "0003_assign_course_colours",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785381565104,
+      "tag": "0004_term_calendar",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { newId } from "@schoolquest/domain";
+import { newId, termCalendar } from "@schoolquest/domain";
 import {
   AiProviderError,
   createOpenRouterProvider,
@@ -94,6 +94,7 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
       pages: parsed.data.pages,
       termStartDate: owned.term.startDate,
       termEndDate: owned.term.endDate,
+      termCalendar: termCalendar.parse(JSON.parse(owned.term.calendarJson || "{}")),
       courseName: owned.course.name,
     });
   } catch (error) {
@@ -271,7 +272,11 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
     if (payload.dueDate.iso !== null) continue;
     if (payload.dueDate.raw === null) continue;
 
-    const result = resolveWeekdayForClaim(payload.dueDate.raw, weekday, owned.term);
+    const result = resolveWeekdayForClaim(payload.dueDate.raw, weekday, {
+      startDate: owned.term.startDate,
+      endDate: owned.term.endDate,
+      calendar: termCalendar.parse(JSON.parse(owned.term.calendarJson || "{}")),
+    });
     if (result === null) {
       unresolved.push({
         title: payload.title,
@@ -297,6 +302,27 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
         reason =
           `Finals week: the exact day is set by the registrar, not by class. ` +
           `Planned from ${result.iso}, the earliest it could be.`;
+        break;
+
+      case "week_number_ambiguous":
+        // The term has a break before this week and nobody has said whether this school's
+        // syllabi keep counting through it. Both readings are a week apart and defensible.
+        // This is the exact shape that put MAT 205's Problem Set 6 in Thanksgiving week when
+        // it was silently one answer.
+        if (!issues.includes("WEEK_NUMBER_AMBIGUOUS")) issues.push("WEEK_NUMBER_AMBIGUOUS");
+        issues.push("AMBIGUOUS_DATE");
+        reason =
+          `"${payload.dueDate.raw}" is after a break. Counting break weeks gives ` +
+          `${result.alternativeIso ?? "another date"}; not counting them gives ${result.iso}. ` +
+          `Planned from ${result.iso} — check which your syllabus means.`;
+        break;
+
+      case "not_a_class_day":
+        // The answer resolves onto a day inside a break, so whatever it describes it is not a
+        // class meeting.
+        if (!issues.includes("DATE_IN_BREAK")) issues.push("DATE_IN_BREAK");
+        issues.push("AMBIGUOUS_DATE");
+        reason = "That lands inside a break, when there is no class.";
         break;
 
       case "stale_year":

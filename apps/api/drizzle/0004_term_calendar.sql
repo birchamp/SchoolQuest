@@ -1,0 +1,16 @@
+-- The academic calendar a term is read against: breaks, finals, week numbering.
+--
+-- A syllabus describes work relative to a calendar it does not contain. "Problem Set 6 due
+-- Week 14" and "a response is due each Tuesday in class" can only be resolved by counting
+-- weeks and weekdays, and both counts are wrong by exactly one break.
+--
+-- Measured before this existed, on the fixture semester:
+--   MAT 205 Problem Set 6, "Week 14", landed 2026-11-23 — Thanksgiving week, for work due
+--     at the beginning of class. The other two courses in the same term print week 14 as
+--     30 November, because neither numbers its break.
+--   ENG 230 produced sixteen reading responses, one due Tuesday 24 November. Fifteen is the
+--     right number and that Tuesday has no class in it.
+--
+-- `{}` parses to the empty calendar, so every existing term keeps behaving exactly as it did:
+-- less certain than one with a calendar, and now able to say so.
+ALTER TABLE terms ADD COLUMN calendar_json TEXT NOT NULL DEFAULT '{}';
