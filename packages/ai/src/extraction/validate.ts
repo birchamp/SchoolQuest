@@ -162,10 +162,23 @@ export function dateAppearsInSource(
   // than the three-letter "Sep." — a truncate-to-three rule silently misses it.
   const abbreviations = MONTH_ABBREVIATIONS[month - 1]!;
 
+  /**
+   * Zero-padded forms are listed explicitly.
+   *
+   * Without them the check passed or failed depending on the *day of the month*: candidate
+   * "2/23" is a substring of "02/23/24" and matched by accident, while "12/6" is not a
+   * substring of "12/06" and was stripped as an invented date. Inside one real syllabus that
+   * meant the 11/29 and 12/11 quizzes kept their dates and the 12/06 and 12/08 quizzes lost
+   * theirs — a 20-page pharmacy syllabus written entirely as 01/02/24 lost every date it had.
+   */
+  const pad = (n: number) => String(n).padStart(2, "0");
   const candidates = [
     iso,
     `${month}/${day}/${year}`,
     `${month}/${day}/${String(year).slice(2)}`,
+    `${pad(month)}/${pad(day)}/${year}`,
+    `${pad(month)}/${pad(day)}/${String(year).slice(2)}`,
+    `${pad(month)}/${pad(day)}`,
     `${month}/${day}`,
     `${month}-${day}`,
     `${monthName} ${day}`,

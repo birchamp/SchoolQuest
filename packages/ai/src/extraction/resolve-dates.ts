@@ -45,20 +45,39 @@ export interface DateRange {
  *
  *   "Sept. 8-11, 2026"              "September 1-4, 2026  2"   (trailing week number)
  *   "Sept. 29-Oct. 2, 2026"         "Nov. 3 – 6, 2026"         (en dash, spaces)
- *   "Sept. 1 – Sept. 4, 2026"       "Dec. 15-18, 2026 (Finals Week)"
+ *   "January 13–16"                 "Mar. 10th-15th"           (no year; ordinals)
+ *   "April 28 – May 4"              "Mar 14-\n\nMar 18"        (split across lines)
  *
- * Returns null when the text is not a range, which is the common case for prose dates and
- * must never be coerced into one.
+ * ## The year is optional, and making it mandatory was a real bug
+ *
+ * This required a four-digit year until it was run against twenty real syllabuses from
+ * eighteen institutions, where it parsed **0 of 50** ranges. Every schedule table in that
+ * corpus omits the year — it is in the document header, not in every row — and several use
+ * ordinal suffixes or wrap a range across a line break.
+ *
+ * The three syllabuses this was originally validated against all came from one institution
+ * and all happened to print years in their schedule rows. Four entries in
+ * `docs/10-syllabus-gotchas.md` were marked HANDLED on the strength of that, and none of them
+ * held outside that one house style. The general lesson is in the log; the specific one is
+ * that a corpus of three from one source cannot establish a convention.
+ *
+ * `contextYear` supplies the year when the text omits it — the term's own start year, which
+ * the caller always knows. Without it a yearless range still returns null, because inventing
+ * a year is exactly the guess this module exists to refuse.
  */
-export function parseDateRange(raw: string): DateRange | null {
+export function parseDateRange(raw: string, contextYear?: number): DateRange | null {
   const text = raw
     // Normalize the dash variants PDF extraction leaves behind.
     .replace(/[‐-―−]/g, "-")
+    // Collapse newlines too: a range can be split mid-way by a column break, and
+    // "Mar 14-\n\nMar 18" is one range that used to read as two fragments.
     .replace(/\s+/g, " ")
     .trim();
 
+  // Ordinals are decoration on a number: "Mar. 10th-15th" is the 10th to the 15th.
+  const ordinal = String.raw`(?:st|nd|rd|th)?`;
   const pattern = new RegExp(
-    String.raw`\b([A-Za-z]{3,9})\.?\s+(\d{1,2})\s*-\s*(?:([A-Za-z]{3,9})\.?\s+)?(\d{1,2})\s*,?\s*((?:19|20)\d{2})`,
+    String.raw`\b([A-Za-z]{3,9})\.?\s+(\d{1,2})${ordinal}\s*-\s*(?:([A-Za-z]{3,9})\.?\s*)?(\d{1,2})${ordinal}\s*(?:,?\s*((?:19|20)\d{2}))?`,
   );
   const match = pattern.exec(text);
   if (!match) return null;
@@ -69,7 +88,10 @@ export function parseDateRange(raw: string): DateRange | null {
 
   const startDay = Number(match[2]);
   const endDay = Number(match[4]);
-  const year = Number(match[5]);
+  const year = match[5] ? Number(match[5]) : contextYear;
+  // No year in the text and none supplied: unresolvable, and guessing one would be the
+  // invented date this whole module refuses to produce.
+  if (year === undefined) return null;
 
   // A range running Dec -> Jan crosses into the next year.
   const endYear = endMonth < startMonth ? year + 1 : year;
@@ -160,7 +182,9 @@ export function resolveRawDate(
   weekday: number,
   termStartDate?: string,
 ): string | null {
-  const explicit = parseDateRange(raw);
+  // The term's own start year stands in when a schedule row omits the year, which in a corpus
+  // of twenty real syllabuses is every schedule row.
+  const explicit = parseDateRange(raw, termStartDate ? Number(termStartDate.slice(0, 4)) : undefined);
   if (explicit) return weekdayWithinRange(explicit, weekday);
 
   const week = weekNumberFromRaw(raw);
@@ -234,7 +258,7 @@ export function resolveWeekdayForClaim(
   // agree on the fixture term; only the stated one is right for a school whose finals do not
   // start the Monday after classes stop.
   const finals = finalsWindow(window);
-  const range = parseDateRange(raw);
+  const range = parseDateRange(raw, Number(term.startDate.slice(0, 4)));
   if (range && ((finals && range.start >= finals.start && range.start <= finals.end) ||
       (!finals && range.start > term.endDate && isWithinTerm(range.start, term.startDate, term.endDate)))) {
     return { iso: range.start, basis: "registrar_window" };

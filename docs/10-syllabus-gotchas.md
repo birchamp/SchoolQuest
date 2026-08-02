@@ -85,9 +85,38 @@ quizzes get dated by one click.
 ### 1.5 A week range that spans two different months — **HANDLED**
 
 > "Sept. 29 – Oct. 2, 2026  6" — LAN 200
+> "April 28 – May 4" — NC State MATH 241 *(no year — see below)*
 
 `parseDateRange` reads the second month when it is given and carries a Dec→Jan range into the
 next year.
+
+### 1.5a A schedule row does not repeat the year — **HANDLED, after being wrong**
+
+> "January 13–16" · "January 31–February 6" — Richland MATH 122
+> "Mar. 10th-15th" · "May 7th-13th" — TAMUSA ENGL 1300 *(ordinals)*
+> "Mar 14-\n\nMar 18" — NC State MATH 241 *(wrapped mid-range by the PDF)*
+
+The year is in the document header, not in every row. Almost no schedule table repeats it.
+
+**This entry is here because §1.5, §4.1 and §4.4 were all marked HANDLED on evidence that could
+not support them.** `parseDateRange` required a four-digit year. Run against **twenty real
+syllabuses from eighteen institutions it parsed 0 of 50 ranges** — not a regression, it had
+never worked outside one house style. The three syllabuses it was validated against all came
+from the same institution and all happened to print years.
+
+§1.3's registrar-finals branch was collateral: `resolveWeekdayForClaim` reaches it only through
+a successful `parseDateRange`, so on real documents it was structurally unreachable, and the
+corpus is full of exactly the case it exists for — *"Final Exam: April 28 – May 4"*, *"Finals
+week is December 12-16"*, *"TBD, Week of December 12th"*.
+
+The year is now optional and supplied by the caller from the term's own start year; a yearless
+range with no context still returns null, because inventing one is the guess this module
+refuses. Pinned by `real-corpus.test.ts`, which runs the parsers over every date string the
+corpus prints rather than over hand-picked examples.
+
+**The general lesson, which is the reason this entry is kept rather than folded into §1.5:** a
+corpus of three documents from one source cannot establish a convention, and four log entries
+said HANDLED on exactly that.
 
 ### 1.6 The same item dated twice, differently, in the same document — **PARTIAL**
 
