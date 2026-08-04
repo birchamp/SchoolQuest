@@ -55,21 +55,21 @@ function extraction(overrides: Partial<SyllabusExtraction> = {}): SyllabusExtrac
     gradingCategories: [
       {
         name: "Major Projects",
-        weightPercent: 40,
+        weightPercent: 40, pointsPossible: null,
         dropLowest: null,
         evidence: { page: 1, excerpt: "Major Projects   40%" },
         confidence: 0.95,
       },
       {
         name: "Quizzes",
-        weightPercent: 30,
+        weightPercent: 30, pointsPossible: null,
         dropLowest: null,
         evidence: { page: 1, excerpt: "Quizzes          30%" },
         confidence: 0.95,
       },
       {
         name: "Reading Responses",
-        weightPercent: 30,
+        weightPercent: 30, pointsPossible: null,
         dropLowest: null,
         evidence: { page: 1, excerpt: "Reading Responses 30%" },
         confidence: 0.95,

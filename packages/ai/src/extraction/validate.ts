@@ -440,6 +440,38 @@ export function validateExtraction(
    * counted twice, or there is extra credit — which genuinely can exceed 100 and is not a
    * fault at all. Saying "may be missing or misread" to both was accurate about neither.
    */
+  /**
+   * A scheme weighted in points is a complete scheme, and reading it as "no weights" was a
+   * false alarm on a document that states everything.
+   *
+   * Washburn's family law syllabus, verbatim: "Class Participation: Maximum of 20 points;
+   * Midterm / Project: Maximum of 40 points; Final Examination: Maximum of 40 points." That is
+   * 20/40/40 of a hundred, stated as plainly as any percentage table — and it came back as
+   * three nulls, so the student was told "No weight was found for Class Participation, Midterm
+   * / Project, Final Examination. The rest add up to 0%".
+   *
+   * The share is computed here rather than by the model, for the reason all the arithmetic is:
+   * dividing 20 by 100 is not a reading task. Only done when *every* category carries points
+   * and none carries a percentage — a document mixing the two is stating its grade twice in
+   * two units that need not agree, which is a contradiction to surface rather than average.
+   */
+  const pointsOnly =
+    extraction.gradingCategories.length > 0 &&
+    extraction.gradingCategories.every((c) => c.weightPercent === null && (c.pointsPossible ?? 0) > 0);
+
+  if (pointsOnly) {
+    const totalPoints = extraction.gradingCategories.reduce((sum, c) => sum + (c.pointsPossible ?? 0), 0);
+    for (const category of extraction.gradingCategories) {
+      category.weightPercent = round(((category.pointsPossible ?? 0) / totalPoints) * 100);
+    }
+    warnings.push(
+      `This course is graded out of ${round(totalPoints)} points rather than percentages. ` +
+        `The weights below are that share: ` +
+        extraction.gradingCategories.map((c) => `${c.name} ${c.weightPercent}%`).join(", ") +
+        `.`,
+    );
+  }
+
   const unweighted = extraction.gradingCategories.filter((c) => c.weightPercent === null);
   const stated = extraction.gradingCategories
     .map((c) => c.weightPercent)

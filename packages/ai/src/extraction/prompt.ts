@@ -55,6 +55,7 @@ Set iso to null only when the document genuinely gives you no calendar date to r
 ## Other reporting rules
 
 - Points and percentage weights are different things. Put a stated point value in pointsPossible and a stated category weight in the grading category. Never convert between them.
+- A grading category can be weighted in points instead of percent: "Class Participation: Maximum of 20 points; Midterm: 40 points; Final: 40 points". Put those in the category's pointsPossible and leave weightPercent null. Do not work out the percentage yourself — that is arithmetic, and it is done after you answer.
 - Prior-year schedules, worked examples, and sample assignments are not real coursework. Skip them.
 - Set isMajorProject true for papers, projects, presentations, and exams the syllabus treats as significant — the kind of work that needs to start early.
 - Report each assignment once. If the same item appears in both a table and a paragraph, choose the fuller mention.

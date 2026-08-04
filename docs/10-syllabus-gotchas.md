@@ -201,15 +201,31 @@ There is no grading *table* in LAN 200 at all. The weights are trailing numbers 
 four numbered paragraphs, and one of them ("…attend all classes. 20%") sits after a sentence
 about failing the course for absences. A reader looking for a table finds nothing.
 
-### 2.3 Points and percentages mixed in one document — **OPEN**
+### 2.3 A course graded in points, not percentages — **HANDLED**
 
-Not present in the current corpus, and worth watching for: a syllabus that gives a percentage
-weight per *category* and raw points per *assignment* ("Quiz 1 — 20 pts") describes the same
-grade twice in two units. `pointsPossible` and `weightPercent` are both in the schema and
-nothing reconciles them, so a course can end up with 100% of weight assigned and a points total
-that disagrees.
+> "Grading: … Course grades will be based upon a point system. Your grade will be based upon:
+> • Class Participation: **Maximum of 20 points**; • Midterm / Project: **Maximum of 40
+> points**; • Final Examination: **Maximum of 40 points**." — Washburn, Family Law
 
-**Wanted:** a real syllabus doing this, to seed the fixture with.
+This entry sat OPEN for a day with the note *"Wanted: a real syllabus doing this, to seed the
+fixture with."* A corpus of twenty real syllabuses arrived with two.
+
+20/40/40 of a hundred is a complete grading scheme, stated as plainly as any percentage table.
+The category schema had nowhere to put points, so it came back as three nulls and the student
+was told **"No weight was found for Class Participation, Midterm / Project, Final Examination.
+The rest add up to 0%"** — a false alarm on a document that states everything.
+
+Categories now carry `pointsPossible`, and the share is computed **only when every category
+states points and none states a percentage**. A document giving both is describing the same
+grade twice in two units that need not agree; averaging them would hide a contradiction worth
+surfacing, so the stated percentages are left alone and the missing ones still reported.
+
+The derivation is announced rather than silent — *"This course is graded out of 100 points
+rather than percentages"* — because a student seeing "40%" beside a syllabus that says "40
+points" deserves to know which they are looking at.
+
+**Still wanted:** a syllabus using *both* units for different categories, which the corpus does
+not have and which is the case the refusal above is written for.
 
 ### 2.4 Nothing states how many of a recurring thing there are — **PARTIAL**
 
@@ -534,6 +550,10 @@ Kept so the log's own value is measurable rather than assumed.
 | --- | --- | --- |
 | Writing §3.6 | Problem Set 6 dated to Thanksgiving week | **Fixed** — term calendar |
 | Writing §3.6 | ENG 230 expanded to 16 reading responses, one on Thanksgiving Tuesday. The answer key said 16 too, for the same reason. | **Fixed** — 15, and the key corrected |
+| Adversarial review | **Answering a clarification question did nothing.** The text was stored, the question flipped to "answered" and vanished, and nothing anywhere read it. Every review looked clean regardless of what was settled. | **Fixed** — answers now apply a date, or say plainly that they did not |
+| Adversarial review | The weekday resolver had no Sunday or Saturday button; one corpus syllabus makes its weekly logs due "every Sunday by midnight" | **Fixed** |
+| Real corpus | `parseDateRange` parsed 0 of 50 real ranges — four log entries said HANDLED on three documents from one institution | **Fixed** (§1.5a) |
+| Real corpus | Washburn states its weights in points; the app reported "add up to 0%" | **Fixed** (§2.3) |
 | Checking §2.1 | A grading category with no weight passed silently when the others summed to 100 | **Fixed** — and a dead issue code removed |
 | Checking §3.6 | LAN 200 numbers one break and skips the other, defeating the per-term flag | Open (§3.7) — pinned by a test |
 | Writing §5.4 | Policy claims are stored and rendered nowhere | Open — pinned by a test |

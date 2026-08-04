@@ -305,6 +305,69 @@ function classify(
   return { iso, basis: "class_meeting" };
 }
 
+/**
+ * Reads one date out of free text a student typed.
+ *
+ * This exists because answering a clarification question used to do nothing. The screen asked
+ * "What date should X use?", took a string, marked the question answered, removed it from the
+ * screen — and left the claim exactly as undated as before. Every question the app raises
+ * except the weekday one was a dead end, which made the review step a guaranteed pass on any
+ * document.
+ *
+ * Deliberately narrow. It reads a date and refuses everything else, so "I don't know", "ask
+ * the professor" and "sometime in week 3" all return null and are recorded as text rather than
+ * coerced into a deadline. A wrong date the student appears to have confirmed is worse than no
+ * date at all.
+ */
+export function parseStatedDate(raw: string, contextYear?: number): string | null {
+  const text = raw.replace(/[‐-―−]/g, "-").replace(/\s+/g, " ").trim();
+
+  // ISO first: a date input or a careful typist.
+  const isoMatch = /\b((?:19|20)\d{2})-(\d{1,2})-(\d{1,2})\b/.exec(text);
+  if (isoMatch) {
+    return toIso(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]));
+  }
+
+  // "December 4, 2023" / "Dec. 4" / "4 December" — the year optional, as in a schedule row.
+  const named = new RegExp(
+    String.raw`\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*((?:19|20)\d{2}))?`,
+  ).exec(text);
+  if (named) {
+    const month = MONTHS[named[1]!.toLowerCase()];
+    if (month !== undefined) {
+      const year = named[3] ? Number(named[3]) : contextYear;
+      if (year !== undefined) return toIso(year, month, Number(named[2]));
+    }
+  }
+
+  const dayFirst = new RegExp(
+    // "the 4th of December" is as common as "4 December" when a person types a date.
+    String.raw`\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([A-Za-z]{3,9})\.?(?:\s*,?\s*((?:19|20)\d{2}))?`,
+  ).exec(text);
+  if (dayFirst) {
+    const month = MONTHS[dayFirst[2]!.toLowerCase()];
+    if (month !== undefined) {
+      const year = dayFirst[3] ? Number(dayFirst[3]) : contextYear;
+      if (year !== undefined) return toIso(year, month, Number(dayFirst[1]));
+    }
+  }
+
+  // "12/4/2023", "12/4/23", "12/04" — the numeric form half the corpus uses.
+  const numeric = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/.exec(text);
+  if (numeric) {
+    const raw3 = numeric[3];
+    const year =
+      raw3 === undefined
+        ? contextYear
+        : raw3.length === 2
+          ? 2000 + Number(raw3)
+          : Number(raw3);
+    if (year !== undefined) return toIso(year, Number(numeric[1]), Number(numeric[2]));
+  }
+
+  return null;
+}
+
 export const WEEKDAY_NAMES = [
   "Sunday",
   "Monday",

@@ -7,6 +7,8 @@ import {
   createOpenRouterProvider,
   extractSyllabus,
   ExtractionError,
+  isWithinTerm,
+  parseStatedDate,
   parseWeekday,
   resolveWeekdayForClaim,
   toDueAt,
@@ -464,6 +466,141 @@ async function raiseRegistrarQuestion(db: Db, documentId: string, titles: string
     model: "none",
   });
 }
+
+
+const answerQuestionBody = z.object({
+  /** The clarification question claim being answered. */
+  questionClaimId: z.string(),
+  /** What the student typed. May be anything, including "I don't know". */
+  answer: z.string().min(1).max(400),
+});
+
+/**
+ * Applies a student's answer to a clarification question.
+ *
+ * ## Why this exists
+ *
+ * Answering a question used to do nothing. The review screen took the text, PATCHed it onto
+ * the question claim, flipped `reviewStatus` to "answered", removed it from the screen — and
+ * left the underlying claim exactly as broken as before. Nothing anywhere read `payload.answer`.
+ * Only the weekday buttons acted, and only on `relative_date` questions.
+ *
+ * That made every review step a guaranteed pass: the questions disappear, the screen goes
+ * clean, and the plan is unchanged. On a corpus of twenty real syllabuses it is the single
+ * most costly false pass, because clarification is the app's whole answer to the ambiguity it
+ * correctly detects.
+ *
+ * ## What an answer is allowed to do
+ *
+ * Set a date on the claims the question is about, and nothing else. `parseStatedDate` reads a
+ * date and refuses everything else, so "I don't know", "ask the professor" and "sometime in
+ * week 3" are recorded as text and change no deadline — a wrong date the student appears to
+ * have confirmed is worse than the missing one it replaced.
+ *
+ * The result is reported back rather than assumed. A screen that says "noted, this did not
+ * change anything" is honest; one that silently accepts is how the dead end survived.
+ */
+extractionRoute.post("/documents/:id/extraction/answer", async (c) => {
+  const db = getDb(c.env.DB);
+  const documentId = c.req.param("id");
+
+  const owned = await loadOwnedDocument(db, documentId, c.get("userId"));
+  if (!owned) return c.json({ error: "Document not found" }, 404);
+
+  const parsed = answerQuestionBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const claims = await db
+    .select()
+    .from(extractionClaims)
+    .where(eq(extractionClaims.sourceDocumentId, documentId));
+
+  const question = claims.find(
+    (x) => x.id === parsed.data.questionClaimId && x.claimType === "clarification_question",
+  );
+  if (!question) return c.json({ error: "Question not found" }, 404);
+
+  const qPayload = JSON.parse(question.payloadJson) as {
+    kind?: string;
+    relatesToTitle?: string | null;
+    relatesToTitles?: string[];
+  };
+
+  await db
+    .update(extractionClaims)
+    .set({
+      payloadJson: JSON.stringify({ ...qPayload, answer: parsed.data.answer }),
+      reviewStatus: "answered",
+    })
+    .where(eq(extractionClaims.id, question.id));
+
+  // A grouped question names every title it collapsed; a single one names just the one.
+  const titles = new Set(
+    [...(qPayload.relatesToTitles ?? []), qPayload.relatesToTitle ?? null].filter(
+      (t): t is string => typeof t === "string" && t.length > 0,
+    ),
+  );
+
+  const iso = parseStatedDate(parsed.data.answer, Number(owned.term.startDate.slice(0, 4)));
+  if (iso === null || titles.size === 0) {
+    return c.json({
+      recorded: true,
+      applied: [],
+      // Said plainly so the screen can repeat it. Recording an answer that changes nothing is
+      // a legitimate outcome; pretending it changed something is not.
+      note:
+        titles.size === 0
+          ? "Recorded. This question is not about a specific assignment, so nothing was re-dated."
+          : "Recorded, but no date was found in that answer, so nothing was re-dated.",
+    });
+  }
+
+  const outsideTerm = !isWithinTerm(iso, owned.term.startDate, owned.term.endDate);
+  const applied: { claimId: string; title: string; dueDate: string }[] = [];
+
+  for (const claim of claims) {
+    if (claim.claimType !== "assignment") continue;
+    const payload = JSON.parse(claim.payloadJson) as ClaimAssignmentPayload & {
+      issues?: string[];
+      confidenceStatus?: string;
+    };
+    if (!titles.has(payload.title)) continue;
+
+    const issues = (payload.issues ?? []).filter(
+      (issue) => issue !== "AMBIGUOUS_DATE" && issue !== "MISSING_DATE",
+    );
+    if (outsideTerm && !issues.includes("DATE_OUTSIDE_TERM")) issues.push("DATE_OUTSIDE_TERM");
+
+    await db
+      .update(extractionClaims)
+      .set({
+        payloadJson: JSON.stringify({
+          ...payload,
+          dueDate: { ...payload.dueDate, iso, ambiguity: "none" as const },
+          issues,
+          // The student typed this date, so it is theirs rather than a reading of the page —
+          // but the item it belongs to is still a machine's reading, which is why this is not
+          // "confirmed". The same reasoning the confirm route uses.
+          confidenceStatus: outsideTerm ? "low_inference" : "high_inference",
+          answeredByStudent: parsed.data.answer,
+        }),
+      })
+      .where(eq(extractionClaims.id, claim.id));
+
+    applied.push({ claimId: claim.id, title: payload.title, dueDate: iso });
+  }
+
+  return c.json({
+    recorded: true,
+    applied,
+    note:
+      applied.length === 0
+        ? "Recorded, but nothing matching that question was found to re-date."
+        : outsideTerm
+          ? `Dated ${applied.length} item${applied.length === 1 ? "" : "s"} to ${iso}, which falls outside your term — check the year.`
+          : `Dated ${applied.length} item${applied.length === 1 ? "" : "s"} to ${iso}.`,
+  });
+});
 
 const confirmBody = z.object({
   /** Claim ids the student accepted. Anything omitted is left alone, not silently applied. */

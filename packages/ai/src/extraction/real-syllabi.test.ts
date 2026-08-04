@@ -443,6 +443,7 @@ describe("grading weights in the real documents", () => {
         ].map(([name, weight]) => ({
           name: name as string,
           weightPercent: weight as number,
+          pointsPossible: null,
           dropLowest: null,
           evidence: { page: 5, excerpt: `${name} ${weight}%` },
           confidence: 0.95,
@@ -461,14 +462,14 @@ describe("grading weights in the real documents", () => {
         gradingCategories: [
           {
             name: "Quizzes",
-            weightPercent: 30,
+            weightPercent: 30, pointsPossible: null,
             dropLowest: null,
             evidence: { page: 4, excerpt: "Quizzes: Each Wednesday there will be a quiz" },
             confidence: 0.9,
           },
           {
             name: "Exams",
-            weightPercent: 40,
+            weightPercent: 40, pointsPossible: null,
             dropLowest: null,
             evidence: { page: 4, excerpt: "Exams: There are two exams this semester" },
             confidence: 0.9,

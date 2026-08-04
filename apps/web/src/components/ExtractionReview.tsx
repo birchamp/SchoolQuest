@@ -39,6 +39,8 @@ export function ExtractionReview({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolution, setResolution] = useState<string | null>(null);
+  /** What each answered question actually changed, keyed by question claim id. */
+  const [outcomes, setOutcomes] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (initial) return;
@@ -71,14 +73,36 @@ export function ExtractionReview({
     });
   }
 
+  /**
+   * Sends an answer somewhere that acts on it.
+   *
+   * This used to PATCH the answer onto the question claim and stop: nothing anywhere read
+   * `payload.answer`, so the question vanished from the screen and the claim stayed exactly as
+   * undated as before. Every review looked clean regardless of what was actually settled, which
+   * made clarification — the app's whole answer to the ambiguity it detects — a dead end.
+   *
+   * The server now applies a date when the answer contains one and says plainly when it does
+   * not. The `.catch(() => undefined)` is gone with it: an answer that failed to save used to
+   * look identical to one that worked.
+   */
   async function saveAnswer(claim: ClaimView, answer: string) {
     setAnswers((prev) => ({ ...prev, [claim.id]: answer }));
-    await api
-      .patch(`/api/extraction-claims/${claim.id}`, {
-        payload: { answer },
-        reviewStatus: "answered",
-      })
-      .catch(() => undefined);
+    setError(null);
+    try {
+      const result = await api.post<{ applied: { title: string }[]; note: string }>(
+        `/api/documents/${documentId}/extraction/answer`,
+        { questionClaimId: claim.id, answer },
+      );
+      setOutcomes((prev) => ({ ...prev, [claim.id]: result.note }));
+      if (result.applied.length > 0) {
+        const fresh = await api.get<{ claims: ClaimView[] }>(
+          `/api/documents/${documentId}/extraction`,
+        );
+        setClaims(fresh.claims);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That answer did not save.");
+    }
   }
 
   /**
@@ -236,7 +260,18 @@ export function ExtractionReview({
                   <p style={{ margin: "0 0 0.2rem", fontWeight: 500 }}>{q.question}</p>
                   <p className="muted" style={{ margin: "0 0 0.5rem" }}>{q.why}</p>
                   <div className="button-row">
-                    {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map((day) => (
+                    {[
+                      "Monday",
+                      "Tuesday",
+                      "Wednesday",
+                      "Thursday",
+                      "Friday",
+                      // A real syllabus in the corpus makes its weekly logs due "every Sunday
+                      // by midnight". With no Sunday button the student could not give the
+                      // right answer, only a wrong one or none.
+                      "Saturday",
+                      "Sunday",
+                    ].map((day) => (
                       <button
                         key={day}
                         className="action"
@@ -291,6 +326,16 @@ export function ExtractionReview({
                     I don&apos;t know yet
                   </button>
                 </div>
+                {/*
+                  What the answer actually did. Without this the question simply vanished, which
+                  read as "settled" whether or not anything changed — the false pass this whole
+                  path existed to produce.
+                */}
+                {outcomes[claim.id] && (
+                  <p className="muted" style={{ margin: "0.4rem 0 0", fontSize: "0.82rem" }}>
+                    {outcomes[claim.id]}
+                  </p>
+                )}
               </div>
             );
           })}

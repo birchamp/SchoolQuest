@@ -152,6 +152,15 @@ export type ExtractedMeetingPattern = z.infer<typeof extractedMeetingPattern>;
 export const extractedGradingCategory = z.object({
   name: z.string().min(1),
   weightPercent: z.number().min(0).max(100).nullable(),
+  /**
+   * Points, when the syllabus weights by points rather than percentages.
+   *
+   * "Class Participation: Maximum of 20 points; Midterm: 40; Final: 40" is a complete grading
+   * scheme — 20/40/40 of 100 — and with nowhere to put the numbers it came back as three
+   * nulls and the student was told "No weight was found… the rest add up to 0%". A false
+   * alarm on a document that states its weights fully.
+   */
+  pointsPossible: z.number().nonnegative().nullable().default(null),
   /** e.g. 1 when the syllabus says "lowest quiz dropped". */
   dropLowest: z.number().int().nonnegative().nullable(),
   evidence: evidence,
@@ -285,10 +294,11 @@ export const SYLLABUS_EXTRACTION_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "weightPercent", "dropLowest", "evidence", "confidence"],
+        required: ["name", "weightPercent", "pointsPossible", "dropLowest", "evidence", "confidence"],
         properties: {
           name: { type: "string" },
           weightPercent: { type: ["number", "null"] },
+          pointsPossible: { type: ["number", "null"] },
           dropLowest: { type: ["integer", "null"] },
           evidence: evidenceSchema,
           confidence: { type: "number" },
