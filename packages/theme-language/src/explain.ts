@@ -108,6 +108,7 @@ const RISK_TEXT: Record<string, string> = {
   DAILY_LIMIT_EXCEEDED: "This day exceeds your daily study limit.",
   OVER_HORIZON: "This falls outside the planned week.",
   WAITING_ITS_TURN: "Not this week — it is not due yet, and there is time.",
+  NO_TIME_NEEDED: "You said this one needs no time set aside.",
   // Without this the screen printed the raw code, lowercased: "paced to deadline · 4 items",
   // sitting unpunctuated among four proper sentences.
   PACED_TO_DEADLINE: "Being worked through steadily rather than crammed in at the end.",

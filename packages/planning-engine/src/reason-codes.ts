@@ -58,6 +58,13 @@ export const RISK_CODES = [
    * fine.
    */
   "WAITING_ITS_TURN",
+  /**
+   * The student said this piece of work needs no planning time, so none was booked.
+   *
+   * Recorded rather than silent: an item that appears in neither the plan nor the risks has
+   * vanished, and "seen and accounted for" is the whole standing goal.
+   */
+  "NO_TIME_NEEDED",
 ] as const;
 
 export type RiskCode = (typeof RISK_CODES)[number];

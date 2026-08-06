@@ -185,11 +185,22 @@ function optionsAround(assumed: number): EffortOption[] {
   const centre = nearestRung(assumed);
   const from = Math.max(0, Math.min(centre - RUNGS_BELOW, LADDER.length - (RUNGS_BELOW + RUNGS_ABOVE + 1)));
   const to = Math.min(LADDER.length, from + RUNGS_BELOW + RUNGS_ABOVE + 1);
-  return LADDER.slice(from, to).map((rung, i) => ({
-    minutes: rung.minutes,
-    label: rung.label,
-    isCurrentAssumption: from + i === centre,
-  }));
+  return [
+    ...LADDER.slice(from, to).map((rung, i) => ({
+      minutes: rung.minutes,
+      label: rung.label,
+      isCurrentAssumption: from + i === centre,
+    })),
+    /**
+     * Last, and always offered.
+     *
+     * Some graded work costs nothing to plan for — attendance, participation, an in-class quiz
+     * nobody revises for. Without this the student's only honest answers are a duration they
+     * know is wrong or "I don't know", and the shortest rung on the ladder still books a quarter
+     * of an hour of fiction into their week, times however many items are in the family.
+     */
+    { minutes: NO_TIME_NEEDED, label: "no time needed — it takes care of itself", isCurrentAssumption: false },
+  ];
 }
 
 function noun(workType: string, plural: boolean): string {
@@ -398,7 +409,17 @@ function professorLine(a: {
  * saying "these take two hours" means two hours are still owed — but an item already part-done
  * keeps its remaining, since the answer is about the size of the job, not about what is left of
  * this particular one.
+ *
+ * `NO_TIME_NEEDED` (zero) is a real answer and not an absence of one. Some graded work genuinely
+ * costs nothing to plan for: an attendance mark, a participation grade, an in-class quiz the
+ * student does not revise for, a reading they will do while the lecture happens. Forcing thirty
+ * minutes onto each of those does not make the plan safer — it fills the week with blocks the
+ * student knows are fiction, and a plan they know is fiction is a plan they stop opening.
+ *
+ * It is deliberately not the same as "I don't know" (null), which leaves the assumption standing
+ * and hands over a sentence for the instructor.
  */
+export const NO_TIME_NEEDED = 0;
 export function applyEffortAnswer(
   question: EffortQuestion,
   minutes: number,

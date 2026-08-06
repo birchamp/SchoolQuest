@@ -110,6 +110,28 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
     const priority = priorityById.get(item.id);
     if (!priority) continue;
 
+    /**
+     * "This needs no time" is an answer, and the item still exists.
+     *
+     * Some graded work genuinely costs nothing to plan for — an attendance mark, a
+     * participation grade, an in-class quiz nobody revises for. The student can now say so, and
+     * when they do the scheduler must book nothing *and* keep the item in view: dropping out of
+     * both the plan and the risks is how work disappears, which is the one thing the standing
+     * goal forbids. `unaccounted` in the semester walk measures exactly this.
+     *
+     * Distinct from an item whose time is already covered by carried blocks, which needs no
+     * announcement because its sessions are on the calendar where the student can see them.
+     */
+    if (requiredMinutes(item) === 0) {
+      risks.push({
+        level: "safe",
+        code: "NO_TIME_NEEDED",
+        workItemId: item.id,
+        detail: `You said "${item.title}" needs no planning time, so none is booked.`,
+      });
+      continue;
+    }
+
     const required = requiredMinutes(item) - (carriedMinutesByItem.get(item.id) ?? 0);
     if (required <= 0) continue;
 

@@ -487,3 +487,48 @@ describe("an oversubscribed week", () => {
     }
   });
 });
+
+describe("work the student says needs no time", () => {
+  /**
+   * The standing goal's escape hatch: "realistic time allotted to each — *unless the student
+   * says time isn't needed for that assignment*". Attendance marks, participation grades and
+   * in-class quizzes nobody revises for really do cost nothing to plan.
+   *
+   * The danger in honouring it is silence. `requiredMinutes(item) <= 0` used to fall through a
+   * bare `continue` before any risk was recorded, so a zeroed item would have left both the
+   * plan and the risk list — invisible, which is the one outcome the goal forbids.
+   */
+  const zeroed = (): PlanningInput => {
+    const input = seedPlanningInput();
+    return {
+      ...input,
+      workItems: input.workItems.map((w) =>
+        w.id === "wi_psych_reading_w2" ? { ...w, estimatedMinutes: 0, remainingMinutes: 0 } : w,
+      ),
+    };
+  };
+
+  it("books nothing for it", () => {
+    const plan = generatePlan(zeroed(), PLAN_ID);
+    expect(plan.sessions.filter((s) => s.workItemId === "wi_psych_reading_w2")).toEqual([]);
+  });
+
+  it("still says out loud that it exists and why nothing was booked", () => {
+    const plan = generatePlan(zeroed(), PLAN_ID);
+    const risk = plan.risks.find(
+      (r) => r.workItemId === "wi_psych_reading_w2" && r.code === "NO_TIME_NEEDED",
+    );
+    expect(risk).toBeDefined();
+    expect(risk!.level).toBe("safe");
+  });
+
+  it("gives the freed time to other work rather than losing it", () => {
+    // The seed week is oversubscribed, so an hour returned to the pool has somewhere to go.
+    // If it did not, "no time needed" would be a way to shrink the plan rather than to
+    // reallocate honestly.
+    const before = generatePlan(seedPlanningInput(), PLAN_ID);
+    const after = generatePlan(zeroed(), PLAN_ID);
+    const booked = (p: typeof before) => p.sessions.reduce((sum, s) => sum + s.minutes, 0);
+    expect(booked(after)).toBeGreaterThanOrEqual(booked(before) - 60);
+  });
+});

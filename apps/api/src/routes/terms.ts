@@ -282,8 +282,15 @@ const effortAnswersBody = z.object({
     .array(
       z.object({
         questionId: z.string(),
-        /** Minutes per item, or null for "I don't know — I'll ask". */
-        minutes: z.number().int().positive().max(24 * 60).nullable(),
+        /**
+         * Minutes per item; `0` for "this needs no time"; `null` for "I don't know — I'll ask".
+         *
+         * Three distinct answers, and zero used to be rejected outright by `.positive()`, which
+         * left the student's only honest options a duration they knew was wrong or a question
+         * for an instructor who cannot answer it either. Attendance marks and in-class quizzes
+         * really do cost nothing to plan for.
+         */
+        minutes: z.number().int().nonnegative().max(24 * 60).nullable(),
       }),
     )
     .min(1)

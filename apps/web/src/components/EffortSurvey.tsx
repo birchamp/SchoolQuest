@@ -85,7 +85,7 @@ export function EffortSurvey({ termId, onChanged }: { termId: string; onChanged:
   const [showAsk, setShowAsk] = useState(false);
   const [copied, setCopied] = useState(false);
   /** Set once an answer lands, so the card can say what changed without a full reload. */
-  const [settled, setSettled] = useState<{ items: number; grounded: number } | null>(null);
+  const [settled, setSettled] = useState<{ items: number; grounded: number; minutes: number } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -115,6 +115,7 @@ export function EffortSurvey({ termId, onChanged }: { termId: string; onChanged:
         setSettled({
           items: result.applied[0]?.itemsUpdated ?? 0,
           grounded: result.groundedFraction,
+          minutes,
         });
         // The plan is now built on a different number, so the rest of the app is stale.
         onChanged();
@@ -205,8 +206,12 @@ export function EffortSurvey({ termId, onChanged }: { termId: string; onChanged:
 
       {settled && (
         <p className="notice" style={{ marginTop: 0 }}>
-          Set {settled.items} {settled.items === 1 ? "item" : "items"}. Your plan has been rebuilt
-          around it.
+          {/* "Set 13 items" is wrong for the answer that sets nothing aside; saying what was
+              actually done is what makes the escape hatch feel like a choice rather than a
+              way of losing work. */}
+          {settled.minutes === 0
+            ? `${settled.items} ${settled.items === 1 ? "item needs" : "items need"} no time set aside. Nothing is booked for ${settled.items === 1 ? "it" : "them"}, and ${settled.items === 1 ? "it stays" : "they stay"} on your list.`
+            : `Set ${settled.items} ${settled.items === 1 ? "item" : "items"}. Your plan has been rebuilt around it.`}
         </p>
       )}
 

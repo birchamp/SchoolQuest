@@ -212,8 +212,47 @@ describe("how the question reads", () => {
         courses: [COURSE],
         gradingCategories: [],
       });
-      expect(survey.questions[0]!.options).toHaveLength(6);
+      const options = survey.questions[0]!.options;
+      // Six rungs of the ladder, plus "no time needed", which is offered on every question.
+      expect(options).toHaveLength(7);
+      expect(options.filter((o) => o.minutes > 0)).toHaveLength(6);
+      expect(options[options.length - 1]!.minutes).toBe(0);
     }
+  });
+
+  it("offers 'no time needed' as a real answer, last and never preselected", () => {
+    /**
+     * The standing goal has an escape hatch — "realistic time allotted to each *unless the
+     * student says time isn't needed*" — and until now there was no way to say it. Some graded
+     * work genuinely costs nothing to plan for: an attendance mark, a participation grade, an
+     * in-class quiz nobody revises for.
+     *
+     * Last on the list and never the current assumption, because it should be a deliberate
+     * choice rather than the easiest way out of a question. It is also not the same as "I don't
+     * know", which leaves the guess standing and drafts a question for the instructor.
+     */
+    const survey = buildEffortSurvey({
+      workItems: [item({ workType: "discussion" })],
+      courses: [COURSE],
+      gradingCategories: [],
+    });
+    const zero = survey.questions[0]!.options.find((o) => o.minutes === 0)!;
+    expect(zero.isCurrentAssumption).toBe(false);
+    expect(zero.label).toContain("no time needed");
+  });
+
+  it("counts work the student excused as settled, not as still-unknown", () => {
+    // Answering "no time needed" has to stop the question coming back, or the escape hatch is
+    // a loop. Zero is a number somebody gave us; null is the absence of one.
+    const answered = item({ estimatedMinutes: 0, remainingMinutes: 0 });
+    const survey = buildEffortSurvey({
+      workItems: [answered],
+      courses: [COURSE],
+      gradingCategories: [],
+    });
+    expect(survey.questions).toEqual([]);
+    expect(survey.assumedItemCount).toBe(0);
+    expect(survey.groundedFraction).toBe(1);
   });
 
   it("counts a shared grading category once, not once per item", () => {
