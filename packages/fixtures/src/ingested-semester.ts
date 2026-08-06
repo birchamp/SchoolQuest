@@ -23,10 +23,20 @@ import type {
  * two apart is worse than no test.
  *
  * Regenerate it by dumping the seeded account's current plan; the shape here is the plan
- * payload's own, minus the derived views. Grading categories are absent because no route
- * exposes them, so anything reading this runs with no grade data — which is the honest state of
- * a term where nothing has been handed back yet, and the state the health engine is written to
- * survive.
+ * payload's own, minus the derived views. No grade *results* are included, which is the honest
+ * state of a term where nothing has been handed back yet, and the state the health engine is
+ * written to survive.
+ *
+ * ## `gradingConfidence` here was corrected, not dumped
+ *
+ * The grading categories below came out of ingest with their weights, and every course still
+ * read `gradingConfidence: "unknown"` — because the confirm route inserted the categories and
+ * never moved the flag, which only the manual add-a-course form ever set. Five courses, every
+ * category present and accepted, all five saying nobody knew how the grade was built.
+ *
+ * The route now sets `high_inference` when it writes categories, verified against a live Worker
+ * and D1. The five values here are corrected to match rather than left recording the bug; the
+ * next full regeneration will produce them directly.
  *
  * ## Two dates in here were typed by a test, not read from a syllabus
  *
@@ -206,7 +216,7 @@ export const INGESTED_SEMESTER = {
       "colorToken": "azure",
       "credits": 4,
       "expectedWeeklyMinutes": null,
-      "gradingConfidence": "unknown",
+      "gradingConfidence": "high_inference",
       "id": "crs_a0b6293b8e4e4e1d89a4",
       "instructor": null,
       "name": "General Biology I (BIO 240)",
@@ -218,7 +228,7 @@ export const INGESTED_SEMESTER = {
       "colorToken": "vermilion",
       "credits": 3,
       "expectedWeeklyMinutes": null,
-      "gradingConfidence": "unknown",
+      "gradingConfidence": "high_inference",
       "id": "crs_dbe1efa61050427dbdd4",
       "instructor": null,
       "name": "United States History to 1877 (HIS 210)",
@@ -230,7 +240,7 @@ export const INGESTED_SEMESTER = {
       "colorToken": "verdant",
       "credits": 3,
       "expectedWeeklyMinutes": null,
-      "gradingConfidence": "unknown",
+      "gradingConfidence": "high_inference",
       "id": "crs_cae3d9f6aa6b4eb8a65a",
       "instructor": null,
       "name": "Introductory Statistics (MAT 205)",
@@ -242,7 +252,7 @@ export const INGESTED_SEMESTER = {
       "colorToken": "amber",
       "credits": 3,
       "expectedWeeklyMinutes": null,
-      "gradingConfidence": "unknown",
+      "gradingConfidence": "high_inference",
       "id": "crs_386b1d199c6941f08e73",
       "instructor": null,
       "name": "Introduction to Creative Writing (ENG 230)",
@@ -254,7 +264,7 @@ export const INGESTED_SEMESTER = {
       "colorToken": "violet",
       "credits": 2,
       "expectedWeeklyMinutes": null,
-      "gradingConfidence": "unknown",
+      "gradingConfidence": "high_inference",
       "id": "crs_11b55b2455c04e4195f7",
       "instructor": null,
       "name": "Lifetime Fitness (PED 110)",

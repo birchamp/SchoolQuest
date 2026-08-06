@@ -671,6 +671,26 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
     await markResolved(db, claim.id, "grading_category", id);
   }
 
+  /**
+   * The course now knows how its grade is built, so say so.
+   *
+   * Without this the flag never moved off its `"unknown"` default for any course created by
+   * ingest — only the manual add-a-course form ever set it — so a term with every category
+   * stored, weighted and accepted still read as a term nobody knew the grading for. Measured on
+   * the ingested-semester fixture: five courses, all their categories present, all five
+   * `"unknown"`.
+   *
+   * `high_inference`, not `confirmed`: the student accepted the claim, but a model did the
+   * reading. That is the same standing the categories themselves get two lines above, and the
+   * same one the confirm route gives a dated work item.
+   */
+  if (categoryIdByName.size > 0) {
+    await db
+      .update(courses)
+      .set({ gradingConfidence: "high_inference" })
+      .where(and(eq(courses.id, courseId), eq(courses.gradingConfidence, "unknown")));
+  }
+
   // --- Meeting patterns.
   for (const claim of claims.filter((c) => c.claimType === "meeting_pattern")) {
     const payload = JSON.parse(claim.payloadJson) as {
