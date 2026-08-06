@@ -23,7 +23,12 @@ import type {
   PriorityScore,
 } from "./types.js";
 
-export const ALGORITHM_VERSION = "heuristic-v1";
+/**
+ * v2 adds the first-touch pass: in an oversubscribed week every course gets one block before
+ * any course gets a second. Stamped on every plan, so a plan made under the old rule is
+ * identifiable rather than silently assumed to be comparable.
+ */
+export const ALGORITHM_VERSION = "heuristic-v2";
 
 /** Fallback effort by work type, used only when the student has given us nothing better. */
 const DEFAULT_EFFORT_MINUTES: Record<string, number> = {
@@ -188,42 +193,97 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
    * previous attempt at deferring distant work was reverted for exactly this, so the rule keeps
    * the deferral and adds the floor rather than choosing between them.
    */
+  /** Places one chunk of this work, or returns null when nothing will hold it. */
+  const placeChunk = (work: PendingWork, chunk: number, earliest: number): number | null => {
+    const placement = findBestPlacement(work, chunk, earliest, remainingWindows, {
+      input,
+      dailyMinutes,
+    });
+    if (!placement) return null;
+
+    sessions.push({
+      id: `${planVersionId}_s${sessionCounter++}`,
+      workItemId: work.item.id,
+      courseId: work.item.courseId,
+      startAt: fromEpochMinutes(placement.start),
+      endAt: fromEpochMinutes(placement.end),
+      minutes: placement.end - placement.start,
+      locked: false,
+      acceptedByUser: false,
+      reasonCodes: mergeReasonCodes(work.priority.reasonCodes, placement.reasonCodes),
+      tradeoffCode: placement.tradeoffCode,
+      // Freshly proposed blocks are the cheapest thing to move on the next replan.
+      movementCost: 0.2,
+    });
+
+    consumeWithBreak(remainingWindows, placement.start, placement.end, input);
+    addDaily(dailyMinutes, fromEpochMinutes(placement.start), placement.end - placement.start);
+    work.minutesRemaining -= placement.end - placement.start;
+    return placement.end;
+  };
+
+  /**
+   * Under overload, give every course one session before any course gets a second.
+   *
+   * The greedy pass below is priority-ordered and takes each item's whole weekly allocation
+   * before moving on, which is right when the week has room: finishing a thing beats
+   * half-finishing five. When the week does not have room it is ruinous. `horizonAllocation`
+   * hands an item its *entire* remaining effort once the deadline is inside the horizon, so one
+   * problem set due Friday can take nine of ten blocks and four courses get nothing — measured
+   * at a median of three courses of five per week under an eight-hour budget, twice dropping to
+   * one.
+   *
+   * A student drowning in five courses is better served by partial credit in five than full
+   * credit in one, and by knowing every course is still moving. So each course's top-priority
+   * item gets one session's worth reserved first, and the greedy pass then allocates what is
+   * left in the usual order.
+   *
+   * Only when the week is genuinely oversubscribed. With slack there is nothing to arbitrate —
+   * everything gets its full allocation either way — and reordering a week that fits would
+   * scatter work for no gain.
+   */
+  const placedByFirstTouch = new Set<string>();
+  const placeOnePerCourse = () => {
+    // A successor placed before its predecessor is scheduled would violate the ordering the
+    // greedy pass maintains, and this pass runs before any of that is known.
+    const hasPendingPredecessor = new Set(
+      input.dependencies
+        .filter((d) => orderedPending.some((w) => w.item.id === d.predecessorWorkItemId))
+        .map((d) => d.successorWorkItemId),
+    );
+
+    const touched = new Set<string>();
+    for (const work of orderedPending) {
+      if (touched.has(work.item.courseId)) continue;
+      if (hasPendingPredecessor.has(work.item.id)) continue;
+      if (work.minutesRemaining <= 0) continue;
+
+      // One useful session, not one token minute. Indivisible work is placed whole or not at
+      // all, which is what it means for it to be indivisible.
+      const cap = Math.max(input.preferences.minSessionMinutes, FIRST_TOUCH_MINUTES);
+      const chunk =
+        work.item.divisibility === "divisible"
+          ? Math.min(work.minutesRemaining, cap)
+          : work.minutesRemaining;
+
+      const earliest = Math.max(work.earliestStart, now);
+      if (placeChunk(work, chunk, earliest) === null) continue;
+      touched.add(work.item.courseId);
+      placedByFirstTouch.add(work.item.id);
+    }
+  };
+
   const placeAll = () => {
   for (const work of orderedPending) {
     const dependencyFloor = earliestStartByItem.get(work.item.id) ?? Number.NEGATIVE_INFINITY;
     const earliest = Math.max(work.earliestStart, dependencyFloor, now);
     let lastEnd = earliest;
-    let placedAny = false;
+    let placedAny = placedByFirstTouch.has(work.item.id);
 
     while (work.minutesRemaining > 0) {
-      const chunk = nextChunkMinutes(work, input);
-      const placement = findBestPlacement(work, chunk, earliest, remainingWindows, {
-        input,
-        dailyMinutes,
-      });
-
-      if (!placement) break;
-
-      const id = `${planVersionId}_s${sessionCounter++}`;
-      sessions.push({
-        id,
-        workItemId: work.item.id,
-        courseId: work.item.courseId,
-        startAt: fromEpochMinutes(placement.start),
-        endAt: fromEpochMinutes(placement.end),
-        minutes: placement.end - placement.start,
-        locked: false,
-        acceptedByUser: false,
-        reasonCodes: mergeReasonCodes(work.priority.reasonCodes, placement.reasonCodes),
-        tradeoffCode: placement.tradeoffCode,
-        // Freshly proposed blocks are the cheapest thing to move on the next replan.
-        movementCost: 0.2,
-      });
-
-      consumeWithBreak(remainingWindows, placement.start, placement.end, input);
-      addDaily(dailyMinutes, fromEpochMinutes(placement.start), placement.end - placement.start);
-      work.minutesRemaining -= placement.end - placement.start;
-      lastEnd = Math.max(lastEnd, placement.end);
+      const end = placeChunk(work, nextChunkMinutes(work, input), earliest);
+      if (end === null) break;
+      lastEnd = Math.max(lastEnd, end);
       placedAny = true;
     }
 
@@ -241,6 +301,16 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
     }
   }
   };
+
+  /**
+   * Demand against what is actually left after the carried blocks, and across more than one
+   * course — a single-course week has nothing to arbitrate between.
+   */
+  const demandMinutes = orderedPending.reduce((sum, w) => sum + w.minutesRemaining, 0);
+  const coursesWithWork = new Set(orderedPending.map((w) => w.item.courseId)).size;
+  if (coursesWithWork > 1 && demandMinutes > totalCapacityMinutes(remainingWindows)) {
+    placeOnePerCourse();
+  }
 
   placeAll();
   if (sessions.length === carried.length && orderedPending.length > 0) {
@@ -297,6 +367,13 @@ const LONG_PROJECT_MINUTES = 120;
 
 /** A paced project always gets at least this much, so it can never become invisible. */
 const MIN_PACED_MINUTES = 45;
+
+/**
+ * What one course is guaranteed in an oversubscribed week, before any course gets a second
+ * block. Half an hour: enough to be a real sitting rather than a gesture, small enough that
+ * five courses cost well under half of even a squeezed eight-hour week.
+ */
+const FIRST_TOUCH_MINUTES = 30;
 
 /**
  * How much of a long item's remaining effort belongs in *this* horizon.

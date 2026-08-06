@@ -658,22 +658,23 @@ describe("a term with more work than hours", () => {
     expect(done).toBeLessThan(totalItems);
   });
 
-  it("concentrates rather than spreads — a known gap, recorded so it cannot be forgotten", () => {
+  it("keeps every course moving, week after week, instead of concentrating", () => {
     /**
-     * This is the one thing overload exposes that the app does *not* currently handle well, and
-     * it is asserted loosely on purpose: the test exists to make the behaviour visible and to
-     * fail loudly if it gets worse, not to bless it.
+     * The standing goal says *all* courses, every week. Under overload this used to be the one
+     * place it plainly did not hold: with eight hours against five courses the planner touched a
+     * median of three courses a week and twice dropped to one.
      *
-     * With eight hours against five courses the planner touches a median of three courses a
-     * week and twice drops to one. The mechanism is not a bug in the ordinary sense —
-     * `horizonAllocation` hands an item its *entire* remaining effort once the deadline is
-     * inside the horizon, which is right when there is slack and ruinous when there is not. One
-     * problem set due Friday can take nine of ten blocks, and four courses get nothing.
+     * The mechanism was never a bug in the ordinary sense. `horizonAllocation` hands an item its
+     * entire remaining effort once the deadline is inside the horizon, and the placement pass is
+     * priority-ordered and greedy, so one problem set due Friday could take nine of ten blocks
+     * and four courses got nothing. That is the right behaviour when the week has room.
      *
-     * Whether that is wrong is a product judgement rather than a defect. Finishing one thing
-     * beats half-finishing five, sometimes; and in a five-course term where a student is already
-     * drowning, partial credit in four courses usually beats full credit in one. Deciding it
-     * needs a person, so this records the number and leaves the decision open.
+     * `placeOnePerCourse` now runs first when demand exceeds what is left of the week, giving
+     * each course's top-priority item one session before any course gets a second. It is a
+     * product judgement and worth stating as one: a student already drowning in five courses is
+     * better served by partial credit in five than full credit in one, and by seeing that
+     * nothing has gone dark. It costs finishing speed, and the numbers below are where that cost
+     * shows up.
      */
     const coverage = shortfalls.map((s) => s.coursesTouched);
     const sorted = [...coverage].sort((a, b) => a - b);
@@ -685,12 +686,10 @@ describe("a term with more work than hours", () => {
         `worst ${Math.min(...coverage)}, best ${Math.max(...coverage)}`,
     );
 
-    // Never zero: a week that touches no course at all would be the deadlock this run exists
-    // to rule out, and that guarantee is real.
-    expect(Math.min(...coverage)).toBeGreaterThan(0);
-    // The floor this must not slip below. If a change drops the median to one, the planner has
-    // stopped spreading altogether and somebody should have to argue for that.
-    expect(median).toBeGreaterThanOrEqual(2);
+    // Every course, every week, is the goal. One short week is tolerated — a course can run out
+    // of open work, and a week can be too fragmented to seat a fifth block — but not two.
+    expect(Math.min(...coverage)).toBeGreaterThanOrEqual(total - 1);
+    expect(median).toBe(total);
   });
 
   it("spends its scarce hours on graded work before optional work", () => {

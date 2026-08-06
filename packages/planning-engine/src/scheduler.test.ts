@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { seedPlanningInput, SEED_NOW } from "./seed-input.js";
 import { toEpochMinutes, type WorkItem, type WorkSession } from "@schoolquest/domain";
 import { generatePlan, selectRecommendedSessions } from "./scheduler.js";
-import { scoreWorkItems } from "./priority.js";
+import { isSchedulable, scoreWorkItems } from "./priority.js";
 import { buildCapacityWindows } from "./capacity.js";
 import type { PlanningInput } from "./types.js";
 
@@ -382,5 +382,108 @@ describe("recommendation variety", () => {
     }));
     // Three blocks, one assignment: Today should say so rather than pad the list.
     expect(selectRecommendedSessions(blocks, now)).toHaveLength(1);
+  });
+});
+
+describe("an oversubscribed week", () => {
+  /**
+   * Two hours a week against the seed semester's full course load. Nothing like enough, which
+   * is the point: this is where the planner has to choose, and what it chooses is the product.
+   */
+  const squeezed = (): PlanningInput =>
+    seedPlanningInput({
+      availabilityRules: [
+        {
+          id: "avl_squeeze",
+          termId: "trm_fall",
+          dayOfWeek: 3,
+          startTime: "13:00",
+          endTime: "15:00",
+          energyLevel: "medium",
+          location: "anywhere",
+          hardness: "soft",
+        },
+      ],
+    });
+
+  it("gives every course with open work a block before any course gets a second", () => {
+    /**
+     * The greedy pass is priority-ordered and takes an item's whole weekly allocation before
+     * moving on. With room that is right — finishing beats half-finishing. With two hours it
+     * meant one problem set could take the entire week and every other course went dark, which
+     * measured out at a median of three courses of five across a whole simulated term.
+     *
+     * A student drowning in five courses needs to see that none of them has stopped.
+     */
+    const input = squeezed();
+    const plan = generatePlan(input, PLAN_ID);
+
+    const schedulable = new Set(input.workItems.filter(isSchedulable).map((w) => w.courseId));
+    const touched = new Set(plan.sessions.map((s) => s.courseId));
+
+    expect(schedulable.size).toBeGreaterThan(1);
+    for (const courseId of schedulable) expect([...touched], courseId).toContain(courseId);
+  });
+
+  it("still spends most of the squeezed week on the work that matters most", () => {
+    // Spreading is a floor, not a policy. After every course has its one block, the rest of the
+    // week goes back to priority order — otherwise "fair" would just mean "flat".
+    const plan = generatePlan(squeezed(), PLAN_ID);
+    const byCourse = new Map<string, number>();
+    for (const s of plan.sessions) {
+      byCourse.set(s.courseId, (byCourse.get(s.courseId) ?? 0) + s.minutes);
+    }
+    const minutes = [...byCourse.values()].sort((a, b) => b - a);
+    expect(minutes[0]).toBeGreaterThan(minutes[minutes.length - 1]!);
+  });
+
+  it("leaves a week that fits alone", () => {
+    /**
+     * The first-touch pass runs only when demand exceeds what is left of the week — and the seed
+     * week does not fit, at 2235 minutes of work against 1790 of capacity, which is worth
+     * knowing: the default scenario every other test in this file uses is already an
+     * oversubscribed one.
+     *
+     * So slack has to be built. With the whole day free every day, everything gets its full
+     * allocation and nothing is left over. That is the property the guard protects, and it is
+     * also the arithmetic check on the new pass: a first-touch block that failed to decrement
+     * the item's remaining minutes would show up here as work scheduled twice or not at all.
+     */
+    const roomy = seedPlanningInput({
+      availabilityRules: [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+        id: `avl_roomy_${dayOfWeek}`,
+        termId: "trm_fall",
+        dayOfWeek,
+        startTime: "08:00",
+        endTime: "20:00",
+        energyLevel: "medium" as const,
+        location: "anywhere" as const,
+        hardness: "soft" as const,
+      })),
+      preferences: {
+        ...seedPlanningInput().preferences,
+        maxDailyAcademicMinutes: 600,
+      },
+    });
+    const plan = generatePlan(roomy, PLAN_ID);
+
+    // Only work whose predecessor has not finished inside the horizon is left over — the
+    // dependency floor, not capacity.
+    expect(plan.unscheduledWorkItemIds).toEqual(["wi_edu_observe", "wi_psych_revise"]);
+
+    const booked = new Map<string, number>();
+    for (const s of plan.sessions) {
+      booked.set(s.workItemId, (booked.get(s.workItemId) ?? 0) + s.minutes);
+    }
+    for (const [workItemId, minutes] of booked) {
+      const item = roomy.workItems.find((w) => w.id === workItemId)!;
+      const required = item.remainingMinutes ?? item.estimatedMinutes;
+      if (required === null) continue;
+      // Long projects are paced against their runway and get a share by design, so only work
+      // short enough to sit inside one week is expected whole. Nothing may exceed its
+      // requirement — double-counting a first-touch block would show up exactly there.
+      expect(minutes, item.title).toBeLessThanOrEqual(required);
+      if (required <= 120) expect(minutes, item.title).toBe(required);
+    }
   });
 });
