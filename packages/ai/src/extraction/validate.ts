@@ -101,11 +101,47 @@ function normalize(text: string): string {
 }
 
 /**
+ * Excerpts shorter than this cannot use the near-miss fallback at all.
+ *
+ * A three-word quote needs three words on the page to score 100%, and on a schedule page
+ * almost any three words are: "Test Homework session" scored a clean pass against a real
+ * calculus schedule. Below this length overlap carries no information, so an excerpt that
+ * fails the exact match is treated as absent. The prompt already asks for a full line.
+ */
+const MIN_FALLBACK_TOKENS = 5;
+
+/**
+ * How far the matched words may be spread before they stop being one quotation.
+ *
+ * Twice the quote's content-word count, in page tokens. A real quotation is *denser* than
+ * that even after pdf.js has interleaved a column of times or page numbers through it, so the
+ * slack is generous; an invented sentence has to find its words wherever they happen to be
+ * printed, which on a five-month schedule table is tens of rows apart.
+ *
+ * The floor stops a short quote from getting a large window by arithmetic.
+ */
+function localityWindow(needleTokenCount: number): number {
+  return Math.max(needleTokenCount * 2, 16);
+}
+
+/**
  * Confirms the model quoted something that is really there.
  *
  * Exact substring match after normalization is the primary test. PDF text extraction can
  * drop or reorder the odd character, so a near-miss falls back to token overlap rather
  * than failing a legitimate claim outright.
+ *
+ * The fallback is deliberately narrow, because it is the softest part of the whole extraction
+ * contract. It used to ask only whether 80% of the quoted content words appeared *somewhere*
+ * on the page, as a substring of anything. On a dense schedule page that is close to free:
+ * "Feb 14 Problem session Homework 1.3 Hydrostatic Force Review Test 1" describes work that
+ * does not exist and scored 100%, because every one of those words is printed somewhere in
+ * five months of schedule rows.
+ *
+ * So the overlap is now measured **inside a window**. The quoted words have to cluster in one
+ * region of the page, at token level, the way a real quotation does — which still tolerates
+ * pdf.js dropping a word or transposing a column, and stops an invented sentence assembled
+ * from the page's whole vocabulary. See `hostile-model.test.ts`, which exists to attack this.
  */
 export function verifyEvidence(
   excerpt: string,
@@ -116,15 +152,30 @@ export function verifyEvidence(
   if (needle.length === 0) return { verified: false, partial: false };
   if (haystack.includes(needle)) return { verified: true, partial: false };
 
-  // Fall back to token overlap: most of the quoted words should appear on the page.
   const tokens = needle.split(" ").filter((t) => t.length > 2);
-  if (tokens.length === 0) return { verified: false, partial: false };
-  const present = tokens.filter((t) => haystack.includes(t)).length;
-  const ratio = present / tokens.length;
+  if (tokens.length < MIN_FALLBACK_TOKENS) return { verified: false, partial: false };
+
+  // Token-level matching, not whole-page substring: "test" must be a page *word* containing
+  // "test", so it no longer matches inside "latest" halfway down the document.
+  const pageTokens = haystack.split(" ");
+  const hits = tokens.map((t) => {
+    const at: number[] = [];
+    for (let i = 0; i < pageTokens.length; i += 1) if (pageTokens[i]!.includes(t)) at.push(i);
+    return at;
+  });
+
+  const window = localityWindow(tokens.length);
+  // Every window worth trying starts at a position where some quoted word actually occurs.
+  const starts = new Set<number>([0, ...hits.flat()]);
+  let best = 0;
+  for (const start of starts) {
+    const present = hits.filter((at) => at.some((i) => i >= start && i < start + window)).length;
+    if (present > best) best = present;
+  }
 
   // 0.8 tolerates extraction noise while still rejecting an invented sentence, whose
-  // content words will not be on the page at all.
-  return { verified: false, partial: ratio >= 0.8 };
+  // content words will not be clustered anywhere on the page.
+  return { verified: false, partial: best / tokens.length >= 0.8 };
 }
 
 const MONTH_NAMES = [

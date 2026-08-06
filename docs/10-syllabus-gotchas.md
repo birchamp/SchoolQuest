@@ -490,6 +490,65 @@ the database of every account that uploaded LAN 200.
 
 ---
 
+## 6. What the model itself gets wrong
+
+Everything above is a defect in the *document*. This section is for defects in the *reading* —
+things a fluent model does to a syllabus that no amount of careful parsing will catch, because
+the parser is downstream of the lie.
+
+### 6.1 An invented assignment quoted in words the page really contains — **HANDLED**
+
+> "Feb 14 Problem session Homework 1.3 Hydrostatic Force Review Test 1"
+
+Every one of those words is printed on page 7 of a real calculus schedule. None of them appear
+in that order, and the assignment described does not exist.
+
+The evidence contract is the whole basis for trusting extraction: every claim carries the page
+and the literal text it came from, and `verifyEvidence` checks the text is really there. Exact
+substring is the primary test; a near-miss fell back to token overlap, because pdf.js does drop
+and transpose words and a legitimate quote should not die over one mangled ligature.
+
+That fallback asked whether 80% of the quoted content words appeared **somewhere** on the page,
+in any order, as a substring of anything. On a five-month schedule table — every month
+abbreviation, every day number, every assignment noun already printed — that is close to free.
+The sentence above scored 100%. So did `"Test Homework session"`, three words long.
+
+Found by writing `packages/ai/src/extraction/hostile-model.test.ts`, which authors extraction
+JSON the way a hallucinating model would and asks what survives. Nothing had ever confirmed the
+check rejected anything at all.
+
+Fixed in two parts:
+
+- **Locality.** Overlap is now measured inside a window of the page — twice the quote's
+  content-word count, floor sixteen tokens — so the matched words have to cluster the way a real
+  quotation does. Word salad has to find its words wherever they happen to be printed, which on
+  a schedule table is tens of rows apart.
+- **A floor on length.** Under five content words the fallback is refused outright. A three-word
+  quote reaches 100% on almost any dense page, so the ratio carries no information. Short quotes
+  that are genuinely present still pass — on the exact match, which is where they should pass.
+
+Residual tolerance, measured and asserted: an eight-word real quote can carry **two** invented
+words before rejection, down from four. That is deliberate, not leftover — a check that survives
+no noise at all will discard real work the first time pdf.js drops a word.
+
+Verified against the full corpus: no legitimate claim in any existing test lost its evidence.
+
+### 6.2 A real date attached to the wrong item — **OPEN, and outside this check**
+
+> Evidence `"Feb 21 Test 2"`, verbatim from the page. Due date reported as Feb 18.
+
+The excerpt is real, the date is real, the pairing is invented. `verifyEvidence` passes it,
+`dateAppearsInSource` passes it, and the only issue raised is `TIME_NOT_STATED` — which every
+dateless-time claim gets and says nothing about truth. A wrong date at high confidence with no
+signal anywhere.
+
+This is the structural limit of a per-claim evidence check and it should not be papered over by
+loosening one. The defence is §5.1: compare the resolved weekday against the meeting pattern the
+same document states. Pinned as the known limit in `hostile-model.test.ts` so closing §5.1 has a
+test waiting for it.
+
+---
+
 ## Where this bites hardest
 
 Ordered by what it costs the student, not by how hard it is to fix:
@@ -558,3 +617,5 @@ Kept so the log's own value is measurable rather than assumed.
 | Checking §3.6 | LAN 200 numbers one break and skips the other, defeating the per-term flag | Open (§3.7) — pinned by a test |
 | Writing §5.4 | Policy claims are stored and rendered nowhere | Open — pinned by a test |
 | Reading D1 | A weekday answer dating a registrar-scheduled final | Fixed (§1.3) |
+| Writing the hostile-model test | The evidence check had never been shown to reject anything, and its near-miss fallback accepted a sentence assembled from words scattered across a whole schedule page — and any three-word excerpt | **Fixed** (§6.1) — locality window and a length floor |
+| Writing the hostile-model test | A verbatim excerpt paired with a real date belonging to a different row raises no issue at all | Open (§6.2) — pinned by a test, and closing §5.1 closes it |
