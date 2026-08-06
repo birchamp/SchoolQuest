@@ -254,7 +254,22 @@ export function Today({
       if (existing) existing.count += 1;
       else byText.set(key, { key, level: risk.level, text, count: 1 });
     }
-    return [...byText.values()].slice(0, 4);
+    /**
+     * Severest first, then only four.
+     *
+     * The cap was applied to collection order, which is the order the scheduler happens to push
+     * risks: the per-item warnings are collected while work is being sized, and the "could not
+     * fit this" ones only at the very end. So three watch-level rows could push a genuine
+     * at-risk row off the bottom — observed on the test term, where "No available window fits
+     * this before it is due" was invisible until an unrelated change freed a slot.
+     *
+     * Four is the cap because a wall of warnings is a wall nobody reads. Which four is the
+     * decision that makes the cap safe rather than lossy.
+     */
+    const severity: Record<string, number> = { decision_needed: 0, at_risk: 1, watch: 2, safe: 3 };
+    return [...byText.values()]
+      .sort((a, b) => (severity[a.level] ?? 9) - (severity[b.level] ?? 9) || b.count - a.count)
+      .slice(0, 4);
   })();
 
 

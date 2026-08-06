@@ -47,6 +47,17 @@ export const RISK_CODES = [
   "OVER_HORIZON",
   /** Long work being advanced steadily rather than crammed into one horizon. */
   "PACED_TO_DEADLINE",
+  /**
+   * Nothing was booked for this, on purpose: its deadline is past the end of the horizon and
+   * its runway has not opened yet.
+   *
+   * Distinct from `NO_FEASIBLE_WINDOW`, which it used to be reported as. On the first Monday of
+   * a real ingested term that meant 42 of 61 items were shown at `at_risk` saying "no available
+   * window fits this before it is due" — and every single one of them was due weeks later, with
+   * nothing wrong at all. This is the same fact told truthfully: not this week, and that is
+   * fine.
+   */
+  "WAITING_ITS_TURN",
 ] as const;
 
 export type RiskCode = (typeof RISK_CODES)[number];

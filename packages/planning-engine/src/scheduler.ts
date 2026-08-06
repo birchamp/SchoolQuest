@@ -297,7 +297,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
 
     if (work.minutesRemaining > 0) {
       unscheduled.push(work.item.id);
-      risks.push(unscheduledRisk(work, placedAny));
+      risks.push(unscheduledRisk(work, placedAny, horizonEndMinutes));
     }
   }
   };
@@ -701,8 +701,40 @@ function applyDependencyOrder(pending: PendingWork[], input: PlanningInput): Pen
   return ordered;
 }
 
-function unscheduledRisk(work: PendingWork, placedAny: boolean): PlanRisk {
+/**
+ * What to say about work that got no time this week.
+ *
+ * There are two entirely different reasons for that and they used to be told as one. The risk
+ * carried the qualifier — "no window *in this horizon*" — and the sentence the student actually
+ * reads (`explainRisk`) dropped it: "No available window fits this before it is due."
+ *
+ * Measured on the first Monday of a real ingested term: 42 of 61 items raised that risk, at
+ * `at_risk`, and **every one of them was due beyond the end of the horizon**. Zero were due
+ * inside it. The app was telling a student who is anxious and time-blind by definition that two
+ * thirds of their semester could not be fitted before its deadlines, on day one, when the true
+ * state was "not this week, and there is plenty of time".
+ *
+ * For this audience that is worse than saying nothing. An alarm that is wrong two thirds of the
+ * time trains the reader to ignore the third that is real.
+ */
+function unscheduledRisk(
+  work: PendingWork,
+  placedAny: boolean,
+  horizonEndMinutes: number,
+): PlanRisk {
   if (!placedAny) {
+    const dueMinutes = work.item.dueAt ? toEpochMinutes(work.item.dueAt) : null;
+    if (dueMinutes !== null && dueMinutes > horizonEndMinutes) {
+      // Deliberately deferred: `horizonAllocation` has not opened its runway yet. Still recorded
+      // rather than dropped, so the item stays accounted for instead of vanishing from view —
+      // "seen and accounted for" is the standing goal, and silence is not accounting.
+      return {
+        level: "safe",
+        code: "WAITING_ITS_TURN",
+        workItemId: work.item.id,
+        detail: `"${work.item.title}" is not due until ${work.item.dueAt!.slice(0, 10)}, so nothing is booked for it this week.`,
+      };
+    }
     return {
       level: "at_risk",
       code: "NO_FEASIBLE_WINDOW",

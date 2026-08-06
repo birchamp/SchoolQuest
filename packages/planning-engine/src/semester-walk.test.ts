@@ -212,6 +212,29 @@ for (const [index, weekStart] of weeks.entries()) {
     );
   }
 
+  /**
+   * An `at_risk` alarm must mean the deadline is actually in danger.
+   *
+   * `NO_FEASIBLE_WINDOW` reads to the student as "No available window fits this before it is
+   * due." On the first Monday of this term it fired on 42 of 61 items, and every single one of
+   * them was due weeks past the end of the horizon — deliberately deferred by
+   * `horizonAllocation`, with nothing wrong at all. Two thirds of a semester declared in danger
+   * on day one, to a reader who is anxious and time-blind by definition.
+   *
+   * Checked on all sixteen weeks of both runs rather than at one moment, because the honest
+   * shape of this signal is that it stays near zero early and grows as real deadlines close in.
+   */
+  const horizonEnd = nowMinutes + HORIZON_DAYS * MINUTES_PER_DAY;
+  for (const risk of plan.risks) {
+    if (risk.code !== "NO_FEASIBLE_WINDOW") continue;
+    const item = risk.workItemId ? items.get(risk.workItemId) : undefined;
+    if (item?.dueAt && toEpochMinutes(item.dueAt) > horizonEnd) {
+      problems.push(
+        `week ${index + 1}: cried at-risk over "${item.title}", which is not due until ${item.dueAt.slice(0, 10)}`,
+      );
+    }
+  }
+
   // --- Record the new plan, retiring last week's blocks the way the API does. ---
   for (const [id, s] of sessionsById) {
     if (s.status === "planned" && toEpochMinutes(s.startAt) >= nowMinutes) sessionsById.delete(id);
