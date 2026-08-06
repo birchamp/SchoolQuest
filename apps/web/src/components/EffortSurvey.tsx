@@ -145,7 +145,7 @@ export function EffortSurvey({ termId, onChanged }: { termId: string; onChanged:
 
   if (survey.questions.length === 0) {
     return (
-      <section className="card" aria-labelledby="effort-heading">
+      <section className="card" id="effort-survey" aria-labelledby="effort-heading">
         <h2 id="effort-heading">
           <Themed
             visible={quest ? "The measure of the work" : "How long things take"}
@@ -166,7 +166,7 @@ export function EffortSurvey({ termId, onChanged }: { termId: string; onChanged:
   const left = survey.questions.length - position - 1;
 
   return (
-    <section className="card" aria-labelledby="effort-heading">
+    <section className="card" id="effort-survey" aria-labelledby="effort-heading">
       <h2 id="effort-heading">
         <Themed
           visible={quest ? "The measure of the work" : "How long things take"}

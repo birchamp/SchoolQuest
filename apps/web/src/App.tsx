@@ -64,6 +64,34 @@ export function App() {
   const [term, setTerm] = useState<Term | null>(null);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [tab, setTab] = useState<Tab>("today");
+
+  /**
+   * Setup, landing on the effort survey rather than at the top of the tab.
+   *
+   * The survey is the fourth card down. Switching tabs and leaving the reader to scroll past
+   * three others reintroduces exactly the step the nudge on Today exists to remove — and this
+   * app's reader is the one who does not scroll. `requestAnimationFrame` waits for the tab to
+   * render before the element exists to scroll to.
+   */
+  const goToEffortSurvey = () => {
+    setTab("setup");
+    /**
+     * Waits for the card to exist rather than for a frame.
+     *
+     * The survey fetches its questions after mount, so on the first two animation frames the
+     * element is not there yet and the scroll silently did nothing — the reader landed at the
+     * top of Setup, three cards above the thing they asked for, which is the step this was
+     * built to remove. Polls briefly and gives up rather than waiting forever, because a page
+     * that never settles must not leave a timer running.
+     */
+    const deadline = Date.now() + 2000;
+    const tryScroll = () => {
+      const target = document.getElementById("effort-survey");
+      if (target) target.scrollIntoView({ block: "start" });
+      else if (Date.now() < deadline) requestAnimationFrame(tryScroll);
+    };
+    requestAnimationFrame(tryScroll);
+  };
   // The course lens. Lives here rather than in any one card because it is a lens on the
   // shared surface — the week, the arc and the table all read from it, which is the whole
   // difference between "one map with layers" and "a map per course".
@@ -241,7 +269,14 @@ export function App() {
         <p className="muted">Building your first plan…</p>
       ) : (
         <>
-          {tab === "today" && <Today plan={plan} theme={theme} onChanged={refreshPlan} />}
+          {tab === "today" && (
+            <Today
+              plan={plan}
+              theme={theme}
+              onChanged={refreshPlan}
+              onGoToSetup={goToEffortSurvey}
+            />
+          )}
           {/* The week tab reads as one zoom-out: the seven days as beats, then the term's
               landmarks, then how far each course has come. */}
           {tab === "week" && (

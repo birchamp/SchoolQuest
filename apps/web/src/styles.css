@@ -1725,3 +1725,21 @@ body[data-theme="quest"] .draft-message,
 body[data-theme="quest"] .question-course {
   border-color: #b9a06a;
 }
+
+/* The line on Today that says how much of the week is booked on a guess, and offers to fix it.
+   Set apart by a left rule rather than a tint — it is a nudge, not a warning, and it must not
+   read at the same weight as the risk rows below it. */
+.guessed-time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.75rem 0 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--accent);
+  font-size: 0.92rem;
+}
+
+body[data-theme="quest"] .guessed-time {
+  border-left-color: #8a6410;
+}

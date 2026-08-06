@@ -32,10 +32,13 @@ export function Today({
   plan,
   theme,
   onChanged,
+  onGoToSetup,
 }: {
   plan: PlanResponse;
   theme: ThemeName;
   onChanged: () => void;
+  /** Takes the student to Setup, where the effort survey lives. */
+  onGoToSetup: () => void;
 }) {
   const progress = plan.progress;
   const [busy, setBusy] = useState<string | null>(null);
@@ -207,12 +210,44 @@ export function Today({
       : 0;
   const capacityPressure = capacityPercent >= 90 ? "tight" : capacityPercent >= 70 ? "full" : "easy";
 
-  // Risks arrive one per work item, so the same sentence — "The time this takes is still
-  // a guess." — was printed several times in a row. Collapsing identical explanations and
+  /**
+   * How much of this week's booked time rests on a per-type constant rather than a real number.
+   *
+   * The effort survey has existed for a while and lives on Setup, three cards down. Nothing
+   * pointed at it. On the five-course test term that meant 53 of 61 items carried no estimate
+   * and the student was never told — every "you have four hours today" was a guess presented in
+   * the same voice as a fact.
+   *
+   * Reported in minutes rather than as a count, because "eleven items" is not a consequence and
+   * "two and a half of today's four hours" is. Nothing appears when the plan is grounded.
+   */
+  const guessedMinutes = (() => {
+    const unknown = new Set(
+      plan.risks.filter((r) => r.code === "EFFORT_UNKNOWN").map((r) => r.workItemId),
+    );
+    if (unknown.size === 0) return null;
+    const minutes = plan.sessions
+      .filter((s) => unknown.has(s.workItemId))
+      .reduce((sum, s) => sum + s.minutes, 0);
+    return minutes > 0 ? { minutes, items: unknown.size } : null;
+  })();
+
+  // Risks arrive one per work item, so the same sentence — "This due date has not been
+  // confirmed." — was printed several times in a row. Collapsing identical explanations and
   // counting them says the same thing once and tells the student how widespread it is.
   const risks = (() => {
     const byText = new Map<string, { key: string; level: string; text: string; count: number }>();
     for (const risk of plan.risks) {
+      /**
+       * Dropped only when the line above is actually showing.
+       *
+       * That line states the same fact with its consequence and a button attached, so printing
+       * "The time this takes is still a guess · 55 items" directly underneath says it twice in
+       * adjacent rows. But it renders nothing when no unknown-effort item was scheduled this
+       * week, and suppressing the row unconditionally would delete the information instead of
+       * replacing it.
+       */
+      if (risk.code === "EFFORT_UNKNOWN" && guessedMinutes) continue;
       const text = risk.explanation ?? explainRisk(risk.code);
       const key = `${risk.level}:${text}`;
       const existing = byText.get(key);
@@ -221,6 +256,8 @@ export function Today({
     }
     return [...byText.values()].slice(0, 4);
   })();
+
+
 
   return (
     <div>
@@ -564,6 +601,24 @@ export function Today({
             </>
           )}
         </p>
+
+        {guessedMinutes && (
+          <p className="guessed-time">
+            <span>
+              {quest
+                ? `${formatEffort(guessedMinutes.minutes)} of this week's plan is guesswork — `
+                : `${formatEffort(guessedMinutes.minutes)} of this week is booked on a guess — `}
+              {guessedMinutes.items === 1
+                ? "one piece of work whose length nobody has said."
+                : `${guessedMinutes.items} pieces of work whose length nobody has said.`}
+            </span>{" "}
+            {/* A button rather than a sentence of advice: the whole point is to remove the
+                step where the student has to go and find the survey. */}
+            <button className="action" onClick={onGoToSetup}>
+              {quest ? "Say how long they take" : "Tell it how long they take"}
+            </button>
+          </p>
+        )}
 
         {risks.length > 0 && (
           <div style={{ marginTop: "0.75rem" }}>
