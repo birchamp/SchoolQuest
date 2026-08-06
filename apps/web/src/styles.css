@@ -1646,3 +1646,82 @@ body[data-theme="quest"] .terrain-focus {
 body[data-theme="quest"] .terrain-layers-note {
   color: #5b4930;
 }
+
+/* --- Still unanswered -------------------------------------------------------------------
+   One list per course of what nobody has told the app, with the message to send about it.
+
+   Separated by a rule rather than a tinted panel. `--surface-2` on a card measured 1.06:1
+   under the quest theme, which is a fill nobody can see; a border is the same separation and
+   it survives every theme. */
+
+.question-course {
+  border-top: 1px solid var(--border);
+  padding-top: 0.9rem;
+  margin-top: 0.9rem;
+}
+
+.question-course h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.question-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.question-list li {
+  display: grid;
+  /* The kind chip sits in its own column so the sentences all start on the same line, which
+     is what makes the list scannable rather than five paragraphs. */
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.6rem;
+}
+
+.question-kind {
+  grid-row: 1;
+  align-self: start;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  white-space: nowrap;
+}
+
+.question-text {
+  grid-row: 1;
+}
+
+.question-stakes {
+  grid-column: 2;
+  font-size: 0.85rem;
+}
+
+.draft-message {
+  margin: 0.75rem 0 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 0.92rem;
+  white-space: pre-wrap;
+  /* A draft is read, not scrolled: wrapping keeps the whole message visible so the student
+     can check it before sending rather than trusting it unseen. */
+  overflow-wrap: anywhere;
+}
+
+body[data-theme="quest"] .question-kind {
+  border-color: #b9a06a;
+  color: #6b5636;
+}
+
+body[data-theme="quest"] .draft-message,
+body[data-theme="quest"] .question-course {
+  border-color: #b9a06a;
+}

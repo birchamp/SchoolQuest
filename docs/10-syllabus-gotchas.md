@@ -472,7 +472,7 @@ Same machinery as §1.6.
 Two items numbered 4 and no item 3. Any structure-recovery that trusts the ordinal will merge
 or drop one. The weights still sum to 100, so the §2.1 check does not catch it.
 
-### 5.4 Course-wide policy stated as a grade consequence — **OPEN**
+### 5.4 Course-wide policy stated as a grade consequence — **PARTIAL**
 
 > "If you miss more than 7 classes (excused or unexcused) you will fail the course" — LAN 200
 > "Late assignments will not be accepted one week beyond the original due date, no exceptions."
@@ -487,6 +487,14 @@ only `grading_category`, `meeting_pattern` and `assignment` (`extraction.ts`), a
 screen renders only those three plus questions (`ExtractionReview.tsx`). **A policy is stored
 and never shown to anyone.** The one about failing the course for seven absences is sitting in
 the database of every account that uploaded LAN 200.
+
+**Half-closed.** Policies now appear on the "Still unanswered" card (`OpenQuestions.tsx`), one
+line per policy, with a sentence asking the instructor to confirm it — three of them on the test
+term, each of which had never been on a screen. So the student sees them.
+
+Still open is the harder half: a policy is read, and it changes nothing. "No late portfolios are
+accepted" should make the portfolio's deadline harder than one that costs 10% a day, and the
+priority model has no input for it. Showing it is not the same as acting on it.
 
 ---
 
@@ -619,3 +627,6 @@ Kept so the log's own value is measurable rather than assumed.
 | Reading D1 | A weekday answer dating a registrar-scheduled final | Fixed (§1.3) |
 | Writing the hostile-model test | The evidence check had never been shown to reject anything, and its near-miss fallback accepted a sentence assembled from words scattered across a whole schedule page — and any three-word excerpt | **Fixed** (§6.1) — locality window and a length floor |
 | Writing the hostile-model test | A verbatim excerpt paired with a real date belonging to a different row raises no issue at all | Open (§6.2) — pinned by a test, and closing §5.1 closes it |
+| Building the open-questions card | BIO 240's grading weights add up to 90%. Every category was read, weighted and accepted, and nothing anywhere told the student a tenth of the grade was unaccounted for | **Fixed** — the card asks, and the message is drafted |
+| Reading the drafted email | The model wrote "Do these grading categories and weights look right?" — a question aimed at the review screen, unanswerable by a professor, and it went into the email | **Fixed** — unsendable questions are shown but left out of the draft; the prompt now asks for questions that stand alone |
+| Reading the drafted email | "3 items have dates that contradict the syllabus. Which is right?" was sent without naming the three items, which were on the claim all along — and listed one of them twice | **Fixed** — the names are appended, deduplicated |

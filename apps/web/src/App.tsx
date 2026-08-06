@@ -15,6 +15,7 @@ import { SessionBrief } from "./components/SessionBrief";
 import { WeeklyReview } from "./components/WeeklyReview";
 import { MealWindows } from "./components/MealWindows";
 import { EffortSurvey } from "./components/EffortSurvey";
+import { OpenQuestions } from "./components/OpenQuestions";
 import { TermCalendar } from "./components/TermCalendar";
 import { StudyHours } from "./components/StudyHours";
 import { Stats } from "./components/Stats";
@@ -397,6 +398,12 @@ export function App() {
               */}
               <TermCalendar termId={term.id} onChanged={regenerate} />
               <CourseManager termId={term.id} onChanged={refreshPlan} />
+              {/*
+                Above the effort survey on purpose. The survey asks the student what they know;
+                this says what nobody knows yet and hands them the message that gets it answered,
+                which is the step that has to happen before an answer can exist.
+              */}
+              <OpenQuestions termId={term.id} />
               <EffortSurvey termId={term.id} onChanged={regenerate} />
               <StudyHours termId={term.id} onChanged={regenerate} />
               <MealWindows term={term} onChanged={regenerate} />

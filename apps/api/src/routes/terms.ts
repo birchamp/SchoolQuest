@@ -20,9 +20,12 @@ import {
 import {
   applyEffortAnswer,
   buildEffortSurvey,
+  buildOpenQuestions,
   canDecompose,
   DEFAULT_EFFORT_MINUTES,
   proposeStages,
+  type PendingClarification,
+  type PendingPolicy,
 } from "@schoolquest/planning-engine";
 import {
   auditEvents,
@@ -32,7 +35,9 @@ import {
   dependencies,
   gradeResults,
   gradingCategories,
+  extractionClaims,
   meetingPatterns,
+  sourceDocuments,
   terms,
   workItems,
 } from "../db/schema.js";
@@ -166,6 +171,81 @@ termsRoute.get("/terms/:id/snapshot", async (c) => {
  * not state, and the screen only needs the latest one per question.
  */
 const EFFORT_ASK_ENTITY = "effort_question";
+
+/**
+ * Everything nobody has answered about this term, in one list per course.
+ *
+ * The pieces already existed and were scattered: clarification questions live inside whichever
+ * document review raised them, undated work is only visible in the assignments table, unweighted
+ * categories are visible nowhere, and extracted policies were stored and never rendered at all
+ * (docs/10-syllabus-gotchas.md §5.4). Five courses meant seven screens.
+ *
+ * Reads only. Answering still happens where answering happens — this is the index, not a second
+ * way to write the same records, which would be two sources of truth for the same claim.
+ */
+termsRoute.get("/terms/:id/open-questions", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+  if (!(await assertTermOwner(db, id, c.get("userId")))) return c.json({ error: "Term not found" }, 404);
+
+  const snapshot = await loadTermSnapshot(db, id);
+  const courseIds = snapshot.courses.map((course) => course.id);
+
+  const documents = courseIds.length
+    ? await db.select().from(sourceDocuments).where(inArray(sourceDocuments.courseId, courseIds))
+    : [];
+  const courseByDocument = new Map(documents.map((d) => [d.id, d.courseId]));
+  const claims = documents.length
+    ? await db
+        .select()
+        .from(extractionClaims)
+        .where(inArray(extractionClaims.sourceDocumentId, documents.map((d) => d.id)))
+    : [];
+
+  const clarifications: PendingClarification[] = [];
+  const policies: PendingPolicy[] = [];
+
+  for (const claim of claims) {
+    // "pending" is the only unanswered state; accepted, answered and rejected are all settled.
+    if (claim.reviewStatus !== "pending") continue;
+    const courseId = courseByDocument.get(claim.sourceDocumentId);
+    if (!courseId) continue;
+
+    if (claim.claimType === "clarification_question") {
+      const payload = JSON.parse(claim.payloadJson) as {
+        question?: string;
+        why?: string;
+        relatesToTitle?: string | null;
+        relatesToTitles?: string[];
+      };
+      if (!payload.question) continue;
+      clarifications.push({
+        id: claim.id,
+        courseId,
+        question: payload.question,
+        why: payload.why ?? "",
+        relatesToTitles: payload.relatesToTitles ?? (payload.relatesToTitle ? [payload.relatesToTitle] : []),
+      });
+      continue;
+    }
+
+    if (claim.claimType === "policy") {
+      const payload = JSON.parse(claim.payloadJson) as { kind?: string; summary?: string };
+      if (!payload.summary) continue;
+      policies.push({ id: claim.id, courseId, kind: payload.kind ?? "other", summary: payload.summary });
+    }
+  }
+
+  return c.json(
+    buildOpenQuestions({
+      courses: snapshot.courses,
+      workItems: snapshot.workItems,
+      gradingCategories: snapshot.gradingCategories,
+      clarifications,
+      policies,
+    }),
+  );
+});
 
 /** The questions still worth asking, with anything already handed off marked as such. */
 termsRoute.get("/terms/:id/effort-survey", async (c) => {

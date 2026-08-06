@@ -13,5 +13,6 @@ export * from "./project-progress.js";
 export * from "./decompose.js";
 export * from "./course-load.js";
 export * from "./effort-survey.js";
+export * from "./open-questions.js";
 export * from "./course-health.js";
 export * from "./seed-input.js";
