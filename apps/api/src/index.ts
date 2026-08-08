@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { detailMode, themeName } from "@schoolquest/domain";
-import { centsPerSyllabus, MODEL_CHOICES, MODEL_IDS, MODELS } from "@schoolquest/ai";
+import { centsPerSemester, MODEL_CHOICES, MODEL_IDS, MODELS } from "@schoolquest/ai";
 import { decryptSecret, encryptSecret, keyHint } from "./secrets.js";
 import { redeemLoginToken, requestLoginLink, requireAuth, SESSION_COOKIE, setSessionCookie, signOut } from "./auth.js";
 import { getDb } from "./db/repo.js";
@@ -105,7 +105,17 @@ app.get("/api/me", async (c) => {
       // Whether this deployment has its own key, which decides whether a student *must* supply one.
       providerConfigured: Boolean(stored ?? c.env.OPENROUTER_API_KEY),
     },
-    models: MODEL_CHOICES.map((m) => ({ ...m, centsPerSyllabus: centsPerSyllabus(m) })),
+    // Both figures, because the choice is really between them: one careful reading of each
+    // syllabus, or three readings reconciled against each other on a document that fights back.
+    // Named rather than inferred: the client used to assume the first entry, and the list is
+    // ordered by price while the default is chosen for accuracy. Those stopped agreeing the
+    // moment extraction went back to the strongest reader.
+    defaultExtractionModel: c.env.OPENROUTER_EXTRACTION_MODEL ?? MODELS.EXTRACTION,
+    models: MODEL_CHOICES.map((m) => ({
+      ...m,
+      centsPerSemester: centsPerSemester(m),
+      centsPerSemesterThreePasses: centsPerSemester(m, 3),
+    })),
   });
 });
 

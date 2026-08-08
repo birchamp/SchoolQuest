@@ -14,14 +14,20 @@ import { useBodyTheme } from "../lib/use-body-theme";
  *
  * ## Why the price is on screen
  *
- * "Pick a model" is not a choice without the number beside it. The spread here is tenfold — about
- * a penny per syllabus on the fast tier against eleven on the strongest — and a student deciding
- * whether to re-read a stubborn syllabus a third time deserves to know what that costs before
- * they do it, not after.
+ * "Pick a model" is not a choice without the number beside it. The spread is tenfold, and the
+ * figures are measured from the four real syllabi in `tools/e2e/semester4/` rather than assumed —
+ * an earlier version of this screen guessed and was ten times too high, which is precisely the
+ * kind of number someone talks themselves out of a better reader over.
  *
- * The default is the cheapest, not the best. Someone who never opens this screen should be
- * spending pennies a term, and the stronger models are here for the document that defeats the
- * cheap one rather than as a general recommendation.
+ * Shown per *semester*, because that is the unit a student decides against and the only one that
+ * survives rounding: the cheap model costs under a cent per document and would render as "0¢".
+ * The three-pass figure sits beside it, because re-reading a stubborn syllabus is the decision
+ * this screen actually has to support.
+ *
+ * The default is the strongest reader, not the cheapest. A five-course semester read three times
+ * on Grok 4.5 is about 33¢, against 3¢ on the fast tier — and section 7 of
+ * docs/10-syllabus-gotchas.md is the evidence for why 30¢ a term is worth it. The cheaper tiers
+ * are here for someone watching every cent, not as the recommendation.
  *
  * ## What is never shown
  *
@@ -37,7 +43,8 @@ interface ModelOption {
   outputPerMillion: number;
   context: number;
   note: string;
-  centsPerSyllabus: number;
+  centsPerSemester: number;
+  centsPerSemesterThreePasses: number;
 }
 
 interface MeResponse {
@@ -48,6 +55,8 @@ interface MeResponse {
     coachModel: string | null;
   };
   models: ModelOption[];
+  /** What reading uses when the student has not chosen. Named by the server, not guessed here. */
+  defaultExtractionModel: string;
 }
 
 export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
@@ -90,7 +99,7 @@ export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
 
   if (!me) return null;
   const { user, models } = me;
-  const chosen = user.extractionModel ?? models[0]?.id;
+  const chosen = user.extractionModel ?? me.defaultExtractionModel;
 
   return (
     <section className="card" id="provider-settings" aria-labelledby="provider-heading">
@@ -98,8 +107,9 @@ export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
 
       <p className="muted" style={{ marginTop: 0 }}>
         Reading a syllabus is done by an AI model, and the calls are billed to an OpenRouter key.
-        Use your own so you are paying for your own work — the cheapest model costs roughly a
-        penny per syllabus.
+        Use your own so you are paying for your own work. Reading five courses' syllabi costs
+        between one and eleven cents depending on the model — a whole four-year degree comes to a
+        few dollars at most, so this is picked for accuracy rather than to save money.
       </p>
 
       {error && <p className="error">{error}</p>}
@@ -172,11 +182,15 @@ export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
               />
               <span className="model-name">{model.label}</span>
               {/* The cost first, because it is the part that decides the answer. */}
+              {/* Per semester, not per syllabus: it is the unit a student decides against, and
+                  the only one that survives rounding — the cheap model is under a cent a
+                  document, which would render as "0¢" and tell nobody anything. */}
               <span className="model-price">
-                ~{model.centsPerSyllabus}¢ per syllabus
+                ~{model.centsPerSemester}¢ a semester
                 <span className="muted">
                   {" "}
-                  · ${model.inputPerMillion}/M in, ${model.outputPerMillion}/M out
+                  · {model.centsPerSemesterThreePasses}¢ if each syllabus is read three times ·
+                  ${model.inputPerMillion}/M in, ${model.outputPerMillion}/M out
                 </span>
               </span>
               <span className="muted model-note">{model.note}</span>

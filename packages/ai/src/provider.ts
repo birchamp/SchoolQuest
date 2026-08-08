@@ -69,7 +69,13 @@ export const MODELS = {
   COACH: "x-ai/grok-4.1-fast",
   /** Topic guardrail — smallest, cheapest classification call. */
   GUARD: "x-ai/grok-4.1-fast",
-  /** Syllabus and screenshot extraction. Deliberately the strong model — see below. */
+  /**
+   * Syllabus and screenshot extraction. Deliberately the strong model, and the cost of that
+   * choice is measured: a five-course semester read three times comes to about 33 cents, against
+   * 3 cents on the fast tier (`centsPerSemester` in models.ts, from the real corpus). Thirty
+   * cents a term is not a reason to give a student a worse reader for the one job where a
+   * mistake costs them a deadline.
+   */
   EXTRACTION: "x-ai/grok-4.5",
 } as const;
 

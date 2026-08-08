@@ -1,0 +1,24 @@
+import { chromium } from "playwright";
+const APP = "http://127.0.0.1:5173", API = "http://127.0.0.1:8787";
+const THEME = process.argv[2] ?? "plain";
+const api = async (p, m = "GET", b, t) => {
+  const r = await fetch(API + p, { method: m, headers: { "Content-Type": "application/json", ...(t ? { Authorization: `Bearer ${t}` } : {}) }, body: b ? JSON.stringify(b) : undefined });
+  if (!r.ok) throw new Error(`${m} ${p} -> ${r.status}: ${await r.text()}`);
+  return r.json();
+};
+const login = await api("/api/auth/login", "POST", { email: "semester-test@example.edu" });
+const { sessionToken } = await api("/api/auth/callback", "POST", { token: new URL(login.devLoginUrl).searchParams.get("token") });
+await api("/api/me", "PATCH", { theme: THEME }, sessionToken);
+const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const page = await browser.newPage({ viewport: { width: 1280, height: 1200 } });
+await page.goto(APP);
+await page.evaluate((t) => localStorage.setItem("sq_session_token", t), sessionToken);
+await page.goto(APP);
+await page.getByRole("button", { name: /setup/i }).click();
+await page.waitForTimeout(2500);
+const card = page.locator("#provider-settings");
+await card.scrollIntoViewIfNeeded();
+await page.waitForTimeout(300);
+await card.screenshot({ path: `/tmp/provider-${THEME}.png` });
+console.log((await card.innerText()).split("\n").filter(Boolean).slice(0, 14).join("\n"));
+await browser.close();

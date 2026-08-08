@@ -39,8 +39,16 @@ export interface ModelChoice {
 /**
  * Checked against OpenRouter's listings on 8 August 2026.
  *
- * Ordered cheapest first, which is also the order of increasing capability — the two happen to
- * agree here, and the default is the first entry rather than the best one.
+ * Ordered cheapest first, which is also the order of increasing capability.
+ *
+ * The default for *reading a syllabus* is the strongest one, not the first. Section 7 of
+ * docs/10-syllabus-gotchas.md is forty pages of evidence that syllabi are genuinely hard to
+ * parse — placeholder dates, two dates in one cell, duplicate week numbers, a schedule the
+ * document only points at — and a misread date costs a student a deadline. At 33¢ for a whole
+ * semester read three times, saving 30¢ by using a weaker reader is a false economy.
+ *
+ * The coach is the opposite: it runs on every message rather than five times a term, and it is
+ * answering "what should I do next" rather than parsing a table. That stays on the fast tier.
  */
 export const MODEL_CHOICES: readonly ModelChoice[] = [
   {
@@ -49,7 +57,7 @@ export const MODEL_CHOICES: readonly ModelChoice[] = [
     inputPerMillion: 0.2,
     outputPerMillion: 0.5,
     context: 2_000_000,
-    note: "The cheapest that does everything this app needs. About a penny per syllabus.",
+    note: "The cheapest that does everything this app needs. Pennies for a whole degree.",
   },
   {
     id: "x-ai/grok-4.3",
@@ -57,7 +65,7 @@ export const MODEL_CHOICES: readonly ModelChoice[] = [
     inputPerMillion: 1.25,
     outputPerMillion: 2.5,
     context: 256_000,
-    note: "Middle tier. Worth trying if a syllabus with an awkward table keeps coming back wrong.",
+    note: "Middle tier. Cheaper than 4.5 and usually as good on a plainly-written syllabus.",
   },
   {
     id: "x-ai/grok-4.5",
@@ -65,25 +73,44 @@ export const MODEL_CHOICES: readonly ModelChoice[] = [
     inputPerMillion: 2,
     outputPerMillion: 6,
     context: 256_000,
-    note: "The strongest, and about ten times the price. Reserve it for documents that defeat the others.",
+    note: "The strongest reader, and still under a dollar a semester. The default, because syllabi are hard.",
   },
 ] as const;
 
 export const MODEL_IDS = MODEL_CHOICES.map((m) => m.id);
 
 /**
- * What a student is charged for reading one syllabus, in cents.
+ * Tokens one syllabus actually costs, measured rather than assumed.
  *
- * A twenty-page syllabus arrives as roughly 30,000 tokens of page text and leaves as roughly
- * 8,000 of JSON — measured on the corpus rather than assumed, since a schedule table is far
- * denser than prose. Rounded up, because a screen that under-promises a cost is worse than one
- * that over-promises it.
+ * The first version of this guessed 30,000 input tokens per document and was roughly ten times
+ * too high — it put ~11¢ per syllabus on the settings screen when the true figure is nearer 2¢,
+ * which is exactly the sort of number a student makes a decision against. These come from the
+ * four real Spring 2023 syllabi in `tools/e2e/semester4/`: 88,151 characters of pdf.js page text
+ * across 40 pages, and the extraction JSON that came back from them.
+ *
+ * Input is charged on the page text plus prompt overhead; output on the JSON. Both divided by
+ * 3.6 characters per token, which is what dense tabular English comes out at — prose runs nearer
+ * 4, and rounding the wrong way here inflates the estimate rather than hiding it.
  */
-export function centsPerSyllabus(model: ModelChoice, passes = 1): number {
-  const inputTokens = 30_000 * passes;
-  const outputTokens = 8_000 * passes;
+const TOKENS_PER_SYLLABUS = { input: 7_000, output: 1_350 } as const;
+
+/** A full course load. Four is what the corpus semester holds; five is the common case. */
+const COURSES_PER_SEMESTER = 5;
+
+/**
+ * What reading a whole semester's syllabi costs, in cents.
+ *
+ * The semester is the unit the student actually decides against, and it is the only one that
+ * survives rounding: per-syllabus, the cheap model costs less than a cent and the screen would
+ * read "0¢", which tells nobody anything.
+ *
+ * `passes` is the number of independent readings — see `reconcileExtractions`. Three is the
+ * setting worth paying for on a hard document, and this is what makes that affordable to
+ * consider rather than a number nobody can estimate.
+ */
+export function centsPerSemester(model: ModelChoice, passes = 1, courses = COURSES_PER_SEMESTER): number {
   const dollars =
-    (inputTokens / 1_000_000) * model.inputPerMillion +
-    (outputTokens / 1_000_000) * model.outputPerMillion;
+    ((TOKENS_PER_SYLLABUS.input * courses * passes) / 1_000_000) * model.inputPerMillion +
+    ((TOKENS_PER_SYLLABUS.output * courses * passes) / 1_000_000) * model.outputPerMillion;
   return Math.ceil(dollars * 100);
 }
