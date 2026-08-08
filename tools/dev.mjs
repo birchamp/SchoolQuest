@@ -17,6 +17,8 @@ import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+import { startupReport } from "./startup-report.mjs";
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WINDOWS = process.platform === "win32";
 
@@ -169,38 +171,33 @@ if (OPEN) {
     { name: "api", port: 8787 },
     { name: "web", port: 5173 },
   ];
-  const deadline = Date.now() + 180_000;
-  let announced = 0;
+
+  /**
+   * Slow is not the same as failed, so this never stops waiting. What to print is decided by
+   * `startupReport`, which is a pure function of elapsed seconds so it can be tested without one.
+   */
+  const started = Date.now();
+  let lastHeartbeatAt = 0;
+  let saidItWasSlow = false;
 
   const poll = async () => {
     if (shuttingDown) return;
 
     const states = await Promise.all(halves.map((half) => isListening(half.port)));
-    const waitingFor = halves.filter((_, index) => !states[index]);
+    const waiting = halves.filter((_, index) => !states[index]).map((half) => half.name);
 
-    if (waitingFor.length === 0) {
+    if (waiting.length === 0) {
       openBrowser(URL);
       console.log(`\nOpened ${URL}\n`);
       return;
     }
 
-    if (Date.now() >= deadline) {
-      // Naming the half that never came up, because the fix differs: the api is usually a busy
-      // 8787 or a migration that never ran, the web side is usually a busy 5173.
-      const names = waitingFor.map((half) => `${half.name} (port ${half.port})`).join(" and ");
-      console.log(`\nStill waiting on ${names} after 3 minutes.`);
-      console.log(`Read the [api] and [web] lines above - they say why. Open ${URL} to try anyway.\n`);
-      return;
-    }
+    const waitedSeconds = Math.round((Date.now() - started) / 1000);
+    const report = startupReport({ waitedSeconds, waiting, lastHeartbeatAt, saidItWasSlow });
 
-    // A silent console for three minutes is indistinguishable from a hang, and someone who
-    // concludes it has hung presses Ctrl-C at the ninety-second mark of a two-minute install.
-    const waited = Math.round((Date.now() - (deadline - 180_000)) / 1000);
-    if (waited >= announced + 15) {
-      announced = waited;
-      const names = waitingFor.map((half) => half.name).join(" and ");
-      console.log(`  still starting (${waited}s) - waiting on ${names}. This is normal on a first run.`);
-    }
+    if (report.kind === "slow") saidItWasSlow = true;
+    if (report.kind !== "silent") lastHeartbeatAt = waitedSeconds;
+    for (const line of report.lines) console.log(line);
 
     setTimeout(poll, 500);
   };
