@@ -79,30 +79,28 @@ Three rules hold this together:
 
 ## Getting started
 
-### Windows — clone, then one command
+### Windows — one command
+
+Open **PowerShell** and paste this:
+
+```powershell
+irm https://raw.githubusercontent.com/birchamp/SchoolQuest/main/install.ps1 | iex
+```
+
+It installs anything missing (Node, Git, pnpm), downloads SchoolQuest, sets it up, puts a
+shortcut on your Desktop, and opens the app. No administrator rights, nothing outside your user
+account, and safe to run again — it updates an existing copy rather than failing.
+
+After that, double-click **SchoolQuest** on the Desktop whenever you want it.
+
+If you would rather read the script before running it, clone first and run it from there — it
+notices it is inside a checkout and sets that copy up instead of downloading a second one:
 
 ```powershell
 git clone https://github.com/birchamp/SchoolQuest
 cd SchoolQuest
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
-
-`install.ps1` does the rest: installs anything missing (Node, pnpm), installs dependencies, sets
-up the local database, checks itself, puts a shortcut on your Desktop and opens the app. No
-administrator rights, nothing outside your user account, and safe to run again.
-
-After that, double-click **SchoolQuest** on the Desktop whenever you want it.
-
-> **While this repository is private**, the clone above needs your GitHub credentials — which
-> `git` on your machine already has. If it is ever made public, the whole thing collapses to one
-> line with nothing to clone first:
->
-> ```powershell
-> irm https://raw.githubusercontent.com/birchamp/SchoolQuest/main/install.ps1 | iex
-> ```
->
-> That URL returns 404 for a private repository — GitHub answers 404 rather than 403 so that
-> private repository names cannot be probed — so it will not work until then.
 
 ### Every platform — the same thing, by hand
 

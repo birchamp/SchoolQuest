@@ -12,23 +12,25 @@ fifteen minutes, most of it `pnpm install`.
 
 ## The short version
 
+Open **PowerShell** and paste this one line:
+
 ```powershell
-git clone https://github.com/birchamp/SchoolQuest
-cd SchoolQuest
-powershell -ExecutionPolicy Bypass -File install.ps1
+irm https://raw.githubusercontent.com/birchamp/SchoolQuest/main/install.ps1 | iex
 ```
 
-That installs anything missing, sets everything up, checks itself, puts a shortcut on your
-Desktop and opens the app. No administrator rights. Safe to run again.
-
-You need Git for the first line — [git-scm.com](https://git-scm.com) — and nothing else; the
-script installs Node and pnpm itself if they are missing.
+It installs Node, Git and pnpm if you do not have them, downloads SchoolQuest, sets it up,
+checks itself, puts a shortcut on your Desktop and opens the app. No administrator rights.
+Safe to run again — it updates rather than failing.
 
 Skip to [Your first term, in order](#your-first-term-in-order) once it finishes.
 
-> A single `irm … | iex` line with no clone at all would work if this repository were public.
-> It is private, and GitHub answers raw file requests for private repositories with a 404, so
-> that one-liner returns "404 not found" rather than anything useful.
+> **"running scripts is disabled on this system"** — Windows ships with script execution off.
+> The line above handles it itself now, but if you meet that error from any other command here,
+> this clears it for the current window only, and needs no administrator rights:
+>
+> ```powershell
+> Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+> ```
 
 The rest of this page is the same thing done by hand, and what to do when a step goes wrong.
 
@@ -36,11 +38,11 @@ The rest of this page is the same thing done by hand, and what to do when a step
 
 ## What you need
 
-`install.ps1` above installs the first two for you; Git you need either way, to clone.
+Only if you are not using the one-liner above, which installs these for you.
 
-- **Git** — [git-scm.com](https://git-scm.com)
 - **Node 22 or newer** — [nodejs.org](https://nodejs.org), take the LTS installer.
 - **pnpm** — after Node: `npm install -g pnpm`
+- **Git** — [git-scm.com](https://git-scm.com)
 - **An OpenRouter key** — [openrouter.ai/keys](https://openrouter.ai/keys). Add a few dollars of
   credit; a whole semester of syllabus reading costs about eleven cents.
 - **A syllabus or two, as PDFs.** Real ones. The interesting failures only happen on real ones.
@@ -174,8 +176,8 @@ you hit something not in it, that is a genuinely new one.
 | What you see | What it is |
 | --- | --- |
 | `pnpm: command not found` | pnpm is not installed: `npm install -g pnpm`, then open a **new** PowerShell |
-| `install.ps1` said "not recognized" partway | winget updates PATH for new windows only. Close PowerShell, open a new one, run `install.ps1` again. |
-| `git clone` asks for a password | The repository is private. Use a GitHub personal access token as the password, or install [GitHub CLI](https://cli.github.com) and run `gh auth login` first. |
+| `install.ps1` said "not recognized" partway | winget updates PATH for new windows only. Close PowerShell, open a new one, run it again. |
+| `npm.ps1 … cannot be loaded because running scripts is disabled` | Windows' execution policy. `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`, then run the one-liner again. |
 | The page loads but everything errors | The API is not running. Look at the `[api]` lines in the terminal. |
 | Port 8787 or 5173 in use | An earlier run is still going: `netstat -ano \| findstr :8787` then `taskkill /pid <pid> /f` |
 | "No OpenRouter key is set" | Setup → AI and model |

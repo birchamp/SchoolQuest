@@ -3,20 +3,20 @@
   Installs and starts SchoolQuest. One command, from nothing.
 
 .DESCRIPTION
-  Clone, then run this. Two lines and a double-click's worth of typing:
+  Paste this into PowerShell and press Enter:
+
+      irm https://raw.githubusercontent.com/birchamp/SchoolQuest/main/install.ps1 | iex
+
+  Or, from inside a clone — it uses the checkout it is sitting in rather than downloading a
+  second copy:
 
       git clone https://github.com/birchamp/SchoolQuest
       cd SchoolQuest
       powershell -ExecutionPolicy Bypass -File install.ps1
 
-  Were the repository public, the clone would not be needed either:
-
-      irm https://raw.githubusercontent.com/birchamp/SchoolQuest/main/install.ps1 | iex
-
-  That form returns "404 not found" today. GitHub answers 404 rather than 403 for raw files in
-  private repositories, deliberately — a 403 would confirm the repository exists, so private
-  names could be probed by anyone willing to guess. The 404 is the same answer a nonexistent
-  repository gets, which is the point.
+  (While the repository was private the first form returned 404, because GitHub answers 404
+  rather than 403 for private raw files so that repository names cannot be probed. It is public
+  now, so both work.)
 
   It installs anything missing (Node, Git, pnpm), downloads SchoolQuest if it is not already
   here, sets it up, makes a Desktop shortcut, and opens the app.
@@ -42,6 +42,39 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoUrl = "https://github.com/birchamp/SchoolQuest"
+
+<#
+  Windows ships with script execution disabled, and that stops this installer in a place nobody
+  would look for it.
+
+  `irm … | iex` itself is fine — piped text never touches the policy. But `npm` on Windows is
+  three files, and PowerShell reaches for npm.ps1 ahead of npm.cmd, so the very first thing this
+  script does with npm dies on "running scripts is disabled on this system". The error names
+  npm.ps1, so it reads as a broken Node install rather than a Windows default doing its job.
+
+  Process scope needs no administrator rights and lasts only as long as this PowerShell. It can
+  still be refused when the policy comes from Group Policy, which is why every npm and pnpm call
+  below also names the .cmd explicitly — that path never consults the policy at all. Belt and
+  braces, because the failure this prevents is one the user cannot diagnose.
+#>
+try {
+  Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop
+} catch {
+  # Group Policy wins over process scope. The .cmd shims below make that survivable.
+}
+
+<#
+  npm and pnpm by their .cmd, always.
+
+  On Windows both ship a .ps1 alongside the .cmd, and PowerShell prefers the .ps1 — the one that
+  the execution policy can veto. Naming the .cmd sidesteps the question entirely.
+#>
+function Invoke-Cmd($name, $arguments) {
+  $exe = Get-Command "$name.cmd" -ErrorAction SilentlyContinue
+  if (-not $exe) { $exe = Get-Command $name -ErrorAction SilentlyContinue }
+  if (-not $exe) { throw "$name is not on PATH." }
+  & $exe.Source @arguments
+}
 
 function Say($text) { Write-Host $text }
 function Step($text) { Write-Host "`n==> $text" -ForegroundColor Cyan }
@@ -118,15 +151,15 @@ Good "Node $(node --version)"
   guaranteed present by this point, having arrived with Node.
 #>
 if (Have "pnpm") {
-  Good "pnpm $(pnpm --version) is installed"
+  Good "pnpm $(Invoke-Cmd pnpm @('--version')) is installed"
 } else {
   Say "    installing pnpm..."
-  npm install -g pnpm --silent | Out-Null
+  Invoke-Cmd npm @("install", "-g", "pnpm", "--silent") | Out-Null
   Sync-Path
   # Single quotes: in a double-quoted string the backtick before "npm" is PowerShell's newline
   # escape, so the advice arrived broken across two lines with the "n" eaten.
   if (-not (Have "pnpm")) { throw 'pnpm did not install. Try: npm install -g pnpm' }
-  Good "pnpm $(pnpm --version)"
+  Good "pnpm $(Invoke-Cmd pnpm @('--version'))"
 }
 
 # --- 2. The code.
@@ -169,7 +202,8 @@ Set-Location $Path
 
 # --- 3. Dependencies and configuration.
 Step "Setting it up (the first time takes a few minutes)"
-pnpm install --silent
+Invoke-Cmd pnpm @("install", "--silent")
+if ($LASTEXITCODE -ne 0) { throw "pnpm install failed. The output above says why." }
 Good "dependencies installed"
 
 node tools\setup.mjs
@@ -186,7 +220,13 @@ if ($LASTEXITCODE -ne 0) {
 
 # --- 5. The shortcut.
 Step "Making a Desktop shortcut"
-& (Join-Path $Path "tools\windows\create-shortcut.ps1")
+# Its own PowerShell with -ExecutionPolicy Bypass rather than dot-sourcing it: if the policy came
+# from Group Policy the Set-ExecutionPolicy above was refused, and calling this directly would
+# fail here — after the install has otherwise completely succeeded.
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+  -NoProfile -ExecutionPolicy Bypass `
+  -File (Join-Path $Path "tools\windows\create-shortcut.ps1")
+if ($LASTEXITCODE -ne 0) { Warn "the shortcut could not be created; everything else is fine" }
 
 # --- 6. Away.
 Say ""
