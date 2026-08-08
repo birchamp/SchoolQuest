@@ -10,7 +10,27 @@ fifteen minutes, most of it `pnpm install`.
 
 ---
 
+## The short version
+
+Open **PowerShell** and paste this one line:
+
+```powershell
+irm https://raw.githubusercontent.com/birchamp/SchoolQuest/main/install.ps1 | iex
+```
+
+It installs Node, Git and pnpm if you do not have them, downloads SchoolQuest, sets it up,
+checks itself, puts a shortcut on your Desktop and opens the app. No administrator rights.
+Safe to run again — it updates rather than failing.
+
+Skip to [Your first term, in order](#your-first-term-in-order) once it finishes.
+
+The rest of this page is the same thing done by hand, and what to do when a step goes wrong.
+
+---
+
 ## What you need
+
+Only if you are not using the one-liner above, which installs these for you.
 
 - **Node 22 or newer** — [nodejs.org](https://nodejs.org), take the LTS installer.
 - **pnpm** — after Node: `npm install -g pnpm`
@@ -23,7 +43,7 @@ No Cloudflare account. No email provider. No admin rights.
 
 ---
 
-## Setting up
+## Setting up by hand
 
 Open **PowerShell** and run these in order.
 
@@ -147,7 +167,8 @@ you hit something not in it, that is a genuinely new one.
 
 | What you see | What it is |
 | --- | --- |
-| `pnpm: command not found` | pnpm is not installed: `npm install -g pnpm` |
+| `pnpm: command not found` | pnpm is not installed: `npm install -g pnpm`, then open a **new** PowerShell |
+| The installer said "not recognized" partway | winget updates PATH for new windows only. Close PowerShell, open a new one, run the one-liner again. |
 | The page loads but everything errors | The API is not running. Look at the `[api]` lines in the terminal. |
 | Port 8787 or 5173 in use | An earlier run is still going: `netstat -ano \| findstr :8787` then `taskkill /pid <pid> /f` |
 | "No OpenRouter key is set" | Setup → AI and model |

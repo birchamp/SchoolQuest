@@ -79,7 +79,21 @@ Three rules hold this together:
 
 ## Getting started
 
-Three commands, on any platform. No Cloudflare account, no email provider, no admin rights.
+### Windows — one command
+
+Open **PowerShell** and paste this:
+
+```powershell
+irm https://raw.githubusercontent.com/birchamp/SchoolQuest/main/install.ps1 | iex
+```
+
+It installs anything missing (Node, Git, pnpm), downloads SchoolQuest, sets it up, puts a
+shortcut on your Desktop, and opens the app. No administrator rights, nothing outside your user
+account, and safe to run again — it updates an existing copy rather than failing.
+
+After that, double-click **SchoolQuest** on the Desktop whenever you want it.
+
+### Every platform — the same thing, by hand
 
 ```bash
 git clone https://github.com/birchamp/SchoolQuest
@@ -102,34 +116,31 @@ a real key. `pnpm preflight` explains what to do about anything it finds — it 
 busy port looks like the app failing to start, an unmigrated database looks like a server crash,
 and a placeholder API key looks like the model refusing to answer.
 
-### On Windows
+### On Windows, without the one-liner
 
 Install [Node 22+](https://nodejs.org), [Git](https://git-scm.com), then `npm install -g pnpm`.
-Run the commands above in **PowerShell**.
-
-Then make yourself a shortcut, once:
+Run the commands above in PowerShell, then make the shortcut once:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\windows\create-shortcut.ps1
 ```
 
-That puts **SchoolQuest** on your Desktop with the app icon. Double-clicking it checks the
-install, starts both halves, and opens your browser once they are actually answering. Leave the
-console window open while you use the app — closing it stops everything.
+Run from the repository root. It puts **SchoolQuest** on your Desktop with the app icon;
+double-clicking it checks the install, starts both halves and opens your browser once they are
+actually answering. Leave the console window open while you use the app.
 
 | | |
 |---|---|
 | `-StartMenu` | also add it to the Start Menu, so typing "schoolquest" finds it |
 | `-Remove` | delete the shortcuts again |
 
-[`docs/12-first-run.md`](docs/12-first-run.md) is the full walkthrough: what to install, the
-order to set a term up in and why the calendar has to come first, and a table of what each
+[`docs/12-first-run.md`](docs/12-first-run.md) is the full walkthrough, including what each
 failure actually means.
 
 **The desktop app is a separate thing.** The shortcut above runs SchoolQuest in your browser,
 which needs nothing built. The packaged `.exe` in [`apps/desktop`](apps/desktop/README.md) only
-adds dragging syllabus PDFs straight in, and it needs a deployed API to talk to — see below.
-It ships unsigned, so Windows shows a SmartScreen warning;
+adds dragging syllabus PDFs straight in, and it needs a deployed API to talk to. It ships
+unsigned, so Windows shows a SmartScreen warning;
 [`docs/11-installing-on-windows.md`](docs/11-installing-on-windows.md) explains why and what to
 do about it.
 
