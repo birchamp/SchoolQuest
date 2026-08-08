@@ -767,20 +767,45 @@ describe("is every assignment accounted for", () => {
   };
 
   it("reports where the goal actually stands", () => {
-    const both = [summarise("slack", slack), summarise("crunch", crunch)];
+    const all = [summarise("slack", slack), summarise("crunch", crunch), summarise("answered", answered)];
     console.log(
       "\nGOAL: every assignment seen, planned and accounted for, with realistic time\n" +
-        both
+        all
           .map(
             (r) =>
-              `  ${r.name.padEnd(7)} open-week-slots ${String(r.open).padStart(4)}  ` +
+              `  ${r.name.padEnd(8)} open-week-slots ${String(r.open).padStart(4)}  ` +
               `real effort ${String(`${r.effortPercent}%`).padStart(4)}  ` +
               `unaccounted ${String(r.unaccounted).padStart(4)} (worst week ${r.worstWeekUnaccounted})  ` +
               `undated ${r.undated}`,
           )
           .join("\n"),
     );
-    expect(both).toHaveLength(2);
+    expect(all).toHaveLength(3);
+  });
+
+  it("reaches the goal in full once the student has answered", () => {
+    /**
+     * The whole standing goal, asserted rather than projected: *every week, every assignment in
+     * every course seen, planned and accounted for, with realistic time allotted to each.*
+     *
+     * The `slack` and `crunch` runs above measure a term nobody has been asked about, which is
+     * the honest starting state and the reason the effort survey exists. This one measures the
+     * same sixteen weeks after the fourteen questions are answered — the state the product is
+     * built to reach — and it is the run that says whether reaching it is actually enough.
+     *
+     * It is a separate run rather than a regenerated fixture on purpose. `INGESTED_SEMESTER`
+     * stays exactly as the pipeline produced it, because "every number is a guess" is a real
+     * state of a real term and the only place it is tested.
+     */
+    const rows = answered.shortfalls;
+    const open = rows.reduce((sum, r) => sum + r.openSchedulable, 0);
+    const withEffort = rows.reduce((sum, r) => sum + r.realEffort, 0);
+
+    // Every piece of open work, every week, resting on a number somebody gave us.
+    expect(withEffort).toBe(open);
+    // And none of it lost along the way — the part that would break first if "answered" were
+    // achieved by quietly dropping the work nobody could estimate.
+    expect(rows.filter((r) => r.unaccounted > 0)).toEqual([]);
   });
 
   it("never lets an assignment fall out of view: booked, or named as not fitting", () => {
@@ -835,7 +860,13 @@ describe("is every assignment accounted for", () => {
         courses: INGESTED_SEMESTER.courses,
         gradingCategories: INGESTED_SEMESTER.gradingCategories,
       });
-      const options = survey.questions[0]?.options ?? [];
+      /**
+       * Durations only. "No time needed" is the last option on every question now, so
+       * "one rung up" would land on zero for any item whose assumption sits at the top of
+       * the ladder — silently excusing work in a run whose entire purpose is to show what
+       * happens when every item carries a *real* number.
+       */
+      const options = (survey.questions[0]?.options ?? []).filter((o) => o.minutes > 0);
       const current = options.findIndex((o) => o.isCurrentAssumption);
       const chosen = options[Math.min(current + 1, options.length - 1)];
       if (!chosen) return item;
