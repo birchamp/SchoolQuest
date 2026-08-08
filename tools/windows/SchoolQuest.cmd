@@ -1,11 +1,11 @@
 @echo off
 setlocal
-rem SchoolQuest launcher — what the desktop shortcut actually runs.
+rem SchoolQuest launcher - what the desktop shortcut actually runs.
 rem
 rem A double-clicked shortcut has to survive the two things a terminal user works around without
 rem thinking: it starts in some unrelated directory, and it vanishes the instant anything fails.
 rem So this pins itself to the repository regardless of where Windows launched it, and holds the
-rem window open on every exit path — a console that closes on error takes the error with it, and
+rem window open on every exit path - a console that closes on error takes the error with it, and
 rem the only thing left is an icon that "does nothing".
 
 rem %~dp0 is this file's own folder, so the repo is two levels up wherever it has been copied to.
@@ -39,7 +39,7 @@ if errorlevel 1 (
 )
 
 rem Preflight first. Every check it makes corresponds to something that otherwise appears later
-rem wearing a disguise — a busy port looks like the app failing to start, an unmigrated database
+rem wearing a disguise - a busy port looks like the app failing to start, an unmigrated database
 rem looks like a server crash. Better to stop here with an instruction than to start and confuse.
 echo   Checking...
 echo.

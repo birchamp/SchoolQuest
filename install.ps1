@@ -7,7 +7,7 @@
 
       irm https://raw.githubusercontent.com/birchamp/SchoolQuest/main/install.ps1 | iex
 
-  Or, from inside a clone — it uses the checkout it is sitting in rather than downloading a
+  Or, from inside a clone - it uses the checkout it is sitting in rather than downloading a
   second copy:
 
       git clone https://github.com/birchamp/SchoolQuest
@@ -47,14 +47,14 @@ $repoUrl = "https://github.com/birchamp/SchoolQuest"
   Windows ships with script execution disabled, and that stops this installer in a place nobody
   would look for it.
 
-  `irm … | iex` itself is fine — piped text never touches the policy. But `npm` on Windows is
+  `irm ... | iex` itself is fine - piped text never touches the policy. But `npm` on Windows is
   three files, and PowerShell reaches for npm.ps1 ahead of npm.cmd, so the very first thing this
   script does with npm dies on "running scripts is disabled on this system". The error names
   npm.ps1, so it reads as a broken Node install rather than a Windows default doing its job.
 
   Process scope needs no administrator rights and lasts only as long as this PowerShell. It can
   still be refused when the policy comes from Group Policy, which is why every npm and pnpm call
-  below also names the .cmd explicitly — that path never consults the policy at all. Belt and
+  below also names the .cmd explicitly - that path never consults the policy at all. Belt and
   braces, because the failure this prevents is one the user cannot diagnose.
 #>
 try {
@@ -66,7 +66,7 @@ try {
 <#
   npm and pnpm by their .cmd, always.
 
-  On Windows both ship a .ps1 alongside the .cmd, and PowerShell prefers the .ps1 — the one that
+  On Windows both ship a .ps1 alongside the .cmd, and PowerShell prefers the .ps1 - the one that
   the execution policy can veto. Naming the .cmd sidesteps the question entirely.
 #>
 function Invoke-Cmd($name, $arguments) {
@@ -92,7 +92,7 @@ Say ""
 <#
   Finding a command means asking the shell, not guessing at file paths.
 
-  `Get-Command` reflects the PATH this session actually has — which matters because winget
+  `Get-Command` reflects the PATH this session actually has - which matters because winget
   updates PATH for *new* processes, so a freshly installed tool is invisible here until the
   session's own copy of PATH is refreshed. `Sync-Path` below does that, and skipping it is the
   single commonest reason an installer like this fails halfway with "not recognized".
@@ -138,7 +138,7 @@ if (Have "node") {
 }
 
 if (-not (Have "node")) {
-  throw "Node still is not on PATH. Close this window, open a new PowerShell, and run this again — " +
+  throw "Node still is not on PATH. Close this window, open a new PowerShell, and run this again - " +
         "the installer usually needs a fresh session to be seen."
 }
 Good "Node $(node --version)"
@@ -169,12 +169,12 @@ Step "Getting SchoolQuest"
   If this script is sitting inside a checkout, that checkout is the one to use.
 
   While the repository is private there is no way to fetch this file without cloning first, so
-  running it from inside the clone is the normal path rather than the exception — and defaulting
+  running it from inside the clone is the normal path rather than the exception - and defaulting
   to a folder in the user profile would quietly make a *second* copy somewhere else, leaving two
   installs, one of them the one they are looking at and the other the one that got set up.
 
   Piped through `iex` there is no script on disk and $PSScriptRoot is empty, which `Join-Path`
-  treats as an error rather than a miss — so the emptiness is checked first, not discovered.
+  treats as an error rather than a miss - so the emptiness is checked first, not discovered.
 #>
 if ($PSScriptRoot -and
     (Test-Path (Join-Path $PSScriptRoot ".git")) -and
@@ -186,7 +186,7 @@ if ($PSScriptRoot -and
 if (Test-Path (Join-Path $Path ".git")) {
   # Updating rather than refusing: running this again is what people do when something looks
   # wrong, and "the folder already exists" is a useless thing to say to them.
-  Good "already there — updating it"
+  Good "already there - updating it"
   Push-Location $Path
   git pull --ff-only 2>&1 | Out-Null
   Pop-Location
@@ -222,7 +222,7 @@ if ($LASTEXITCODE -ne 0) {
 Step "Making a Desktop shortcut"
 # Its own PowerShell with -ExecutionPolicy Bypass rather than dot-sourcing it: if the policy came
 # from Group Policy the Set-ExecutionPolicy above was refused, and calling this directly would
-# fail here — after the install has otherwise completely succeeded.
+# fail here - after the install has otherwise completely succeeded.
 & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
   -NoProfile -ExecutionPolicy Bypass `
   -File (Join-Path $Path "tools\windows\create-shortcut.ps1")
@@ -231,12 +231,12 @@ if ($LASTEXITCODE -ne 0) { Warn "the shortcut could not be created; everything e
 # --- 6. Away.
 Say ""
 # Write-Host directly rather than Say: Say takes one argument, so a -ForegroundColor passed to it
-# lands in $args and is silently dropped — no error, just a "Done." that is not green.
+# lands in $args and is silently dropped - no error, just a "Done." that is not green.
 Write-Host "  Done." -ForegroundColor Green
 Say ""
 Say "  SchoolQuest is on your Desktop. Double-click it any time to start."
 Say ""
-Say "  When it opens, do these three in order — the app will not let you upload a syllabus"
+Say "  When it opens, do these three in order - the app will not let you upload a syllabus"
 Say "  until the calendar exists, because a syllabus says `"Week 14`" without ever saying when"
 Say "  that is:"
 Say ""

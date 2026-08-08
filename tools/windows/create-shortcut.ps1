@@ -8,7 +8,7 @@
       powershell -ExecutionPolicy Bypass -File tools\windows\create-shortcut.ps1
 
   Why a script rather than "make a shortcut yourself": a working shortcut needs four fields set
-  correctly — target, arguments, working directory and icon — and getting the working directory
+  correctly - target, arguments, working directory and icon - and getting the working directory
   wrong is the common mistake. It produces a shortcut that launches, fails to find the project,
   and closes, which reads as the app being broken rather than the shortcut being wrong. The
   launcher pins its own directory too, so this is belt and braces on the field most often missed.
@@ -29,7 +29,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# This script lives in tools\windows, so the repository is two levels up — resolved rather than
+# This script lives in tools\windows, so the repository is two levels up - resolved rather than
 # assumed, so the shortcut keeps working if the project is moved and this is re-run.
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $launcher = Join-Path $PSScriptRoot "SchoolQuest.cmd"
@@ -53,7 +53,7 @@ if ($Remove) {
 }
 
 if (-not (Test-Path $launcher)) {
-  Write-Error "Launcher not found at $launcher — is this the SchoolQuest repository?"
+  Write-Error "Launcher not found at $launcher - is this the SchoolQuest repository?"
 }
 
 $shell = New-Object -ComObject WScript.Shell
