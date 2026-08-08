@@ -56,11 +56,20 @@ No Cloudflare account. No email provider. No admin rights.
 Open **PowerShell** and run these in order.
 
 ```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 git clone https://github.com/birchamp/SchoolQuest
 cd SchoolQuest
 pnpm install
 pnpm setup
 ```
+
+That first line is not optional on a default Windows install, and leaving it out fails in a way
+that points at the wrong thing. `pnpm` on Windows ships as `pnpm.cmd` *and* `pnpm.ps1`, and
+PowerShell reaches for the `.ps1` — which Windows refuses to run, reporting an error about a file
+in your Node installation. It affects `pnpm` and `npm`, not `git` or `node`. Process scope needs
+no administrator rights and lasts only for that window.
+
+Typing `pnpm.cmd` instead of `pnpm` sidesteps it too, for a one-off.
 
 `pnpm setup` writes `apps/api/.dev.vars` with a freshly generated `AUTH_SECRET` and creates the
 local database. It is safe to run again.
@@ -79,11 +88,20 @@ much cheaper to find a busy port now than halfway through reading a syllabus.
 ## Running it
 
 ```powershell
-pnpm dev
+tools\windows\SchoolQuest.cmd
 ```
 
-Both halves start together. When you see `web` reporting a local address, open
-**http://127.0.0.1:5173** in a browser. Ctrl-C stops both.
+This is what the Desktop shortcut runs, and it is the one to prefer: being a `.cmd` it goes
+through `cmd.exe`, where the execution policy above is not a question at all. It checks itself
+first, starts both halves, and opens your browser once they are actually answering.
+
+`pnpm dev` does the same thing without the checks or the browser, if the execution policy is
+already dealt with in that window.
+
+Both halves start together, prefixed `[api]` and `[web]`. A cold first start takes a couple of
+minutes -- `wrangler` downloads its runtime and Vite pre-bundles everything -- and prints a
+heartbeat every 15 seconds while it waits, so a slow start is distinguishable from a hung one.
+Ctrl-C stops both.
 
 ### A desktop shortcut, so you never type any of this again
 
@@ -176,6 +194,8 @@ you hit something not in it, that is a genuinely new one.
 | What you see | What it is |
 | --- | --- |
 | `pnpm: command not found` | pnpm is not installed: `npm install -g pnpm`, then open a **new** PowerShell |
+| `pnpm.ps1` or `npm.ps1` `cannot be loaded because running scripts is disabled` | Windows' execution policy, not a broken Node. `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`, or type `pnpm.cmd` instead of `pnpm`. |
+| It says `still starting` for a couple of minutes | Normal on a first run. It gives up at three minutes and names the half that never arrived. |
 | `install.ps1` said "not recognized" partway | winget updates PATH for new windows only. Close PowerShell, open a new one, run it again. |
 | `npm.ps1 … cannot be loaded because running scripts is disabled` | Windows' execution policy. `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`, then run the one-liner again. |
 | The page loads but everything errors | The API is not running. Look at the `[api]` lines in the terminal. |

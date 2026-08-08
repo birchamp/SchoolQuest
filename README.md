@@ -113,6 +113,12 @@ pnpm preflight   # checks everything that would otherwise fail halfway through a
 pnpm dev         # Worker on :8787 and the app on :5173, together
 ```
 
+> **In PowerShell, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force` first.**
+> `pnpm` ships as both `pnpm.cmd` and `pnpm.ps1` on Windows, PowerShell prefers the `.ps1`, and a
+> default Windows install refuses to run it — reporting an error about a file inside your Node
+> installation, which is not where the problem is. Process scope needs no administrator rights and
+> lasts only for that window. `tools\windows\SchoolQuest.cmd` avoids the question entirely.
+
 Then open **http://127.0.0.1:5173** and sign in with any email address — with no mail provider
 configured the sign-in link comes back on screen instead of being sent, which is what makes a
 local run possible with no email account at all.
