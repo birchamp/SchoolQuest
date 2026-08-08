@@ -21,6 +21,9 @@ export const documentsRoute = new Hono<AppBindings>();
 const MAX_BYTES = 20 * 1024 * 1024;
 const ALLOWED_TYPES = new Set([
   "application/pdf",
+  // Word. Real students have a mix -- one instructor posts a PDF, the next posts the .docx --
+  // and the client reads both into page text before anything reaches here.
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "image/png",
   "image/jpeg",
   "image/webp",

@@ -1,4 +1,4 @@
-/* global window, Event */
+/* global Event */  // `window` and friends come from the tools/**/*.mjs eslint globals.
 // Walks all eight workflows the app claims to support and reports what actually happened.
 //   node tools/e2e/workflows.mjs
 import { chromium } from "playwright";

@@ -35,6 +35,9 @@ export default tseslint.config(
         document: "readonly",
         getComputedStyle: "readonly",
         localStorage: "readonly",
+        window: "readonly",
+        atob: "readonly",
+        File: "readonly",
         // Node 18+ ships the web upload primitives; the semester runner posts a real
         // multipart PDF through them, exactly as the browser does.
         FormData: "readonly",

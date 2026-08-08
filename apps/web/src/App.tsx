@@ -218,6 +218,24 @@ export function App() {
   }, [term, loadPlan]);
 
   /**
+   * Re-reads the term itself, not just the plan built from it.
+   *
+   * `regenerate` reloads the plan and nothing else, which is right for anything that changes
+   * work items -- but the term carries its own state that screens gate on. The calendar is the
+   * one that bit: pasting it stored exceptions on the term, `regenerate` reloaded the plan, and
+   * `term.calendar` in memory stayed empty. So `hasCalendar` remained false and the syllabus
+   * upload stayed disabled, with the screen saying to add a calendar that had just been added.
+   *
+   * The only way out was a browser refresh, which re-ran `bootstrap` -- a fix nobody would guess
+   * at, for a bug that looks exactly like a broken button.
+   */
+  const refreshTerm = useCallback(async () => {
+    const { terms } = await api.get<{ terms: Term[] }>("/api/terms");
+    const current = terms.find((t) => t.id === term?.id);
+    if (current) setTerm(current);
+  }, [term?.id]);
+
+  /**
    * Builds a new plan, then reads it back the way every other screen reads it.
    *
    * The generate response is the scheduler's own output and carries none of the derived
@@ -510,7 +528,17 @@ export function App() {
                 at the point the student has already done the work.
               */}
               <ProviderSettings onChanged={refreshPlan} />
-              <TermCalendar termId={term.id} onChanged={regenerate} />
+              {/*
+                The term is re-read, not only the plan: what the calendar changes lives on the
+                term, and the syllabus upload below gates on it.
+              */}
+              <TermCalendar
+                termId={term.id}
+                onChanged={async () => {
+                  await refreshTerm();
+                  await regenerate();
+                }}
+              />
               <CourseManager termId={term.id} onChanged={refreshPlan} />
               {/*
                 Above the effort survey on purpose. The survey asks the student what they know;

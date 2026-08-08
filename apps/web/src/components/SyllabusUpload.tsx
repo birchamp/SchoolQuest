@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Course, ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
+import { extractDocxText } from "../lib/docx-text";
 import { extractPdfText } from "../lib/pdf-text";
 import type { ExtractionResponse } from "../lib/extraction-types";
 import { ExtractionReview } from "./ExtractionReview";
@@ -20,6 +21,9 @@ import { useBodyTheme } from "../lib/use-body-theme";
  * Quest chrome is presentation only. The file that gets uploaded, the course it is filed
  * against, and every request made here are identical under all three themes.
  */
+
+/** Word's own MIME type, spelled once. */
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 type Phase =
   | { name: "idle" }
@@ -132,24 +136,37 @@ export function SyllabusUpload({
 
     setError(null);
     try {
-      // --- 1. Read the PDF locally.
+      // --- 1. Read the document locally.
+      //
+      // Which reader depends on the file, because real students have a mix: one instructor
+      // posts a PDF and the next posts the Word file. Chosen by extension rather than by MIME
+      // type, since the browser reports .docx inconsistently and an empty `file.type` is common
+      // enough that trusting it would reject valid files.
       setPhase({ name: "reading", progress: "Reading the document…" });
-      const parsed = await extractPdfText(file, (done, total) =>
-        setPhase({ name: "reading", progress: `Reading page ${done} of ${total}…` }),
-      );
+      const isDocx = /\.docx$/i.test(file.name);
+      const parsed = isDocx
+        ? await extractDocxText(file)
+        : await extractPdfText(file, (done, total) =>
+            setPhase({ name: "reading", progress: `Reading page ${done} of ${total}…` }),
+          );
 
       if (parsed.likelyScanned) {
         setPhase({ name: "idle" });
         setError(
           "This PDF appears to be a scan with no selectable text. Extraction needs real text, " +
-            "and OCR is not supported yet — you can still add the assignments by hand.",
+            "and OCR is not supported yet \u2014 you can still add the assignments by hand.",
         );
         return;
       }
 
-      // --- 2. Store the original. The PDF stays viewable next to the extracted data (FR-3).
+      // --- 2. Store the original. It stays viewable next to the extracted data (FR-3).
+      //
+      // The server checks the declared type, and browsers report .docx inconsistently -- an
+      // empty string or application/octet-stream, depending on what the OS has registered. By
+      // this point the file has been parsed as a .docx successfully, so re-declaring it is a
+      // statement of fact rather than a guess, and it keeps the server's check strict.
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", isDocx && file.type !== DOCX_MIME ? new File([file], file.name, { type: DOCX_MIME }) : file);
       form.append("type", "syllabus");
       const { document } = await api.upload<{ document: { id: string; filename: string } }>(
         `/api/courses/${courseId}/documents`,
@@ -311,7 +328,7 @@ export function SyllabusUpload({
         />
         <input
           type="file"
-          accept="application/pdf"
+          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           className="sr-only"
           disabled={working || courses.length === 0 || !hasCalendar}
           onChange={(e) => {
