@@ -68,6 +68,8 @@ export interface ValidationResult {
   gradingCategories: SyllabusExtraction["gradingCategories"];
   meetingPatterns: SyllabusExtraction["meetingPatterns"];
   courseFacts: SyllabusExtraction["courseFacts"];
+  /** Every week header the document printed, kept so the term can calibrate against it. */
+  scheduleAnchors: SyllabusExtraction["scheduleAnchors"];
   policies: SyllabusExtraction["policies"];
   /** The model's questions plus any the validator derived from what it found. */
   clarificationQuestions: ClarificationQuestion[];
@@ -582,6 +584,17 @@ export function validateExtraction(
     gradingCategories: extraction.gradingCategories,
     meetingPatterns: extraction.meetingPatterns,
     courseFacts: extraction.courseFacts,
+    /**
+     * Passed through with the same evidence discipline as everything else: an anchor whose quote
+     * is not on its page is dropped, because a fabricated week header would silently move every
+     * date in the course.
+     */
+    // Defaulted rather than assumed present: callers hand-building an extraction (and every
+    // stored one from before v3) have no anchors, and that is a document with no week headers
+    // rather than an error.
+    scheduleAnchors: (extraction.scheduleAnchors ?? []).filter(
+      (a) => verifyEvidence(a.evidence.excerpt, pageText.get(a.evidence.page) ?? "").verified,
+    ),
     policies: extraction.policies,
     clarificationQuestions: groupQuestions(
       dedupeQuestions([...extraction.clarificationQuestions, ...derivedQuestions]),

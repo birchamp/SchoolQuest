@@ -19,6 +19,7 @@
 
 import type { TermCalendar } from "@schoolquest/domain";
 import { breakCovering, finalsWindow, lookupWeek, type TermWindow } from "./academic-weeks.js";
+import { dateForWeek, type WeekCalibration } from "./calibrate.js";
 
 const MONTHS: Record<string, number> = {
   jan: 1, january: 1,
@@ -246,7 +247,13 @@ export interface ResolvedWeekdayDate {
 export function resolveWeekdayForClaim(
   raw: string,
   weekday: number,
-  term: { startDate: string; endDate: string; calendar?: TermCalendar },
+  term: {
+    startDate: string;
+    endDate: string;
+    calendar?: TermCalendar;
+    /** This document's own week numbering, when its headers gave enough to work it out. */
+    calibration?: WeekCalibration;
+  },
 ): ResolvedWeekdayDate | null {
   const window: TermWindow = {
     termStartDate: term.startDate,
@@ -269,6 +276,27 @@ export function resolveWeekdayForClaim(
 
   const week = weekNumberFromRaw(raw);
   if (week !== null) {
+    /**
+     * The document's own numbering beats the term's, when the document said enough to work it out.
+     *
+     * `lookupWeek` counts from the term's first Monday, which is all there is when a syllabus
+     * prints nothing but "Week 10" — and it is wrong whenever the course's week 1 is not the
+     * term's, which is most of the time once a student's institution and their term row disagree.
+     *
+     * Measured: TAMU-Texarkana COSC 1315 numbers spring break as its week 9 and prints no dates
+     * anywhere. Counted against the term, its week 10 assignment resolved to 17 March — *inside*
+     * spring break, caught only because a separate check noticed the collision. Calibrated
+     * against the break the document itself numbers, it is 24 March, the Friday after.
+     *
+     * `dateForWeek` returns null rather than guessing when nothing calibrated the document, and
+     * for any week at or past a duplicated number — after "Week 10" appears twice the number no
+     * longer identifies a week, and being a week early in silence is what this replaces.
+     */
+    if (term.calibration) {
+      const calibrated = dateForWeek(week, weekday, term.calibration);
+      if (calibrated) return classify(calibrated.iso, term, window, weekday);
+    }
+
     const lookup = lookupWeek(week, window);
     if (!lookup) return null;
     const iso = weekdayWithinRange({ start: lookup.start, end: lookup.end }, weekday);

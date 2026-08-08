@@ -9,6 +9,7 @@ import {
   ExtractionError,
   isWithinTerm,
   parseStatedDate,
+  calibrateWeeks,
   parseWeekday,
   resolveWeekdayForClaim,
   toDueAt,
@@ -274,6 +275,33 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
     );
   }
 
+  const calendar = termCalendar.parse(JSON.parse(owned.term.calendarJson || "{}"));
+
+  /**
+   * What this document means by "Week N", worked out before any claim is resolved.
+   *
+   * Read back off the anchor claims the extraction stored. A syllabus counting from a Monday the
+   * term row does not know about is the ordinary case, not the exotic one — and it produced a
+   * date inside spring break on a real document.
+   */
+  const anchorRows = (
+    await db.select().from(extractionClaims).where(eq(extractionClaims.sourceDocumentId, documentId))
+  ).filter((claim) => claim.claimType === "schedule_anchor");
+  const calibration = calibrateWeeks(
+    anchorRows.map((row) => {
+      const payload = JSON.parse(row.payloadJson) as {
+        weekNumber: number;
+        raw: string | null;
+        isBreak: boolean;
+      };
+      return {
+        ...payload,
+        evidence: { page: row.pageNumber ?? 1, excerpt: row.sourceExcerpt ?? "" },
+      };
+    }),
+    { startDate: owned.term.startDate, endDate: owned.term.endDate, calendar },
+  );
+
   const restrictTo = parsed.data.claimIds ? new Set(parsed.data.claimIds) : null;
   const claims = (
     await db
@@ -305,7 +333,8 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
     const result = resolveWeekdayForClaim(payload.dueDate.raw, weekday, {
       startDate: owned.term.startDate,
       endDate: owned.term.endDate,
-      calendar: termCalendar.parse(JSON.parse(owned.term.calendarJson || "{}")),
+      calendar: calendar,
+      ...(calibration.weekOneMonday !== null ? { calibration } : {}),
     });
     if (result === null) {
       unresolved.push({
@@ -890,6 +919,29 @@ function buildClaimRows(
       pageNumber: result.courseFacts.evidence.page,
       sourceExcerpt: result.courseFacts.evidence.excerpt,
       confidence: result.courseFacts.confidence,
+    });
+  }
+
+  /**
+   * Week headers are stored so the *document's* numbering survives the request that read it.
+   *
+   * "Week 10" cannot be resolved when it is extracted — the student has not yet said which
+   * weekday their work is due — so by the time the answer arrives the only thing that knows this
+   * syllabus numbers its break as week 9 is a claim row.
+   */
+  for (const anchor of result.scheduleAnchors) {
+    rows.push({
+      ...base,
+      id: newId("extractionClaim"),
+      claimType: "schedule_anchor",
+      payloadJson: JSON.stringify({
+        weekNumber: anchor.weekNumber,
+        raw: anchor.raw,
+        isBreak: anchor.isBreak,
+      }),
+      pageNumber: anchor.evidence.page,
+      sourceExcerpt: anchor.evidence.excerpt,
+      confidence: 1,
     });
   }
 
