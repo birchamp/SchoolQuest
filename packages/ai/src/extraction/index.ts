@@ -7,5 +7,6 @@ export * from "./calibrate.js";
 export * from "./reconcile.js";
 export * from "./followup.js";
 export * from "./academic-calendar.js";
+export * from "./course-list.js";
 export * from "./resolve-dates.js";
 export * from "./expand-recurrence.js";

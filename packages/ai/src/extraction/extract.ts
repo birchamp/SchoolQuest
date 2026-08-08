@@ -23,6 +23,15 @@ import {
   validateAcademicCalendar,
   type CalendarValidationResult,
 } from "./academic-calendar.js";
+import {
+  buildCourseListMessage,
+  courseListReading,
+  COURSE_LIST_JSON_SCHEMA,
+  COURSE_LIST_PROMPT_VERSION,
+  COURSE_LIST_SYSTEM_PROMPT,
+  validateCourseList,
+  type CourseListValidationResult,
+} from "./course-list.js";
 
 export interface ExtractionRequest {
   pages: DocumentPage[];
@@ -250,6 +259,52 @@ export async function readAcademicCalendar(
       ...(request.termEndDate ? { termEndDate: request.termEndDate } : {}),
     }),
     promptVersion: ACADEMIC_CALENDAR_PROMPT_VERSION,
+    model: completion.model,
+  };
+}
+
+/**
+ * Reads a pasted course list into classes with their meeting times.
+ *
+ * Same discipline as the calendar, defending a specific failure: an invented meeting time books
+ * study sessions on top of a lecture every week of the term, and nothing on screen looks wrong.
+ * `validateCourseList` discards any course whose quoted row is not in the pasted text, and drops
+ * meeting times that do not parse or that end before they start.
+ */
+export async function readCourseList(
+  provider: AiProvider,
+  request: { text: string; model?: string },
+): Promise<CourseListValidationResult & { promptVersion: string; model: string }> {
+  const text = request.text.trim();
+  if (text.length === 0) {
+    throw new ExtractionError("There was no course list to read.");
+  }
+
+  const completion = await provider.complete({
+    model: request.model ?? MODELS.EXTRACTION,
+    // A reading task. Creativity here is purely a fabrication risk.
+    temperature: 0,
+    maxTokens: 4000,
+    jsonSchema: {
+      name: "course_list",
+      schema: COURSE_LIST_JSON_SCHEMA as unknown as Record<string, unknown>,
+    },
+    messages: [
+      { role: "system", content: COURSE_LIST_SYSTEM_PROMPT },
+      { role: "user", content: buildCourseListMessage(text) },
+    ],
+  });
+
+  let parsed;
+  try {
+    parsed = courseListReading.parse(JSON.parse(completion.text));
+  } catch (cause) {
+    throw new ExtractionError("The course list reading did not match the expected schema.", cause);
+  }
+
+  return {
+    ...validateCourseList(parsed, { pastedText: text }),
+    promptVersion: COURSE_LIST_PROMPT_VERSION,
     model: completion.model,
   };
 }

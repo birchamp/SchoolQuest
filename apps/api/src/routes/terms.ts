@@ -16,6 +16,7 @@ import {
   ExtractionError,
   finalsWindow,
   readAcademicCalendar,
+  readCourseList,
 } from "@schoolquest/ai";
 import {
   applyEffortAnswer,
@@ -599,6 +600,142 @@ termsRoute.post("/terms/:termId/courses", async (c) => {
   }
 
   return c.json({ course }, 201);
+});
+
+const coursePasteBody = z.object({
+  /** The student's course list, pasted as text from a portal or timetable. */
+  text: z.string().min(10).max(20_000),
+});
+
+/**
+ * Creates courses from a pasted course list.
+ *
+ * The same trade the calendar makes: the student is already looking at this table in another
+ * tab, and typing four fields plus a meeting-time form per class is the most tedious screen in
+ * the app -- sitting directly between a new user and the first useful thing the app does, since
+ * a syllabus has nowhere to attach without a course.
+ *
+ * Writes straight through rather than offering a preview, because everything it creates is
+ * editable on the same screen a moment later, and a confirm step for data the student can see
+ * and fix is a step for its own sake. What was dropped is reported, never hidden.
+ */
+termsRoute.post("/terms/:termId/courses/paste", async (c) => {
+  const db = getDb(c.env.DB);
+  const termId = c.req.param("termId");
+  if (!(await assertTermOwner(db, termId, c.get("userId")))) {
+    return c.json({ error: "Term not found" }, 404);
+  }
+
+  const resolved = await providerForUser(db, c.env, c.get("userId"));
+  if (!resolved.apiKey) return c.json({ error: NO_PROVIDER_MESSAGE }, 503);
+
+  const parsed = coursePasteBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const provider = createOpenRouterProvider({
+    apiKey: resolved.apiKey,
+    defaultModel: resolved.extractionModel,
+    appUrl: c.env.APP_URL,
+    appName: c.env.APP_NAME,
+    ...(c.env.OPENROUTER_BASE_URL ? { baseUrl: c.env.OPENROUTER_BASE_URL } : {}),
+  });
+
+  let result;
+  try {
+    result = await readCourseList(provider, { text: parsed.data.text });
+  } catch (error) {
+    if (error instanceof AiProviderError) {
+      return c.json(
+        {
+          error: "The reader is unreachable right now. Nothing was changed - try again.",
+          retryable: error.retryable,
+        },
+        502,
+      );
+    }
+    if (error instanceof ExtractionError) return c.json({ error: error.message }, 422);
+    throw error;
+  }
+
+  const existing = await db
+    .select({ id: courses.id, name: courses.name, code: courses.code })
+    .from(courses)
+    .where(eq(courses.termId, termId));
+
+  // Pasting twice is a normal thing to do -- after adding a class, or because the first paste
+  // missed one. Without this it silently doubles every course already there.
+  const identity = (code: string | null, name: string) =>
+    `${(code ?? "").trim().toLowerCase()}|${name.trim().toLowerCase()}`;
+  const already = new Map(existing.map((c2) => [identity(c2.code, c2.name), c2]));
+
+  const created: (typeof courses.$inferSelect)[] = [];
+  const skipped: { name: string; code: string | null; reason: string }[] = [];
+
+  for (const read of result.accepted) {
+    const name = read.name.trim() || (read.code ?? "").trim();
+    const code = read.code?.trim() || null;
+
+    if (already.has(identity(code, name))) {
+      skipped.push({ name, code, reason: "It is already on this term." });
+      continue;
+    }
+
+    const course = {
+      id: newId("course"),
+      termId,
+      name,
+      code,
+      instructor: read.instructor?.trim() || null,
+      credits: read.credits ?? null,
+      colorToken:
+        COURSE_COLOR_TOKENS[(existing.length + created.length) % COURSE_COLOR_TOKENS.length]!,
+      expectedWeeklyMinutes: null,
+      targetGrade: null,
+      // Nothing here says how the course is graded; that still comes from the syllabus.
+      gradingConfidence: "unknown" as const,
+    };
+    await db.insert(courses).values(course);
+    already.set(identity(code, name), { id: course.id, name, code });
+
+    if (read.meetings.length > 0) {
+      await db.insert(meetingPatterns).values(
+        read.meetings.map((m) => ({
+          id: newId("meetingPattern"),
+          courseId: course.id,
+          daysOfWeek: serializeDays(m.daysOfWeek),
+          startTime: m.startTime,
+          endTime: m.endTime,
+          location: m.location ?? null,
+          effectiveStart: null,
+          effectiveEnd: null,
+        })),
+      );
+    }
+
+    created.push(course as typeof courses.$inferSelect);
+  }
+
+  return c.json({
+    created,
+    /** Already present, so nothing happened. Not an error, but worth saying. */
+    skipped,
+    /** Rows the reader would not vouch for, with why. */
+    rejected: result.rejected.map((r) => ({
+      name: r.course.name,
+      code: r.course.code,
+      reason: r.reason,
+    })),
+    unreadableLines: result.unreadableLines,
+    /** Courses kept whose meeting times did not survive checking. */
+    warnings: result.warnings,
+    /** Named so the screen can say which classes still need times typed in. */
+    withoutMeetings: created
+      .filter((course) => {
+        const read = result.accepted.find((r) => (r.name.trim() || r.code) === course.name);
+        return !read || read.meetings.length === 0;
+      })
+      .map((course) => course.name),
+  });
 });
 
 // --- Commitments and availability --------------------------------------------

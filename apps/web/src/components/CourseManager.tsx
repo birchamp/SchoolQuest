@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { type ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
+import { CoursePaste } from "./CoursePaste";
 import { DayPicker, TimeRange } from "./DayPicker";
 import { courseTincture } from "../lib/course-colour";
 import { useBodyTheme } from "../lib/use-body-theme";
@@ -304,6 +305,22 @@ export function CourseManager({
             onError={setError}
           />
         )}
+
+        {/*
+          Above the form, and the primary action while the term is empty. Every field of the
+          form below is already printed on the student's portal page, and typing them again --
+          per class, plus a separate meeting-times step -- is the most tedious thing the app
+          asks for. Adding by hand stays, because a paste can miss a class and a student may
+          only be adding one.
+        */}
+        <CoursePaste
+          termId={termId}
+          primary={snapshot !== null && snapshot.courses.length === 0}
+          onChanged={() => {
+            void refresh();
+            onChanged();
+          }}
+        />
 
         <AddCourseForm
           termId={termId}
