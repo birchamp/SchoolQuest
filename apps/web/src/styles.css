@@ -1743,3 +1743,45 @@ body[data-theme="quest"] .question-course {
 body[data-theme="quest"] .guessed-time {
   border-left-color: #8a6410;
 }
+
+/* --- The model picker ---------------------------------------------------------------------
+   A radio list rather than a dropdown: the price and the note are the reason to choose one, and
+   a <select> can only show the label. */
+
+.model-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.model-list label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem 0.6rem;
+  align-items: baseline;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.model-list input {
+  grid-row: 1 / span 3;
+  align-self: center;
+}
+
+.model-name {
+  font-weight: 600;
+}
+
+.model-price,
+.model-note {
+  grid-column: 2;
+  font-size: 0.88rem;
+}
+
+body[data-theme="quest"] .model-list label {
+  border-color: #b9a06a;
+}

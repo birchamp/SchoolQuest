@@ -17,6 +17,14 @@ export const users = sqliteTable("users", {
   theme: text("theme").notNull().default("plain"),
   reducedMotion: integer("reduced_motion", { mode: "boolean" }).notNull().default(false),
   detailMode: text("detail_mode").notNull().default("standard"),
+  /**
+   * The student's own OpenRouter key, encrypted (see `secrets.ts`). Null means "use whatever the
+   * deployment was configured with", which is how a self-hosted single-user install works.
+   */
+  openrouterKeyEncrypted: text("openrouter_key_encrypted"),
+  /** Chosen from `MODEL_CHOICES`. Null falls back to the app's default. */
+  extractionModel: text("extraction_model"),
+  coachModel: text("coach_model"),
   createdAt: text("created_at").notNull(),
 });
 

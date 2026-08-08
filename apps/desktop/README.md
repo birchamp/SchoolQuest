@@ -65,17 +65,27 @@ The workflow re-checks this against the tag and refuses to build if they disagre
 ### Signing, and SmartScreen
 
 An unsigned installer triggers Windows SmartScreen: a blue **"Windows protected your PC"** panel
-whose only visible button is *Don't run*. The install ends there for most students, which makes a
-certificate the single largest remaining obstacle to a one-click install — and the one that cannot
-be solved in this repository, because it has to be bought.
+whose only visible button is *Don't run*.
 
-What to buy: an **OV code-signing certificate** (roughly $200–400/year from DigiCert, Sectigo,
-SSL.com and others; since June 2023 the private key must live on a hardware token or in a cloud
-HSM, so "download a .pfx" is no longer generally on offer). An **EV certificate** costs more and
-is the only kind that clears SmartScreen *immediately*; an OV certificate builds reputation over
-some weeks and some number of installs before the warning stops appearing.
+**SchoolQuest ships unsigned, deliberately, and that is not expected to change.** Code-signing
+certificates run a few hundred dollars a year and, since June 2023, require the private key to
+live on a hardware token or in a cloud HSM — a recurring cost and a piece of physical hardware
+that a free hobby project does not have. Nearly every small open-source Windows application is in
+the same position, and pretending a purchase is imminent would be worse than saying so.
 
-Once you have one, the workflow needs two repository secrets and nothing else changes:
+What is done instead, because it is what actually helps a cautious student:
+
+- The installer is built by GitHub Actions from a public commit, not on a maintainer's machine, so
+  the release page links a build log showing exactly what went in.
+- `docs/11-installing-on-windows.md` tells students plainly why the warning appears, offers
+  VirusTotal and building from source as checks they can run themselves, and points out that the
+  browser version needs no installer at all.
+
+The browser is the real answer for anyone unwilling to click past SmartScreen; the desktop app
+exists for dragging syllabus PDFs in, and nothing else depends on it.
+
+If someone does fund a certificate later, the workflow needs two repository secrets and nothing
+else changes:
 
 | Secret | Value |
 | --- | --- |

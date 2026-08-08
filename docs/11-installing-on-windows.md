@@ -29,10 +29,20 @@ You will probably see a blue box that says **Windows protected your PC** and onl
 1. Click the small **More info** link in the box.
 2. A **Run anyway** button appears. Click it.
 
-This warning is not about a virus. Windows shows it for any program that has not been signed with
-a paid certificate, which SchoolQuest has not been yet. It goes away for everyone once the project
-buys one. If you would rather not click past it, use SchoolQuest in your web browser instead —
-everything except dragging in syllabus PDFs works exactly the same there.
+This warning is not about a virus, and it is not going away. Windows shows it for any program
+that has not been signed with a paid certificate — since 2023 those cost a few hundred dollars a
+year and require a hardware security token, which is not something a free hobby project buys.
+Nearly every small open-source Windows app is in the same position.
+
+What you can check for yourself, if you would rather not take that on faith:
+
+- The whole source is public, and this installer is built from it by GitHub Actions rather than
+  on anyone's laptop — the build log on the release page shows exactly which commit it came from.
+- You can upload the `.exe` to [virustotal.com](https://www.virustotal.com) before running it.
+- You can build it yourself from source; `apps/desktop/README.md` has the two commands.
+
+**Or skip the download entirely.** SchoolQuest runs in a web browser with no installer and no
+warning, and everything works there except dragging syllabus PDFs straight in.
 
 ## 4. Let it install
 

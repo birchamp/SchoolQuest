@@ -48,6 +48,7 @@ import {
   loadTermSnapshot,
   serializeDays,
 } from "../db/repo.js";
+import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import type { AppBindings } from "../env.js";
 
 export const termsRoute = new Hono<AppBindings>();
@@ -436,17 +437,16 @@ termsRoute.post("/terms/:id/calendar/paste", async (c) => {
   const id = c.req.param("id");
   if (!(await assertTermOwner(db, id, c.get("userId")))) return c.json({ error: "Term not found" }, 404);
 
-  if (!c.env.OPENROUTER_API_KEY) {
-    return c.json({ error: "Reading a calendar is not configured: OPENROUTER_API_KEY is missing." }, 503);
-  }
+  const resolved = await providerForUser(db, c.env, c.get("userId"));
+  if (!resolved.apiKey) return c.json({ error: NO_PROVIDER_MESSAGE }, 503);
 
   const parsed = calendarPasteBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
   const [existing] = await db.select().from(terms).where(eq(terms.id, id));
   const provider = createOpenRouterProvider({
-    apiKey: c.env.OPENROUTER_API_KEY,
-    defaultModel: c.env.OPENROUTER_EXTRACTION_MODEL,
+    apiKey: resolved.apiKey,
+    defaultModel: resolved.extractionModel,
     appUrl: c.env.APP_URL,
     appName: c.env.APP_NAME,
     ...(c.env.OPENROUTER_BASE_URL ? { baseUrl: c.env.OPENROUTER_BASE_URL } : {}),

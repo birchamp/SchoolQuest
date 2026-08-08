@@ -26,6 +26,7 @@ import {
   workItems,
 } from "../db/schema.js";
 import { getDb, insertInChunks, serializeDays, type Db } from "../db/repo.js";
+import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import type { AppBindings } from "../env.js";
 
 export const extractionRoute = new Hono<AppBindings>();
@@ -71,9 +72,8 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
   const owned = await loadOwnedDocument(db, documentId, c.get("userId"));
   if (!owned) return c.json({ error: "Document not found" }, 404);
 
-  if (!c.env.OPENROUTER_API_KEY) {
-    return c.json({ error: "Extraction is not configured: OPENROUTER_API_KEY is missing." }, 503);
-  }
+  const provider_ = await providerForUser(db, c.env, c.get("userId"));
+  if (!provider_.apiKey) return c.json({ error: NO_PROVIDER_MESSAGE }, 503);
 
   /**
    * No syllabus is read before the term's calendar is known. A refusal, not a warning.
@@ -112,8 +112,8 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
     .where(eq(sourceDocuments.id, documentId));
 
   const provider = createOpenRouterProvider({
-    apiKey: c.env.OPENROUTER_API_KEY,
-    defaultModel: c.env.OPENROUTER_EXTRACTION_MODEL,
+    apiKey: provider_.apiKey,
+    defaultModel: provider_.extractionModel,
     appUrl: c.env.APP_URL,
     appName: c.env.APP_NAME,
     ...(c.env.OPENROUTER_BASE_URL ? { baseUrl: c.env.OPENROUTER_BASE_URL } : {}),

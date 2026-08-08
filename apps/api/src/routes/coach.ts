@@ -12,6 +12,7 @@ import { generatePlan } from "@schoolquest/planning-engine";
 import { coachMessages, users } from "../db/schema.js";
 import { assertTermOwner, getDb, loadTermSnapshot, toPlanningInput } from "../db/repo.js";
 import { loadReview } from "./review.js";
+import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import type { AppBindings } from "../env.js";
 
 const messageBody = z.object({
@@ -39,9 +40,8 @@ coachRoute.post("/coach/messages", async (c) => {
     return c.json({ error: "Term not found" }, 404);
   }
 
-  if (!c.env.OPENROUTER_API_KEY) {
-    return c.json({ error: "The coach is not configured: OPENROUTER_API_KEY is missing." }, 503);
-  }
+  const resolved = await providerForUser(db, c.env, userId);
+  if (!resolved.apiKey) return c.json({ error: NO_PROVIDER_MESSAGE }, 503);
 
   const [user] = await db.select().from(users).where(eq(users.id, userId));
   const theme = parsed.data.theme ?? (user?.theme as "quest" | "mission" | "plain") ?? "plain";
@@ -81,8 +81,8 @@ coachRoute.post("/coach/messages", async (c) => {
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
   const provider = createOpenRouterProvider({
-    apiKey: c.env.OPENROUTER_API_KEY,
-    defaultModel: c.env.OPENROUTER_COACH_MODEL,
+    apiKey: resolved.apiKey,
+    defaultModel: resolved.coachModel,
     appUrl: c.env.APP_URL,
     appName: c.env.APP_NAME,
     ...(c.env.OPENROUTER_BASE_URL ? { baseUrl: c.env.OPENROUTER_BASE_URL } : {}),

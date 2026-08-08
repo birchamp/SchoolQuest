@@ -18,6 +18,7 @@ import { WeeklyReview } from "./components/WeeklyReview";
 import { MealWindows } from "./components/MealWindows";
 import { EffortSurvey } from "./components/EffortSurvey";
 import { OpenQuestions } from "./components/OpenQuestions";
+import { ProviderSettings } from "./components/ProviderSettings";
 import { TermCalendar } from "./components/TermCalendar";
 import { StudyHours } from "./components/StudyHours";
 import { Stats } from "./components/Stats";
@@ -503,6 +504,12 @@ export function App() {
                 syllabus contains — "Week 14", "each Tuesday in class", "finals week" — is read
                 against this, so a syllabus uploaded before it is read against guesses.
               */}
+              {/*
+                Above the calendar, because it is the one thing that has to be true before any of
+                the rest works: with no key, pasting a calendar and uploading a syllabus both fail
+                at the point the student has already done the work.
+              */}
+              <ProviderSettings onChanged={refreshPlan} />
               <TermCalendar termId={term.id} onChanged={regenerate} />
               <CourseManager termId={term.id} onChanged={refreshPlan} />
               {/*

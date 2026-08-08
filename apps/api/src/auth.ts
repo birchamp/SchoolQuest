@@ -123,6 +123,11 @@ export async function redeemLoginToken(
       theme: "plain",
       reducedMotion: false,
       detailMode: "standard",
+      // A new account inherits the deployment's key and default models; the settings screen is
+      // where a student replaces either.
+      openrouterKeyEncrypted: null,
+      extractionModel: null,
+      coachModel: null,
       createdAt: new Date().toISOString(),
     };
     await db.insert(users).values(created);

@@ -3,7 +3,8 @@ import { cors } from "hono/cors";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { detailMode, themeName } from "@schoolquest/domain";
-import { MODELS } from "@schoolquest/ai";
+import { centsPerSyllabus, MODEL_CHOICES, MODEL_IDS, MODELS } from "@schoolquest/ai";
+import { decryptSecret, encryptSecret, keyHint } from "./secrets.js";
 import { redeemLoginToken, requestLoginLink, requireAuth, SESSION_COOKIE, setSessionCookie, signOut } from "./auth.js";
 import { getDb } from "./db/repo.js";
 import { users } from "./db/schema.js";
@@ -84,7 +85,28 @@ app.use("/api/*", requireAuth);
 app.get("/api/me", async (c) => {
   const db = getDb(c.env.DB);
   const [user] = await db.select().from(users).where(eq(users.id, c.get("userId")));
-  return c.json({ user });
+  const { openrouterKeyEncrypted, ...safe } = user!;
+
+  /**
+   * The key never comes back out, not even to the person who set it.
+   *
+   * A field that renders a live credential into the DOM is a field that ends up in a screenshot,
+   * a screen share, or a bug report. What a student actually needs is to recognise *which* key
+   * is stored and to be able to replace it, and a hint gives them both.
+   */
+  const stored = openrouterKeyEncrypted
+    ? await decryptSecret(openrouterKeyEncrypted, c.env.AUTH_SECRET)
+    : null;
+
+  return c.json({
+    user: {
+      ...safe,
+      openrouterKeyHint: stored ? keyHint(stored) : null,
+      // Whether this deployment has its own key, which decides whether a student *must* supply one.
+      providerConfigured: Boolean(stored ?? c.env.OPENROUTER_API_KEY),
+    },
+    models: MODEL_CHOICES.map((m) => ({ ...m, centsPerSyllabus: centsPerSyllabus(m) })),
+  });
 });
 
 const profileBody = z.object({
@@ -93,19 +115,43 @@ const profileBody = z.object({
   theme: themeName.optional(),
   reducedMotion: z.boolean().optional(),
   detailMode: detailMode.optional(),
+  /**
+   * The student's OpenRouter key. Empty string clears it, which is the only way back to the
+   * deployment's own key once one has been set.
+   */
+  openrouterKey: z.string().max(400).optional(),
+  extractionModel: z.enum(MODEL_IDS as [string, ...string[]]).nullable().optional(),
+  coachModel: z.enum(MODEL_IDS as [string, ...string[]]).nullable().optional(),
 });
 
 app.patch("/api/me", async (c) => {
   const parsed = profileBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
+  const { openrouterKey, ...profile } = parsed.data;
+  const patch: Record<string, unknown> = { ...profile };
+
+  if (openrouterKey !== undefined) {
+    const trimmed = openrouterKey.trim();
+    if (trimmed === "") {
+      patch["openrouterKeyEncrypted"] = null;
+    } else if (!trimmed.startsWith("sk-or-")) {
+      // Caught here rather than at the first extraction, which would fail twenty pages later
+      // with a provider error the student cannot act on.
+      return c.json({ error: "An OpenRouter key starts with \"sk-or-\". Check you copied all of it." }, 400);
+    } else {
+      patch["openrouterKeyEncrypted"] = await encryptSecret(trimmed, c.env.AUTH_SECRET);
+    }
+  }
+
   const db = getDb(c.env.DB);
   const [user] = await db
     .update(users)
-    .set(parsed.data)
+    .set(patch)
     .where(eq(users.id, c.get("userId")))
     .returning();
-  return c.json({ user });
+  const { openrouterKeyEncrypted, ...safe } = user!;
+  return c.json({ user: { ...safe, openrouterKeyHint: openrouterKeyEncrypted ? keyHint(openrouterKey ?? "") : null } });
 });
 
 app.route("/api", termsRoute);
