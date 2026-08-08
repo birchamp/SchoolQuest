@@ -1,11 +1,19 @@
 import { useState } from "react";
-import { api, setStoredToken } from "../lib/api";
+import { api, isDesktop, setStoredToken } from "../lib/api";
+import { loginTokenFrom } from "../lib/sign-in-link";
 
 /**
  * Passwordless sign-in.
  *
  * With no mail provider configured the API returns the link directly, so local
  * development needs no email account. In production `devLoginUrl` is simply absent.
+ *
+ * The desktop app cannot follow the emailed link itself. Its window loads from
+ * `tauri://localhost`, and Windows hands the link in the student's mail client to their default
+ * browser — which signs them in *there*, in a browser that is not this app. Nothing bridges that
+ * except the clipboard, so the desktop screen asks for the link to be pasted and says so plainly.
+ * The alternative, registering a `schoolquest://` protocol handler, would be nicer and is a
+ * bigger change than a per-user installer should make to a machine the university administers.
  */
 export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
   const [email, setEmail] = useState("");
@@ -33,7 +41,13 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
     }
   }
 
-  async function redeem(rawToken: string) {
+  async function redeem(pasted: string) {
+    const rawToken = loginTokenFrom(pasted);
+    if (!rawToken) {
+      setError("That does not look like a sign-in link. Copy the whole link from the email.");
+      return;
+    }
+
     setBusy(true);
     setError(null);
     try {
@@ -58,6 +72,14 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
           A sign-in link is on its way to {email}. It expires in 15 minutes.
         </p>
 
+        {isDesktop && (
+          <p className="muted">
+            Open the email, right-click the link and choose <strong>Copy link</strong>, then paste
+            it below. Clicking it opens your web browser instead of this window, which signs you in
+            there rather than here.
+          </p>
+        )}
+
         {devUrl && (
           <>
             <p className="muted">
@@ -67,7 +89,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
             <button
               className="action primary"
               disabled={busy}
-              onClick={() => redeem(new URL(devUrl).searchParams.get("token") ?? "")}
+              onClick={() => redeem(devUrl)}
             >
               Sign in now
             </button>
@@ -82,13 +104,13 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
           style={{ marginTop: "1.5rem" }}
         >
           <label className="sr-only" htmlFor="token">
-            Paste your sign-in token
+            Paste your sign-in link
           </label>
           <input
             id="token"
             value={token}
             onChange={(e) => setToken(e.target.value)}
-            placeholder="Or paste the token from the link"
+            placeholder="Paste your sign-in link here"
           />
           <button className="action" type="submit" disabled={busy || !token.trim()}>
             Sign in

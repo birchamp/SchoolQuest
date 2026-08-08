@@ -13,6 +13,8 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
+    "version:check": "node tools/version.mjs check",
+    "version:set": "node tools/version.mjs set",
     "dev:web": "pnpm --filter @schoolquest/web dev",
     "dev:api": "pnpm --filter @schoolquest/api dev",
     "dev:desktop": "pnpm --filter @schoolquest/desktop dev",

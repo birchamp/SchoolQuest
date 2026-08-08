@@ -43,6 +43,14 @@ export default tseslint.config(
     },
   },
   {
+    // Release plumbing, in the same position as the e2e harness above: plain Node ESM with no
+    // tsconfig, run by the Windows installer workflow rather than bundled into anything.
+    files: ["apps/desktop/scripts/*.mjs"],
+    languageOptions: {
+      globals: { console: "readonly", process: "readonly", URL: "readonly" },
+    },
+  },
+  {
     rules: {
       "@typescript-eslint/no-unused-vars": [
         "error",

@@ -39,12 +39,19 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/icon.ico"
     ],
     "category": "Education",
     "shortDescription": "Know what to work on now.",
     "longDescription": "SchoolQuest turns syllabi, commitments, and deadlines into a weekly plan you can act on, and adapts it when life changes.",
+    "publisher": "SchoolQuest",
     "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "timestampUrl": "http://timestamp.digicert.com",
       "nsis": {
         "installMode": "currentUser",
         "languages": [

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
-import { api, setStoredToken } from "./lib/api";
+import { api, API_BASE, ApiError, isDesktop, setStoredToken } from "./lib/api";
+import { connectionFault, connectionMessage, type ConnectionFault } from "./lib/connection";
+import { loginTokenFrom } from "./lib/sign-in-link";
 import type { Me, PlanResponse, Term } from "./lib/types";
 import { SignIn } from "./components/SignIn";
 import { Onboarding } from "./components/Onboarding";
@@ -59,6 +61,40 @@ function normalizePlan(plan: PlanResponse): PlanResponse {
   };
 }
 
+/**
+ * Spends a sign-in token that arrived in the address bar, before anything asks who the user is.
+ *
+ * The API mails `${APP_URL}/auth/callback?token=…` and that URL lands on this single-page app,
+ * which until now read nothing from it — so following the emailed link showed the sign-in form
+ * again, and there was no way at all to complete a sign-in outside local development, where the
+ * link is echoed back in the response instead. This is the step that was missing.
+ *
+ * The token is stripped from the URL whether or not it worked. It is single use, so leaving it
+ * there means a refresh or a back button spends a token that is already gone and lands the
+ * student on "that link did not work" for a link that in fact did.
+ */
+async function redeemLinkInUrl(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  const token = loginTokenFrom(window.location.href);
+  if (!token) return false;
+
+  try {
+    const { sessionToken } = await api.post<{ sessionToken: string }>("/api/auth/callback", {
+      token,
+    });
+    setStoredToken(sessionToken);
+    return true;
+  } catch {
+    // An expired or reused link is not an error state of its own: falling through leaves the
+    // student on the sign-in screen, which is where they need to be to ask for a fresh one.
+    return false;
+  } finally {
+    // Relative, so this never has to reason about what `location.origin` is — under the desktop
+    // shell's custom scheme it can be the string "null", and handing that to replaceState throws.
+    window.history.replaceState({}, "", "/");
+  }
+}
+
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [term, setTerm] = useState<Term | null>(null);
@@ -111,6 +147,15 @@ export function App() {
   const [viewMode, setViewMode] = useViewMode();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Held apart from `error` because it is the only failure that has to be shown *before* sign-in.
+   *
+   * `error` is rendered inside the signed-in shell, below the header — which meant that a first
+   * run with no internet, or an installer built against the wrong origin, set it and then
+   * returned the sign-in screen instead, throwing the explanation away. What the student saw was
+   * a normal-looking sign-in form that answered "Failed to fetch" when they used it.
+   */
+  const [fault, setFault] = useState<ConnectionFault | null>(null);
 
   const theme: ThemeName = me?.theme ?? "plain";
 
@@ -131,7 +176,10 @@ export function App() {
   const bootstrap = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setFault(null);
     try {
+      await redeemLinkInUrl();
+
       const { user } = await api.get<{ user: Me }>("/api/me");
       setMe(user);
 
@@ -141,10 +189,12 @@ export function App() {
       if (active) await loadPlan(active.id);
     } catch (e) {
       // A 401 simply means "not signed in", which is a state, not an error to display.
-      if (e instanceof Error && "status" in e && (e as { status: number }).status === 401) {
+      if (e instanceof ApiError && e.status === 401) {
         setMe(null);
       } else {
-        setError(e instanceof Error ? e.message : "Could not reach the server.");
+        const connection = connectionFault(e, { apiBase: API_BASE, packaged: isDesktop });
+        if (connection) setFault(connection);
+        else setError(e instanceof Error ? e.message : "Could not reach the server.");
       }
     } finally {
       setLoading(false);
@@ -208,6 +258,28 @@ export function App() {
     return (
       <div className="centered">
         <p className="muted">Loading your plan…</p>
+      </div>
+    );
+  }
+
+  // Ahead of the sign-in screen, because a sign-in form that cannot reach a server is a trap:
+  // it looks like the app working, and the student only finds out otherwise after typing their
+  // address and waiting. This is the whole first-run experience when campus wifi has not come up
+  // yet, so it says which of the two things is wrong and, where it helps, what to do next.
+  if (fault) {
+    const { title, detail, canRetry } = connectionMessage(fault, {
+      apiBase: API_BASE,
+      packaged: isDesktop,
+    });
+    return (
+      <div className="centered">
+        <h1>{title}</h1>
+        <p className="muted">{detail}</p>
+        {canRetry && (
+          <button className="action primary" onClick={() => void bootstrap()}>
+            Try again
+          </button>
+        )}
       </div>
     );
   }

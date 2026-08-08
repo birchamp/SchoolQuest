@@ -135,6 +135,11 @@ Requires the Rust toolchain and your platform's
 [Tauri prerequisites](https://tauri.app/start/prerequisites/) — on Linux that means the
 GTK/WebKit development packages (`libgtk-3-dev`, `libwebkit2gtk-4.1-dev`).
 
+Windows installers come from the **Windows installer** workflow, not from a local build; see
+[`apps/desktop/README.md`](apps/desktop/README.md) for releasing and signing, and
+[`docs/11-installing-on-windows.md`](docs/11-installing-on-windows.md) for what a student does
+with the result.
+
 ## The AI coach
 
 The coach is scoped deliberately narrowly. It helps you decide **what to work on, when,

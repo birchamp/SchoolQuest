@@ -11,8 +11,15 @@ const TOKEN_KEY = "sq_session_token";
 /** True when running inside the Tauri desktop window rather than a browser tab. */
 export const isDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-/** In dev the Vite proxy forwards /api; in production set VITE_API_URL to the Worker origin. */
-const API_BASE = import.meta.env["VITE_API_URL"] ?? "";
+/**
+ * In dev the Vite proxy forwards /api; in production set VITE_API_URL to the Worker origin.
+ *
+ * Vite inlines this at build time, which is the whole reason it is exported: a packaged desktop
+ * build carries one origin baked into it and has no way to be pointed anywhere else, so when
+ * requests fail the only useful thing the app can tell a student — or whoever they ask for help —
+ * is which address this particular installer was built against.
+ */
+export const API_BASE: string = import.meta.env["VITE_API_URL"] ?? "";
 
 export class ApiError extends Error {
   constructor(
