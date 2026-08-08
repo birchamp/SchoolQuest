@@ -3,12 +3,23 @@
   Installs and starts SchoolQuest. One command, from nothing.
 
 .DESCRIPTION
-  Paste this into PowerShell and press Enter:
+  Clone, then run this. Two lines and a double-click's worth of typing:
+
+      git clone https://github.com/birchamp/SchoolQuest
+      cd SchoolQuest
+      powershell -ExecutionPolicy Bypass -File install.ps1
+
+  Were the repository public, the clone would not be needed either:
 
       irm https://raw.githubusercontent.com/birchamp/SchoolQuest/main/install.ps1 | iex
 
-  It installs anything missing (Node, Git, pnpm), downloads SchoolQuest, sets it up, makes a
-  Desktop shortcut, and opens the app.
+  That form returns "404 not found" today. GitHub answers 404 rather than 403 for raw files in
+  private repositories, deliberately — a 403 would confirm the repository exists, so private
+  names could be probed by anyone willing to guess. The 404 is the same answer a nonexistent
+  repository gets, which is the point.
+
+  It installs anything missing (Node, Git, pnpm), downloads SchoolQuest if it is not already
+  here, sets it up, makes a Desktop shortcut, and opens the app.
 
   It exists because the alternative was a nine-step checklist, and this is an app for people who
   find multi-step processes costly. Handing that audience a list of commands and calling the
@@ -112,12 +123,32 @@ if (Have "pnpm") {
   Say "    installing pnpm..."
   npm install -g pnpm --silent | Out-Null
   Sync-Path
-  if (-not (Have "pnpm")) { throw "pnpm did not install. Try `npm install -g pnpm` by hand." }
+  # Single quotes: in a double-quoted string the backtick before "npm" is PowerShell's newline
+  # escape, so the advice arrived broken across two lines with the "n" eaten.
+  if (-not (Have "pnpm")) { throw 'pnpm did not install. Try: npm install -g pnpm' }
   Good "pnpm $(pnpm --version)"
 }
 
 # --- 2. The code.
 Step "Getting SchoolQuest"
+
+<#
+  If this script is sitting inside a checkout, that checkout is the one to use.
+
+  While the repository is private there is no way to fetch this file without cloning first, so
+  running it from inside the clone is the normal path rather than the exception — and defaulting
+  to a folder in the user profile would quietly make a *second* copy somewhere else, leaving two
+  installs, one of them the one they are looking at and the other the one that got set up.
+
+  Piped through `iex` there is no script on disk and $PSScriptRoot is empty, which `Join-Path`
+  treats as an error rather than a miss — so the emptiness is checked first, not discovered.
+#>
+if ($PSScriptRoot -and
+    (Test-Path (Join-Path $PSScriptRoot ".git")) -and
+    (Test-Path (Join-Path $PSScriptRoot "package.json"))) {
+  $Path = $PSScriptRoot
+  Good "using the copy this script is in: $Path"
+}
 
 if (Test-Path (Join-Path $Path ".git")) {
   # Updating rather than refusing: running this again is what people do when something looks
@@ -159,7 +190,9 @@ Step "Making a Desktop shortcut"
 
 # --- 6. Away.
 Say ""
-Say "  Done." -ForegroundColor Green
+# Write-Host directly rather than Say: Say takes one argument, so a -ForegroundColor passed to it
+# lands in $args and is silently dropped — no error, just a "Done." that is not green.
+Write-Host "  Done." -ForegroundColor Green
 Say ""
 Say "  SchoolQuest is on your Desktop. Double-click it any time to start."
 Say ""
