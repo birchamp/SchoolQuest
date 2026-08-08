@@ -270,5 +270,52 @@
       "relatesToTitle": null,
       "kind": "missing_date"
     }
+  ],
+  "scheduleAnchors": [
+    {
+      "weekNumber": 1,
+      "raw": null,
+      "isBreak": false,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 1 Course Overview"
+      }
+    },
+    {
+      "weekNumber": 8,
+      "raw": null,
+      "isBreak": false,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 8 Review and Midterm Exam"
+      }
+    },
+    {
+      "weekNumber": 9,
+      "raw": null,
+      "isBreak": true,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 9 Spring break"
+      }
+    },
+    {
+      "weekNumber": 10,
+      "raw": null,
+      "isBreak": false,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 10 Abstract data types and subprograms Assignment5 Chapter 8"
+      }
+    },
+    {
+      "weekNumber": 15,
+      "raw": null,
+      "isBreak": false,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 15 The World Wide Web Assignment8 Chapter 16"
+      }
+    }
   ]
 }

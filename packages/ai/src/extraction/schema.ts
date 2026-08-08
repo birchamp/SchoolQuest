@@ -87,6 +87,36 @@ export const evidence = z.object({
 });
 export type Evidence = z.infer<typeof evidence>;
 
+
+/**
+ * A week header the document prints, with whatever it printed beside it.
+ *
+ * Read, not computed — which is the whole point. Every syllabus that dates its work by week
+ * number is counting from a start it never states, and two of them count differently: one
+ * numbers the break week, the next skips it. Resolving "Week 10" against the term's own week 10
+ * is therefore a coin flip, and it lands silently.
+ *
+ * Real cases, all from documents in the corpus:
+ *   "Week 9, March 13-19 . . . Spring Break"  — numbers the break, and prints its dates
+ *   "Week 9 Spring break"                     — numbers the break, prints no dates at all
+ *   "Week 10, March 20–26" then "Week 10, March 27–April 2"  — the same number twice
+ *   ...and no Week 16 anywhere in the same document
+ *
+ * Given these, `calibrateWeeks` can work out what *this* document's week 1 was and whether it
+ * counts breaks, instead of assuming. The model's job is to copy down what is printed; working
+ * out the offset is arithmetic and belongs in code.
+ */
+export const scheduleAnchor = z.object({
+  /** The number as printed. Zero is real: one syllabus starts at "Week 0". */
+  weekNumber: z.number().int().min(0).max(60),
+  /** The date or range printed beside it, verbatim. Null when the row gives none. */
+  raw: z.string().nullable(),
+  /** True when the row marks the week as a break, holiday or reading period. */
+  isBreak: z.boolean().default(false),
+  evidence: evidence,
+});
+export type ScheduleAnchor = z.infer<typeof scheduleAnchor>;
+
 export const extractedAssignment = z.object({
   title: z.string().min(1),
   type: z.enum([
@@ -215,6 +245,8 @@ export type ClarificationQuestion = z.infer<typeof clarificationQuestion>;
 
 export const syllabusExtraction = z.object({
   courseFacts: extractedCourseFacts,
+  /** Every "Week N" header the schedule prints, so the app can calibrate rather than assume. */
+  scheduleAnchors: z.array(scheduleAnchor).default([]),
   meetingPatterns: z.array(extractedMeetingPattern).default([]),
   gradingCategories: z.array(extractedGradingCategory).default([]),
   assignments: z.array(extractedAssignment).default([]),
@@ -254,6 +286,7 @@ export const SYLLABUS_EXTRACTION_JSON_SCHEMA = {
   additionalProperties: false,
   required: [
     "courseFacts",
+    "scheduleAnchors",
     "meetingPatterns",
     "gradingCategories",
     "assignments",
@@ -271,6 +304,20 @@ export const SYLLABUS_EXTRACTION_JSON_SCHEMA = {
         instructor: { type: ["string", "null"] },
         evidence: { ...evidenceSchema, type: ["object", "null"] },
         confidence: { type: "number" },
+      },
+    },
+    scheduleAnchors: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["weekNumber", "raw", "isBreak", "evidence"],
+        properties: {
+          weekNumber: { type: "integer" },
+          raw: { type: ["string", "null"] },
+          isBreak: { type: "boolean" },
+          evidence: evidenceSchema,
+        },
       },
     },
     meetingPatterns: {

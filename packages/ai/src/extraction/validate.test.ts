@@ -77,6 +77,7 @@ function extraction(overrides: Partial<SyllabusExtraction> = {}): SyllabusExtrac
     ],
     assignments: [assignment()],
     policies: [],
+    scheduleAnchors: [],
     clarificationQuestions: [],
     ...overrides,
   };

@@ -238,5 +238,52 @@
       "relatesToTitle": null,
       "kind": "conflicting_information"
     }
+  ],
+  "scheduleAnchors": [
+    {
+      "weekNumber": 1,
+      "raw": "January 17–22",
+      "isBreak": false,
+      "evidence": {
+        "page": 21,
+        "excerpt": "Week 1, January 17–22. . . . . . . . . . . . . . Course Intr"
+      }
+    },
+    {
+      "weekNumber": 9,
+      "raw": "March 13-19",
+      "isBreak": true,
+      "evidence": {
+        "page": 22,
+        "excerpt": "Week 9, March 13-19 . . . . . . . . . . . . . . . . . . . . "
+      }
+    },
+    {
+      "weekNumber": 10,
+      "raw": "March 20–26",
+      "isBreak": false,
+      "evidence": {
+        "page": 22,
+        "excerpt": "Week 10, March 20–26. . . . . . . . . . . . . . . . . . . . "
+      }
+    },
+    {
+      "weekNumber": 10,
+      "raw": "March 27–April 2",
+      "isBreak": false,
+      "evidence": {
+        "page": 22,
+        "excerpt": "Week 10, March 27–April 2 . . . . . . . . . . . . . . . . . "
+      }
+    },
+    {
+      "weekNumber": 15,
+      "raw": "May 1–7",
+      "isBreak": false,
+      "evidence": {
+        "page": 23,
+        "excerpt": "Week 15, May 1–7 . . . . . . . . . . . . . . . . . . . . . ."
+      }
+    }
   ]
 }

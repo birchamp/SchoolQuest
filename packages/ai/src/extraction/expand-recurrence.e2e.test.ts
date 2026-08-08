@@ -36,7 +36,8 @@ describe("expansion survives validation", () => {
         confidence: 0.95,
       }],
       policies: [],
-      clarificationQuestions: [],
+      scheduleAnchors: [],
+    clarificationQuestions: [],
     } as unknown as SyllabusExtraction;
 
     const result = validateExtraction(extraction, {

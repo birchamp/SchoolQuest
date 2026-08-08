@@ -43,6 +43,7 @@ function extraction(assignments: ExtractedAssignment[], extra: Partial<SyllabusE
     courseFacts: { name: null, code: null, instructor: null, evidence: null, confidence: 0.9 },
     meetingPatterns: [],
     gradingCategories: [],
+    scheduleAnchors: [],
     assignments,
     policies: [],
     clarificationQuestions: [],

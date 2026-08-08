@@ -18,6 +18,7 @@ function extraction(cats: { name: string; weightPercent: number | null }[]): Syl
     meetingPatterns: [],
     assignments: [],
     policies: [],
+    scheduleAnchors: [],
     clarificationQuestions: [],
     gradingCategories: cats.map((c) => ({
       ...c,

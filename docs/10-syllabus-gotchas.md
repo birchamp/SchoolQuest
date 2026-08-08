@@ -724,3 +724,37 @@ parse, which is the safe outcome, but the student is never told the syllabus has
 A copy-paste leftover naming a different course *and* a term a year earlier. §1.1 is about a
 stale year beside a date; this is a stale year beside the course identity, and if a model reads
 the second line the whole document lands in the wrong term.
+
+---
+
+## 8. The ingestion harness this log argues for
+
+Sections 1–7 are findings. This is what they add up to, and where each piece lives.
+
+**The prompt** (`prompt.ts`, `syllabus-extract-v3`) gained a section per class of failure the
+corpus produced: things that look like dates and are not (placeholders, windows, assigned/due
+pairs, an assignment date, a schedule the document only points at); the rule that excerpts must
+quote one continuous run of a page rather than words gathered from across it; the instruction to
+copy every week header down verbatim and leave the arithmetic alone; and a warning that page one
+may name the wrong course in the wrong year.
+
+**The organising is code, not a second model.** Three things, all pure and all testable without
+a provider:
+
+- `reconcile.ts` — several readings of one document reduced to one answer. Set arithmetic over
+  claim identities, so the same runs always reduce the same way and the merge cannot itself
+  hallucinate. Keeps the union, because a dropped assignment is invisible and a doubtful one is a
+  line in the review queue. Agreement measures **stability, not accuracy** — three runs that read
+  a table wrong the same way agree perfectly, and `verifyEvidence` remains the check on truth.
+- `followup.ts` — what a second look could still settle, chosen from the issues the validator
+  raised rather than by asking the model what to ask next. That is what stops the loop deciding
+  it is finished. `MISSING_DATE` is deliberately *not* re-asked: re-reading cannot conjure a date
+  the document never printed, and spending a pass on it teaches the loop to churn.
+- `calibrate.ts` — what *this* document means by "Week 10", from the headers it printed and the
+  break the calendar knows. Closes §3.7 and §7.5.
+
+**Status.** `calibrateWeeks` is proven against the real anchors of both week-numbered documents
+in the corpus — MATH 104 from its own printed dates, COSC 1315 from its numbered break — and the
+two land on the same Monday from different evidence, which is the check on the arithmetic. It is
+**not yet wired into `resolve-weekday`**, so the semester run still reports Assignment 5 landing
+on 17 March. The test that will confirm the fix is already written.

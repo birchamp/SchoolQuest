@@ -6,7 +6,13 @@ import {
   EXTRACTION_SYSTEM_PROMPT,
   type DocumentPage,
 } from "./prompt.js";
-import { syllabusExtraction, SYLLABUS_EXTRACTION_JSON_SCHEMA } from "./schema.js";
+import {
+  syllabusExtraction,
+  SYLLABUS_EXTRACTION_JSON_SCHEMA,
+  type SyllabusExtraction,
+} from "./schema.js";
+import { reconcileExtractions, type ReconciledExtraction } from "./reconcile.js";
+import { planFollowUps, type OpenIssue } from "./followup.js";
 import { validateExtraction, type ValidationResult } from "./validate.js";
 import {
   academicCalendarReading,
@@ -26,10 +32,31 @@ export interface ExtractionRequest {
   termCalendar?: TermCalendar;
   courseName?: string;
   model?: string;
+  /**
+   * How many independent readings to take of this document. One by default.
+   *
+   * A second reading misses different things than the first, so the union recovers assignments a
+   * single pass drops — and the disagreement between them is a measurement rather than a guess.
+   * Costs a full extraction each, so callers choose; `reconcileExtractions` does the merging and
+   * cannot itself hallucinate, because it is set arithmetic over claim identities.
+   */
+  passes?: number;
+  /**
+   * Go back to the document with narrow questions about what the first reading left unsettled.
+   *
+   * The questions are chosen in code by `planFollowUps` from the issues the validator actually
+   * raised, never by asking the model what to ask next — which is what stops the loop deciding
+   * for itself that it is finished.
+   */
+  followUps?: boolean;
 }
 
 export interface ExtractionOutcome {
   result: ValidationResult;
+  /** Present when more than one pass ran: what the readings agreed and disagreed about. */
+  reconciled?: ReconciledExtraction;
+  /** What a second look could still settle, in the order it is worth asking. */
+  openIssues?: OpenIssue[];
   /** Recorded on every claim so a bad batch can be traced back (docs/08 §6). */
   promptVersion: string;
   model: string;
@@ -74,6 +101,62 @@ export async function extractSyllabus(
     );
   }
 
+  /**
+   * Read the document `passes` times and merge.
+   *
+   * Temperature stays at zero — this is a reading task and creativity is purely a fabrication
+   * risk — so repeated passes are not a sampling trick. They differ because the same model given
+   * twenty pages does not attend to them identically twice, and the disagreement that produces is
+   * the signal worth having: an item found every time is a different kind of fact from one found
+   * once, and the student is entitled to know which they are looking at.
+   */
+  const passes = Math.max(1, Math.min(request.passes ?? 1, 5));
+  const readings: SyllabusExtraction[] = [];
+  let lastCompletion: Awaited<ReturnType<AiProvider["complete"]>> | null = null;
+
+  for (let pass = 0; pass < passes; pass += 1) {
+    const completion = await readOnce(provider, request, pages);
+    lastCompletion = completion.completion;
+    readings.push(completion.parsed);
+  }
+
+  const reconciled = readings.length > 1 ? reconcileExtractions(readings) : null;
+  const parsed = reconciled ? reconciled.extraction : readings[0]!;
+  const completion = lastCompletion!;
+
+  const result = validateExtraction(parsed, {
+    pages,
+    ...(request.termStartDate ? { termStartDate: request.termStartDate } : {}),
+    ...(request.termEndDate ? { termEndDate: request.termEndDate } : {}),
+    ...(request.termCalendar ? { termCalendar: request.termCalendar } : {}),
+  });
+
+  const openIssues =
+    request.followUps === false
+      ? []
+      : planFollowUps({
+          validation: result,
+          ...(reconciled ? { reconciled } : {}),
+          pages,
+        });
+
+  return {
+    result,
+    ...(reconciled ? { reconciled } : {}),
+    openIssues,
+    promptVersion: EXTRACTION_PROMPT_VERSION,
+    model: completion.model,
+    usage: completion.usage,
+    pagesProcessed: pages.length,
+  };
+}
+
+/** One reading of the whole document, parsed against the schema. */
+async function readOnce(
+  provider: AiProvider,
+  request: ExtractionRequest,
+  pages: DocumentPage[],
+) {
   const completion = await provider.complete({
     model: request.model ?? MODELS.EXTRACTION,
     // Extraction is a reading task; creativity here is purely a fabrication risk.
@@ -99,25 +182,11 @@ export async function extractSyllabus(
     ],
   });
 
-  let parsed;
   try {
-    parsed = syllabusExtraction.parse(JSON.parse(completion.text));
+    return { completion, parsed: syllabusExtraction.parse(JSON.parse(completion.text)) };
   } catch (cause) {
     throw new ExtractionError("The extraction result did not match the expected schema.", cause);
   }
-
-  return {
-    result: validateExtraction(parsed, {
-      pages,
-      ...(request.termStartDate ? { termStartDate: request.termStartDate } : {}),
-      ...(request.termEndDate ? { termEndDate: request.termEndDate } : {}),
-      ...(request.termCalendar ? { termCalendar: request.termCalendar } : {}),
-    }),
-    promptVersion: EXTRACTION_PROMPT_VERSION,
-    model: completion.model,
-    usage: completion.usage,
-    pagesProcessed: pages.length,
-  };
 }
 
 /** Drops blank pages, truncates very long ones, and caps the total. */

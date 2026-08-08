@@ -4,7 +4,7 @@ export interface DocumentPage {
   text: string;
 }
 
-export const EXTRACTION_PROMPT_VERSION = "syllabus-extract-v2";
+export const EXTRACTION_PROMPT_VERSION = "syllabus-extract-v3";
 
 /**
  * Extraction system prompt.
@@ -32,6 +32,8 @@ Every single claim must include:
 
 The excerpt must be an exact substring of the page text. Do not paraphrase it, do not clean it up, do not fix its typos. Claims whose excerpt cannot be found in the document are discarded, so a fabricated quote loses you the whole claim.
 
+Quote **one continuous run of the page**, not words gathered from across it. The check requires the quoted words to sit together in the document the way a quotation does, so a sentence assembled from words that each appear somewhere is rejected exactly as an invented one is — and it is rejected on purpose, because on a schedule table those are the same thing. If a claim rests on two separate lines, quote the more specific one and put the other in the clarification question.
+
 ## Never invent a date
 
 This is the rule that matters most. A wrong date that looks confident is far worse than an admitted gap.
@@ -52,11 +54,30 @@ This is the rule most often got wrong. **If an explicit calendar date is printed
 
 Set iso to null only when the document genuinely gives you no calendar date to read: a week number, a relative reference, or nothing at all.
 
+## Things that look like dates and are not
+
+Every one of these was found in a real syllabus, and every one of them produced a wrong date the first time it was met.
+
+- **A placeholder.** "Feb xx/16", "Apr 04/xx", "TBD", "TBA", "Remaining TBD". Set iso and raw to null, ambiguity "missing", and raise a question naming the row. The instructor left a blank; say so rather than filling it.
+- **A window, not a day.** "The final exam may be taken any time between May 10 and May 13", "Dec. 16-19". Put the whole window in raw exactly as printed, leave iso null, ambiguity "conflicting". Picking an end of the window is the student's decision, not yours.
+- **Two dates in one cell.** "Feb 21/28 Mid-Term exam [assigned/due]", "Jan 10/12". A schedule column may carry both the day something is handed out and the day it is due. Put both in raw as printed, leave iso null, ambiguity "conflicting", and ask which is the due date.
+- **An assignment date is not a due date.** "Class 14 — Explanation and Assignment of Final Examination" says when the final is given out and never says when it is due. Record raw as what is printed, iso null, ambiguity "missing", and ask for the due date.
+- **A schedule the document does not contain.** "A schedule will be given to the class", "due dates are in Canvas". Report the work with no date at all and ask where the schedule is. Do not spread the items across the term yourself.
+
+## Week numbers: copy the header, do not do the arithmetic
+
+If the schedule is organised by week number, list **every** week header in \`scheduleAnchors\` — the number as printed, whatever date or range appears beside it, and whether the row marks a break.
+
+This matters more than it looks. A document that dates its work by week number is counting from a start it never states, and syllabi do not agree with each other: one numbers the break week, the next skips it, and one prints "Week 10" twice and has no Week 16 at all. Copy down what is printed, including the duplicates and the gaps, and the application works out the offset. That is arithmetic and it is not your job.
+
+Report a week header even when the row has no assignment on it. A blank week is evidence about the numbering.
+
 ## Other reporting rules
 
 - Points and percentage weights are different things. Put a stated point value in pointsPossible and a stated category weight in the grading category. Never convert between them.
 - A grading category can be weighted in points instead of percent: "Class Participation: Maximum of 20 points; Midterm: 40 points; Final: 40 points". Put those in the category's pointsPossible and leave weightPercent null. Do not work out the percentage yourself — that is arithmetic, and it is done after you answer.
 - Prior-year schedules, worked examples, and sample assignments are not real coursework. Skip them.
+- The first page may name the wrong course or the wrong term — a leftover from the document it was copied from ("Family Law, Spring 2023" above "Community Property, Fall Semester 2022"). Report the course facts as printed on the page that gives them most fully, and raise a question naming both. Do not silently pick one.
 - Set isMajorProject true for papers, projects, presentations, and exams the syllabus treats as significant — the kind of work that needs to start early.
 - Report each assignment once. If the same item appears in both a table and a paragraph, choose the fuller mention.
 - Confidence reflects how clearly the document states the fact, not how plausible it sounds. Use below 0.5 when you are reading between the lines.

@@ -66,6 +66,7 @@ function claim(over: Partial<ExtractedAssignment> & Pick<ExtractedAssignment, "t
 function extraction(assignments: ExtractedAssignment[]): SyllabusExtraction {
   return {
     courseFacts: { name: null, code: null, instructor: null, evidence: null, confidence: 0.5 },
+    scheduleAnchors: [],
     meetingPatterns: [],
     gradingCategories: [],
     assignments,
