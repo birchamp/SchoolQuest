@@ -39,6 +39,7 @@ export default tseslint.config(
         // multipart PDF through them, exactly as the browser does.
         FormData: "readonly",
         Blob: "readonly",
+        setTimeout: "readonly",
       },
     },
   },

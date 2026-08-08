@@ -57,6 +57,21 @@ pnpm dev
 Both halves start together. When you see `web` reporting a local address, open
 **http://127.0.0.1:5173** in a browser. Ctrl-C stops both.
 
+### A desktop shortcut, so you never type any of this again
+
+Once, after `pnpm setup`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\windows\create-shortcut.ps1
+```
+
+That puts **SchoolQuest** on your Desktop. Double-click it and it checks itself, starts both
+halves, and opens your browser when they are ready. Leave the black window open while you use
+the app — closing it stops everything.
+
+Add `-StartMenu` to also make it findable by typing "schoolquest", or `-Remove` to take the
+shortcuts away again.
+
 ---
 
 ## Signing in
