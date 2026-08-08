@@ -27,6 +27,12 @@ export interface PlanningInput {
   horizonDays: number;
   /** "Now" as an ISO instant. Nothing is scheduled before it. */
   now: string;
+  /**
+   * Last day of the term, "YYYY-MM-DD". Optional, and its absence costs something specific:
+   * work with no due date cannot be paced across the time that is left, so it all becomes
+   * eligible at once and races to the front of the term.
+   */
+  termEndDate?: string;
   preferences: PlanningPreferences;
   courses: Course[];
   gradingCategories: GradingCategory[];

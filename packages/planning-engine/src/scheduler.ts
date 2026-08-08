@@ -189,6 +189,73 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
     });
   }
 
+  /**
+   * Undated work is spread across the term rather than raced to the front of it.
+   *
+   * Found by walking a real semester. Richland's MATH 104 states fifty-eight pieces of graded
+   * work — fourteen chapter exams, their homework, eleven diagnostics — and not one date for any
+   * of them, because the real dates live in a Canvas schedule the syllabus only points at. With
+   * no deadline there is nothing to defer against, so all fifty-eight were eligible in week one
+   * and the week simply filled with whatever ranked highest.
+   *
+   * What the student was told to do in the first week of the semester: sit Chapter exam 14, the
+   * Comprehensive final exam, the Mid-Term exam and the Final Examination. The term's work was
+   * finished by week thirteen and the last six weeks — both finals weeks among them — were
+   * empty. That is not a plan; it is the absence of one, delivered confidently.
+   *
+   * The lever is **how many become eligible**, not how long each takes. Pacing the minutes was
+   * tried first and made it strictly worse: smaller slices meant more items fitted per week, so
+   * the term collapsed into six weeks instead of thirteen. What works is a per-course cap on
+   * starts — with `n` undated items left and `w` weeks of term to go, about `n/w` of them may
+   * begin this week — recomputed every replan, so a missed week pushes the rest along instead of
+   * losing them.
+   *
+   * Deferred items are recorded, not dropped: `WAITING_ITS_TURN` at safe level, the same code an
+   * item due after the horizon gets, because it is the same fact. Work that leaves both the plan
+   * and the risk list has disappeared, and that is the one thing the standing goal forbids.
+   *
+   * Needs `termEndDate`; without it there is no share to compute and the old behaviour stands.
+   */
+  if (input.termEndDate) {
+    const weeksLeft = Math.max(
+      1,
+      Math.ceil((dateToEpochMinutes(input.termEndDate) - now) / MINUTES_PER_DAY / 7),
+    );
+    const byCourse = new Map<string, PendingWork[]>();
+    for (const work of pending) {
+      if (work.item.dueAt !== null) continue;
+      byCourse.set(work.item.courseId, [...(byCourse.get(work.item.courseId) ?? []), work]);
+    }
+
+    const deferred = new Set<PendingWork>();
+    for (const [, items] of byCourse) {
+      const allowed = Math.max(1, Math.ceil(items.length / weeksLeft));
+      if (items.length <= allowed) continue;
+      // Highest priority first, so the cap keeps the most useful ones rather than the first
+      // ones the document happened to list.
+      const ordered = [...items].sort(
+        (a, b) => b.priority.score - a.priority.score || a.item.id.localeCompare(b.item.id),
+      );
+      for (const work of ordered.slice(allowed)) deferred.add(work);
+    }
+
+    for (const work of deferred) {
+      risks.push({
+        level: "safe",
+        code: "WAITING_ITS_TURN",
+        workItemId: work.item.id,
+        detail:
+          `"${work.item.title}" has no due date, so it is being spread across the rest of the ` +
+          `term rather than started all at once.`,
+      });
+    }
+    if (deferred.size > 0) {
+      for (let i = pending.length - 1; i >= 0; i -= 1) {
+        if (deferred.has(pending[i]!)) pending.splice(i, 1);
+      }
+    }
+  }
+
   // --- Order by priority, then by placement scarcity (tighter deadlines go first).
   pending.sort((a, b) => {
     const byScore = b.priority.score - a.priority.score;
@@ -745,8 +812,29 @@ function unscheduledRisk(
   horizonEndMinutes: number,
 ): PlanRisk {
   if (!placedAny) {
-    const dueMinutes = work.item.dueAt ? toEpochMinutes(work.item.dueAt) : null;
-    if (dueMinutes !== null && dueMinutes > horizonEndMinutes) {
+    /**
+     * Work with no due date cannot be at risk of missing one.
+     *
+     * Found by walking a real term: Richland's MATH 104 states fifty-eight pieces of graded
+     * work and not one date for any of them, and every one that lost the week came back as
+     * `at_risk` — "No available window fits this before it is due" — about a deadline that does
+     * not exist. Forty-nine of them, in week one.
+     *
+     * The honest reading is that it lost the week to work that *does* have a deadline, which is
+     * the scheduler behaving correctly. `DUE_DATE_UNKNOWN` is already raised separately, so the
+     * missing date is not going unsaid; what would be wrong is calling it danger.
+     */
+    if (work.item.dueAt === null) {
+      return {
+        level: "watch",
+        code: "INSUFFICIENT_CAPACITY",
+        workItemId: work.item.id,
+        detail: `"${work.item.title}" has no deadline and got no time this week; dated work came first.`,
+      };
+    }
+
+    const dueMinutes = toEpochMinutes(work.item.dueAt);
+    if (dueMinutes > horizonEndMinutes) {
       // Deliberately deferred: `horizonAllocation` has not opened its runway yet. Still recorded
       // rather than dropped, so the item stays accounted for instead of vanishing from view —
       // "seen and accounted for" is the standing goal, and silence is not accounting.

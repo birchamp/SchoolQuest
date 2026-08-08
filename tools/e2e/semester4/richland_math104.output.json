@@ -1,0 +1,242 @@
+{
+  "courseFacts": {
+    "name": "Technical Mathematics",
+    "code": "Math 104",
+    "instructor": "James Jones",
+    "evidence": {
+      "page": 1,
+      "excerpt": "Math 104 – Technical Mathematics"
+    },
+    "confidence": 0.95
+  },
+  "meetingPatterns": [],
+  "gradingCategories": [
+    {
+      "name": "Exams",
+      "weightPercent": 70,
+      "pointsPossible": null,
+      "dropLowest": 0,
+      "evidence": {
+        "page": 11,
+        "excerpt": "Exams – 70% of grade"
+      },
+      "confidence": 0.95
+    },
+    {
+      "name": "Homework",
+      "weightPercent": 20,
+      "pointsPossible": null,
+      "dropLowest": 0,
+      "evidence": {
+        "page": 11,
+        "excerpt": "Homework – 20% of grade"
+      },
+      "confidence": 0.95
+    },
+    {
+      "name": "Discussions and Other Assignments",
+      "weightPercent": 10,
+      "pointsPossible": null,
+      "dropLowest": null,
+      "evidence": {
+        "page": 12,
+        "excerpt": "Discussions and Other Assignments – 10% of grade"
+      },
+      "confidence": 0.95
+    }
+  ],
+  "assignments": [
+    {
+      "title": "Chapter exam",
+      "type": "exam",
+      "dueDate": {
+        "iso": null,
+        "raw": null,
+        "time": null,
+        "ambiguity": "missing"
+      },
+      "pointsPossible": 100,
+      "category": "Exams",
+      "isMajorProject": true,
+      "recurrence": {
+        "frequency": "weekly",
+        "dayOfWeek": null,
+        "count": 14,
+        "dropLowest": null
+      },
+      "evidence": {
+        "page": 11,
+        "excerpt": "There are 14 chapter exams, each worth 100 points."
+      },
+      "confidence": 0.8
+    },
+    {
+      "title": "Chapter homework",
+      "type": "problem_set",
+      "dueDate": {
+        "iso": null,
+        "raw": null,
+        "time": null,
+        "ambiguity": "missing"
+      },
+      "pointsPossible": 100,
+      "category": "Homework",
+      "isMajorProject": false,
+      "recurrence": {
+        "frequency": "weekly",
+        "dayOfWeek": null,
+        "count": 14,
+        "dropLowest": null
+      },
+      "evidence": {
+        "page": 11,
+        "excerpt": "Each chapter's"
+      },
+      "confidence": 0.8
+    },
+    {
+      "title": "Chapter discussion",
+      "type": "discussion",
+      "dueDate": {
+        "iso": null,
+        "raw": null,
+        "time": null,
+        "ambiguity": "missing"
+      },
+      "pointsPossible": 10,
+      "category": "Discussions and Other Assignments",
+      "isMajorProject": false,
+      "recurrence": {
+        "frequency": "weekly",
+        "dayOfWeek": null,
+        "count": 13,
+        "dropLowest": null
+      },
+      "evidence": {
+        "page": 12,
+        "excerpt": "■ Chapter discussions. There is a discussion for each chapter except for the weeks where we"
+      },
+      "confidence": 0.8
+    },
+    {
+      "title": "Diagnostic exam",
+      "type": "quiz",
+      "dueDate": {
+        "iso": null,
+        "raw": null,
+        "time": null,
+        "ambiguity": "missing"
+      },
+      "pointsPossible": 10,
+      "category": "Discussions and Other Assignments",
+      "isMajorProject": false,
+      "recurrence": {
+        "frequency": "weekly",
+        "dayOfWeek": null,
+        "count": 11,
+        "dropLowest": null
+      },
+      "evidence": {
+        "page": 12,
+        "excerpt": "■ Completion of a diagnostic exam for chapters 1-11. These are worth 10 points each and are"
+      },
+      "confidence": 0.8
+    },
+    {
+      "title": "Application section homework",
+      "type": "problem_set",
+      "dueDate": {
+        "iso": null,
+        "raw": null,
+        "time": null,
+        "ambiguity": "missing"
+      },
+      "pointsPossible": 20,
+      "category": "Discussions and Other Assignments",
+      "isMajorProject": false,
+      "recurrence": {
+        "frequency": "weekly",
+        "dayOfWeek": null,
+        "count": 4,
+        "dropLowest": null
+      },
+      "evidence": {
+        "page": 12,
+        "excerpt": "■ Homework for the application sections. Sections 6.6, 9.4, 11.3, and 13.5 have nothing but"
+      },
+      "confidence": 0.8
+    },
+    {
+      "title": "WebAssign introduction assignment",
+      "type": "other",
+      "dueDate": {
+        "iso": null,
+        "raw": "before you can begin the other work in WebAssign",
+        "time": null,
+        "ambiguity": "missing"
+      },
+      "pointsPossible": 10,
+      "category": "Discussions and Other Assignments",
+      "isMajorProject": false,
+      "recurrence": null,
+      "evidence": {
+        "page": 12,
+        "excerpt": "■ The assignment that explains how to use WebAssign. It is worth 10 points and must be"
+      },
+      "confidence": 0.85
+    },
+    {
+      "title": "Comprehensive final exam",
+      "type": "exam",
+      "dueDate": {
+        "iso": null,
+        "raw": "any time between May 10 and May 13",
+        "time": null,
+        "ambiguity": "conflicting"
+      },
+      "pointsPossible": 200,
+      "category": "Exams",
+      "isMajorProject": true,
+      "recurrence": null,
+      "evidence": {
+        "page": 23,
+        "excerpt": "The comprehensive final exam may be taken any time between May 10 and May 13."
+      },
+      "confidence": 0.9
+    }
+  ],
+  "policies": [
+    {
+      "kind": "late_work",
+      "summary": "WebAssign allows an extra week after the due date with a 10% penalty; no work at all is accepted after May 13.",
+      "evidence": {
+        "page": 11,
+        "excerpt": "No work will be accepted after May 13."
+      },
+      "confidence": 0.9
+    },
+    {
+      "kind": "attendance",
+      "summary": "Students whose participation is occasional or sporadic may be dropped from the class at any point.",
+      "evidence": {
+        "page": 13,
+        "excerpt": "participation in the course is occasional or sporadic may be dropped from the class at any point"
+      },
+      "confidence": 0.85
+    }
+  ],
+  "clarificationQuestions": [
+    {
+      "question": "The syllabus says \"A schedule will be given to the class\" but does not contain one. Where are the due dates for the 14 chapter exams and their homework?",
+      "why": "Fifty-eight pieces of graded work have no date, so none of it can be planned against a deadline.",
+      "relatesToTitle": null,
+      "kind": "missing_date"
+    },
+    {
+      "question": "The week list has two rows numbered \"Week 10\" (March 20–26 and March 27–April 2) and no Week 16. Which week number is which?",
+      "why": "Anything given by week number after March would land a week early against the printed dates.",
+      "relatesToTitle": null,
+      "kind": "conflicting_information"
+    }
+  ]
+}

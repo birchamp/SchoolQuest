@@ -1,0 +1,274 @@
+{
+  "courseFacts": {
+    "name": "Introduction to CS",
+    "code": "COSC 1315",
+    "instructor": "Rong Ren",
+    "evidence": {
+      "page": 1,
+      "excerpt": "Course Title: COSC 1315-Introduction to CS"
+    },
+    "confidence": 0.95
+  },
+  "meetingPatterns": [],
+  "gradingCategories": [
+    {
+      "name": "Attendance",
+      "weightPercent": 5,
+      "pointsPossible": null,
+      "dropLowest": null,
+      "evidence": {
+        "page": 3,
+        "excerpt": "Attendance 5%"
+      },
+      "confidence": 0.9
+    },
+    {
+      "name": "Assignment",
+      "weightPercent": 65,
+      "pointsPossible": null,
+      "dropLowest": null,
+      "evidence": {
+        "page": 3,
+        "excerpt": "Assignment 65%"
+      },
+      "confidence": 0.9
+    },
+    {
+      "name": "Exam/Project (Average)",
+      "weightPercent": 30,
+      "pointsPossible": null,
+      "dropLowest": null,
+      "evidence": {
+        "page": 3,
+        "excerpt": "Exam/Project (Average) 30%"
+      },
+      "confidence": 0.9
+    }
+  ],
+  "assignments": [
+    {
+      "title": "Assignment1",
+      "type": "problem_set",
+      "dueDate": {
+        "iso": null,
+        "raw": "Week 2",
+        "time": null,
+        "ambiguity": "relative_week"
+      },
+      "pointsPossible": null,
+      "category": "Assignment",
+      "isMajorProject": false,
+      "recurrence": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 2 The Big Picture Assignment1 Chapter 1"
+      },
+      "confidence": 0.85
+    },
+    {
+      "title": "Assignment2",
+      "type": "problem_set",
+      "dueDate": {
+        "iso": null,
+        "raw": "Week 3",
+        "time": null,
+        "ambiguity": "relative_week"
+      },
+      "pointsPossible": null,
+      "category": "Assignment",
+      "isMajorProject": false,
+      "recurrence": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 3 Binary Values and Number Systems Assignment2 Chapter 2"
+      },
+      "confidence": 0.85
+    },
+    {
+      "title": "Assignment3",
+      "type": "problem_set",
+      "dueDate": {
+        "iso": null,
+        "raw": "Week 4",
+        "time": null,
+        "ambiguity": "relative_week"
+      },
+      "pointsPossible": null,
+      "category": "Assignment",
+      "isMajorProject": false,
+      "recurrence": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 4 Low-level programming languages Assignment3 Chapter 6"
+      },
+      "confidence": 0.85
+    },
+    {
+      "title": "Assignment4",
+      "type": "problem_set",
+      "dueDate": {
+        "iso": null,
+        "raw": "Week 6",
+        "time": null,
+        "ambiguity": "relative_week"
+      },
+      "pointsPossible": null,
+      "category": "Assignment",
+      "isMajorProject": false,
+      "recurrence": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 6 Problem Solving and Algorithms Assignment4 Chapter 7"
+      },
+      "confidence": 0.85
+    },
+    {
+      "title": "Assignment5",
+      "type": "problem_set",
+      "dueDate": {
+        "iso": null,
+        "raw": "Week 10",
+        "time": null,
+        "ambiguity": "relative_week"
+      },
+      "pointsPossible": null,
+      "category": "Assignment",
+      "isMajorProject": false,
+      "recurrence": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 10 Abstract data types and subprograms Assignment5 Chapter 8"
+      },
+      "confidence": 0.85
+    },
+    {
+      "title": "Assignment6",
+      "type": "problem_set",
+      "dueDate": {
+        "iso": null,
+        "raw": "Week 11",
+        "time": null,
+        "ambiguity": "relative_week"
+      },
+      "pointsPossible": null,
+      "category": "Assignment",
+      "isMajorProject": false,
+      "recurrence": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 11 Object-Oriented Design programming"
+      },
+      "confidence": 0.85
+    },
+    {
+      "title": "Assignment7",
+      "type": "problem_set",
+      "dueDate": {
+        "iso": null,
+        "raw": "Week 13",
+        "time": null,
+        "ambiguity": "relative_week"
+      },
+      "pointsPossible": null,
+      "category": "Assignment",
+      "isMajorProject": false,
+      "recurrence": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 13 C++ programming language Assignment7 Handout"
+      },
+      "confidence": 0.85
+    },
+    {
+      "title": "Assignment8",
+      "type": "problem_set",
+      "dueDate": {
+        "iso": null,
+        "raw": "Week 15",
+        "time": null,
+        "ambiguity": "relative_week"
+      },
+      "pointsPossible": null,
+      "category": "Assignment",
+      "isMajorProject": false,
+      "recurrence": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 15 The World Wide Web Assignment8 Chapter 16"
+      },
+      "confidence": 0.85
+    },
+    {
+      "title": "Midterm Exam",
+      "type": "exam",
+      "dueDate": {
+        "iso": null,
+        "raw": "Week 8",
+        "time": null,
+        "ambiguity": "relative_week"
+      },
+      "pointsPossible": null,
+      "category": "Exam/Project (Average)",
+      "isMajorProject": true,
+      "recurrence": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "Week 8 Review and Midterm Exam"
+      },
+      "confidence": 0.85
+    },
+    {
+      "title": "Final Exam",
+      "type": "exam",
+      "dueDate": {
+        "iso": null,
+        "raw": "Week 17",
+        "time": null,
+        "ambiguity": "relative_week"
+      },
+      "pointsPossible": null,
+      "category": "Exam/Project (Average)",
+      "isMajorProject": true,
+      "recurrence": null,
+      "evidence": {
+        "page": 3,
+        "excerpt": "Week 17 Review and Final Exam"
+      },
+      "confidence": 0.85
+    }
+  ],
+  "policies": [
+    {
+      "kind": "late_work",
+      "summary": "No assignments will be accepted after the due date; late submissions only with a documented university excuse.",
+      "evidence": {
+        "page": 3,
+        "excerpt": "No assignments will be accepted after the due"
+      },
+      "confidence": 0.9
+    },
+    {
+      "kind": "attendance",
+      "summary": "Each absence deducts 1% of the grade; three warnings gives a zero on the 5% attendance component.",
+      "evidence": {
+        "page": 3,
+        "excerpt": "Each absence will incur a 1%"
+      },
+      "confidence": 0.9
+    }
+  ],
+  "clarificationQuestions": [
+    {
+      "question": "Your schedule gives week numbers but no dates, and Week 9 is spring break. Does Week 10 mean the week after the break, so the numbering counts the break as a week?",
+      "why": "Every assignment date in this course is computed from the week number, so counting the break wrong shifts eight of them by a week.",
+      "relatesToTitle": null,
+      "kind": "relative_date"
+    },
+    {
+      "question": "Weeks 5, 7, 12, 14 and 16 have no topic or assignment listed. Is anything due in those weeks?",
+      "why": "Five blank weeks in a seventeen-week course either means lighter weeks or means something is missing from the plan.",
+      "relatesToTitle": null,
+      "kind": "missing_date"
+    }
+  ]
+}

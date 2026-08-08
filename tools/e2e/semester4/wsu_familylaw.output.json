@@ -1,0 +1,123 @@
+{
+  "courseFacts": {
+    "name": "Family Law",
+    "code": null,
+    "instructor": "Professor Andrew McKeown",
+    "evidence": {
+      "page": 1,
+      "excerpt": "Professor Andrew McKeown"
+    },
+    "confidence": 0.9
+  },
+  "meetingPatterns": [
+    {
+      "daysOfWeek": [
+        4
+      ],
+      "startTime": "18:30",
+      "endTime": "21:40",
+      "location": null,
+      "evidence": {
+        "page": 1,
+        "excerpt": "Thursdays 06:30 p.m. – 09:40 p.m.,"
+      },
+      "confidence": 0.9
+    }
+  ],
+  "gradingCategories": [
+    {
+      "name": "Class Participation",
+      "weightPercent": null,
+      "pointsPossible": 20,
+      "dropLowest": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "• Class Participation: Maximum of 20 points;"
+      },
+      "confidence": 0.9
+    },
+    {
+      "name": "Midterm / Project",
+      "weightPercent": null,
+      "pointsPossible": 40,
+      "dropLowest": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "• Midterm / Project: Maximum of 40 points;"
+      },
+      "confidence": 0.9
+    },
+    {
+      "name": "Final Examination",
+      "weightPercent": null,
+      "pointsPossible": 40,
+      "dropLowest": null,
+      "evidence": {
+        "page": 2,
+        "excerpt": "• Final Examination: Maximum of 40 points."
+      },
+      "confidence": 0.9
+    }
+  ],
+  "assignments": [
+    {
+      "title": "Midterm / Project",
+      "type": "group_project",
+      "dueDate": {
+        "iso": null,
+        "raw": "distributed February 16; worked on February 23",
+        "time": null,
+        "ambiguity": "missing"
+      },
+      "pointsPossible": 40,
+      "category": "Midterm / Project",
+      "isMajorProject": true,
+      "recurrence": null,
+      "evidence": {
+        "page": 5,
+        "excerpt": "• Distribution of Midterm / Project Assignment"
+      },
+      "confidence": 0.7
+    },
+    {
+      "title": "Final Examination",
+      "type": "exam",
+      "dueDate": {
+        "iso": null,
+        "raw": "assigned April 27, 2023",
+        "time": null,
+        "ambiguity": "missing"
+      },
+      "pointsPossible": 40,
+      "category": "Final Examination",
+      "isMajorProject": true,
+      "recurrence": null,
+      "evidence": {
+        "page": 7,
+        "excerpt": "• Explanation and Assignment of Final Examination"
+      },
+      "confidence": 0.6
+    }
+  ],
+  "policies": [],
+  "clarificationQuestions": [
+    {
+      "question": "Class 14 on 27 April says \"Explanation and Assignment of Final Examination\" but the syllabus never gives a date the final is due. When is it due?",
+      "why": "The final is 40 of the course's 100 points and nothing is on your calendar for it.",
+      "relatesToTitle": "Final Examination",
+      "kind": "missing_date"
+    },
+    {
+      "question": "The Midterm / Project is distributed on 16 February and Class 6 on 23 February is set aside to work on it. When is it due?",
+      "why": "It is 40 of 100 points, and without a due date it is planned with no deadline pressure.",
+      "relatesToTitle": "Midterm / Project",
+      "kind": "missing_date"
+    },
+    {
+      "question": "Page 1 says \"Family Law, Spring 2023\" and then \"Community Property, Fall Semester 2022\". Which course and term is this syllabus for?",
+      "why": "If this is last term's syllabus, every date in it is a year out.",
+      "relatesToTitle": null,
+      "kind": "conflicting_information"
+    }
+  ]
+}

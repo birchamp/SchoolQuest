@@ -31,6 +31,22 @@ const generateBody = z.object({
   reason: z.string().default("weekly_refresh"),
   /** When false, the plan is rebuilt from scratch, ignoring previously accepted blocks. */
   preserveAcceptedSessions: z.boolean().default(true),
+  /**
+   * The moment to plan from. **Honoured only in local development**, and ignored outright once
+   * a mail provider is configured — the same signal that decides whether magic links are echoed
+   * back instead of emailed.
+   *
+   * It exists because the planning engine takes `now` as a parameter everywhere, by design and
+   * at some cost, precisely so a whole term can be simulated — and the API then read the wall
+   * clock, which made every one of those sixteen weeks unreachable through the real routes. A
+   * full-term run against this Worker returned an empty plan and 126 at-risk items on week one,
+   * for no reason except that January 2023 is in the past.
+   *
+   * So the engine could be walked across a term and the API could not, and the difference was
+   * invisible: snapshot loading, session carry-over and persistence are only in the API path,
+   * and none of them had ever been exercised at any date but today.
+   */
+  now: z.string().datetime().optional(),
 });
 
 export const plansRoute = new Hono<AppBindings>();
@@ -57,7 +73,11 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
   const parsed = generateBody.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const now = new Date().toISOString();
+  // A client may only move time when this deployment has no way to send mail, which is the
+  // definition of local development already used by the login route.
+  const timeTravelAllowed = !c.env.RESEND_API_KEY;
+  const now =
+    timeTravelAllowed && parsed.data.now ? new Date(parsed.data.now).toISOString() : new Date().toISOString();
   const horizonStart = parsed.data.horizonStart ?? now.slice(0, 10);
 
   const snapshot = await loadTermSnapshot(db, termId, { sessionsFrom: `${horizonStart}T00:00:00Z` });

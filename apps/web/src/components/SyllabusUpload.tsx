@@ -96,12 +96,13 @@ export function SyllabusUpload({
   /** Optional. Omitted by the current call site, which is why the theme is read off body. */
   theme?: ThemeName;
   /**
-   * Whether the term has a break calendar yet.
+   * Whether the term has a calendar yet.
    *
-   * Not a gate — extraction runs fine without one and flags the dates it cannot settle. But a
-   * syllabus is full of "Week 14" and "each Tuesday in class", and reading those with no
-   * calendar is the difference between a date and a coin flip, so the screen says so at the
-   * moment the student is about to upload rather than leaving them to find out afterwards.
+   * A gate, since the API made it one. A syllabus does not contain a calendar, it points at one:
+   * "Week 14", "each Tuesday in class", "finals week". Read against an empty calendar those do
+   * not fail loudly — they produce a date, silently, off by however much the guess was wrong.
+   * The server refuses the upload with TERM_CALENDAR_REQUIRED, so the screen says so before the
+   * student picks a file rather than after.
    */
   hasCalendar?: boolean;
 }) {
@@ -225,17 +226,16 @@ export function SyllabusUpload({
       )}
 
       {/*
-        Ordering, said where it matters. Not a gate — extraction runs and flags what it cannot
-        settle — but "Problem Set 6 due Week 14" is a coin flip without the term's breaks, and
-        finding that out after uploading five syllabuses is worse than reading one line now.
+        The order is the rule, and the server enforces it. Said here, before a file is chosen,
+        because a refusal the student meets after picking five PDFs is a worse way to learn it.
       */}
       {!hasCalendar && (
-        <div className="risk" data-level="watch" style={{ margin: "0 0 0.7rem" }}>
-          <span className="level">check</span>
+        <div className="risk" data-level="decision_needed" style={{ margin: "0 0 0.7rem" }}>
+          <span className="level">first</span>
           <span>
-            Your semester calendar is empty. Dates written as &ldquo;Week 14&rdquo; or
-            &ldquo;each Tuesday&rdquo; will be flagged rather than settled — filling it in first
-            is worth the thirty seconds.
+            Add your semester calendar before uploading. A syllabus says &ldquo;Week 14&rdquo; and
+            &ldquo;finals week&rdquo; without ever saying which dates those are — the calendar is
+            the only thing that knows, so reading one without it produces dates nobody can trust.
           </span>
         </div>
       )}
@@ -313,7 +313,7 @@ export function SyllabusUpload({
           type="file"
           accept="application/pdf"
           className="sr-only"
-          disabled={working || courses.length === 0}
+          disabled={working || courses.length === 0 || !hasCalendar}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) void handleFile(file);

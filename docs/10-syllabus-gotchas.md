@@ -630,3 +630,97 @@ Kept so the log's own value is measurable rather than assumed.
 | Building the open-questions card | BIO 240's grading weights add up to 90%. Every category was read, weighted and accepted, and nothing anywhere told the student a tenth of the grade was unaccounted for | **Fixed** — the card asks, and the message is drafted |
 | Reading the drafted email | The model wrote "Do these grading categories and weights look right?" — a question aimed at the review screen, unanswerable by a professor, and it went into the email | **Fixed** — unsendable questions are shown but left out of the draft; the prompt now asks for questions that stand alone |
 | Reading the drafted email | "3 items have dates that contradict the syllabus. Which is right?" was sent without naming the three items, which were on the claim all along — and listed one of them twice | **Fixed** — the names are appended, deduplicated |
+
+---
+
+## 7. What a whole real semester turned up
+
+Section 6 is about the model. This is about running four genuine Spring 2023 syllabi —
+Richland MATH 104, TAMU-Texarkana COSC 1315, UNC GEOG 062 and WSU Family Law — through the
+real Worker from upload to finals, week by week (`tools/e2e/semester4/`).
+
+### 7.1 A syllabus with no dates collapses the term into its first third — **FIXED**
+
+> "A schedule will be given to the class that is designed to help spread things out and set a
+> pace for you." — Richland MATH 104, which then never gives one
+
+Fifty-eight pieces of graded work, no dates. With no deadline there is nothing to defer
+against, so all fifty-eight were eligible in week one and the week filled with whatever ranked
+highest.
+
+**What the first week of the semester told the student to do: sit Chapter exam 14, the
+Comprehensive final exam, the Mid-Term exam and the Final Examination.** The term's work was
+finished by week thirteen; the last six weeks, both finals weeks among them, were empty.
+
+Fixed by capping how many undated items may *start* per course per week — with `n` left and `w`
+weeks of term to go, about `n/w` begin — recomputed every replan so a missed week pushes the
+rest along. Deferred items are recorded at `WAITING_ITS_TURN`, not dropped.
+
+Pacing the *minutes* was tried first and made it strictly worse: smaller slices meant more
+items fitted per week and the term collapsed into six weeks instead of thirteen. The lever is
+how many become eligible, not how long each takes. Worth remembering — it is the intuitive fix
+and it is backwards.
+
+### 7.2 Undated work was reported as at risk of missing a deadline it does not have — **FIXED**
+
+Forty-nine items in week one at `at_risk`: "No available window fits this before it is due."
+Every one had no due date at all. Same family as §6.2's sibling — an alarm whose sentence
+describes a deadline the item does not have. Now `INSUFFICIENT_CAPACITY` at watch level: it
+lost the week to work that *does* have a deadline, which is the scheduler being right.
+
+### 7.3 The API could not be walked across a term — **FIXED**
+
+The engine takes `now` as a parameter everywhere, deliberately, so a whole term can be
+simulated. The API then called `new Date()`. Planning January 2023 returned an empty plan and
+126 at-risk items for no reason except that the date is in the past.
+
+So the engine was walked across sixteen weeks and the API never was — and snapshot loading,
+session carry-over and persistence live only in the API path. `POST /plans/generate` now
+accepts `now`, honoured only where there is no mail provider: the same signal that already
+decides whether magic links are echoed instead of sent.
+
+### 7.4 A syllabus could be ingested with no academic calendar — **FIXED**
+
+The UI discouraged it. Discouraged is not prevented, and the wrong dates it produces are the
+kind nobody notices until the deadline has passed. `POST /documents/:id/extract` now returns
+409 `TERM_CALENDAR_REQUIRED`, so the rule holds for every client rather than for the one screen
+that remembered it.
+
+### 7.5 A week number is only as good as the term start — **OPEN**
+
+COSC 1315 gives seventeen numbered weeks, no dates, and numbers spring break as week 9. Answered
+"Friday", Assignment 5 (week 10) resolved to **17 March — inside spring break**. The app caught
+it (`DATE_IN_BREAK`) rather than accepting it silently, which is the defence working.
+
+But the date is still wrong, and the document contains everything needed to fix it: it says
+week 9 is the break, and the calendar says the break is the week of 13 March, so *this
+document's* week 1 is 16 January. Both facts are held and neither is used. This is §3.7's
+per-document calibration, now with a second real case.
+
+### 7.6 The weekday answer only works on week numbers — **OPEN**
+
+Answering "which weekday?" dated 10 of 10 items in COSC 1315 and **0 of 8** everywhere else,
+because the raw text was not a week number:
+
+> "any time between May 10 and May 13" — Richland's final, a four-day window
+> "Feb 21/28 [assigned/due]" — UNC's midterm, two dates in one cell
+> "assigned April 27, 2023" — WSU's final, an assignment date and no due date
+
+Each is answerable by a different question the app does not ask: *which end of the window?*,
+*assigned or due?*, *how long after it is assigned?* The student answered and got nothing.
+
+### 7.7 A schedule row with a literal placeholder — **OPEN**
+
+> "Feb xx/16" and "Apr 04/xx" — UNC GEOG 062
+
+The instructor never filled them in. Nothing reads `xx` as a placeholder; it simply fails to
+parse, which is the safe outcome, but the student is never told the syllabus has a hole in it.
+
+### 7.8 The wrong course and term on page one — **OPEN**
+
+> "Family Law | Spring 2023 | Professor Andrew McKeown | ... | Community Property | Fall
+> Semester 2022" — WSU
+
+A copy-paste leftover naming a different course *and* a term a year earlier. §1.1 is about a
+stale year beside a date; this is a stale year beside the course identity, and if a model reads
+the second line the whole document lands in the wrong term.

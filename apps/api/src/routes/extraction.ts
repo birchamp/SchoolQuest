@@ -74,6 +74,34 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
     return c.json({ error: "Extraction is not configured: OPENROUTER_API_KEY is missing." }, 503);
   }
 
+  /**
+   * No syllabus is read before the term's calendar is known. A refusal, not a warning.
+   *
+   * A syllabus does not contain a calendar — it points at one. "Week 14", "each Tuesday in
+   * class", "finals week" and "the Friday before break" are all references to dates the document
+   * does not hold, and reading them against an empty calendar does not fail loudly. It produces
+   * a date, silently, off by however much the guess was wrong: Problem Set 6 onto Thanksgiving,
+   * sixteen weekly responses where fifteen weeks exist, an exam placed inside spring break.
+   *
+   * That ordering was already argued in the UI, where the calendar card sits first and upload is
+   * discouraged without it — but discouraged is not prevented, and the wrong dates it produces
+   * are the kind nobody notices until the deadline has passed. So the API refuses, which is the
+   * only place the rule actually holds regardless of which client is calling.
+   */
+  const calendar = termCalendar.parse(JSON.parse(owned.term.calendarJson || "{}"));
+  if (calendar.exceptions.length === 0) {
+    return c.json(
+      {
+        error:
+          "This term has no academic calendar yet, so a syllabus cannot be read against it. " +
+          "Add the term's breaks and finals week first — every \"Week 12\" and \"finals week\" " +
+          "in a syllabus is a date that only the calendar knows.",
+        code: "TERM_CALENDAR_REQUIRED",
+      },
+      409,
+    );
+  }
+
   const parsed = extractBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
@@ -96,7 +124,7 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
       pages: parsed.data.pages,
       termStartDate: owned.term.startDate,
       termEndDate: owned.term.endDate,
-      termCalendar: termCalendar.parse(JSON.parse(owned.term.calendarJson || "{}")),
+      termCalendar: calendar,
       courseName: owned.course.name,
     });
   } catch (error) {

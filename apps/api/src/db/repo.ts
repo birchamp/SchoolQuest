@@ -113,6 +113,8 @@ export interface TermSnapshot {
   existingSessions: WorkSession[];
   standings: Record<string, CourseStanding>;
   preferences: PlanningInput["preferences"];
+  /** Last day of the term. Undated work is paced across what is left of it. */
+  termEndDate: string;
 }
 
 /**
@@ -293,6 +295,7 @@ export async function loadTermSnapshot(
     standings,
     // Preferences are stored as JSON; parsing applies the schema defaults for missing keys.
     preferences: planningPreferences.parse(JSON.parse(termRow.planningPreferencesJson || "{}")),
+    termEndDate: termRow.endDate,
   };
 }
 
@@ -316,5 +319,6 @@ export function toPlanningInput(
     dependencies: snapshot.dependencies,
     existingSessions: snapshot.existingSessions,
     courseStandings: snapshot.standings,
+    termEndDate: snapshot.termEndDate,
   };
 }

@@ -1,0 +1,147 @@
+{
+  "courseFacts": {
+    "name": "First-Year Seminar: The Culture of Technology",
+    "code": "GEOG 062",
+    "instructor": "Prof. Scott Kirsch",
+    "evidence": { "page": 1, "excerpt": "THE CULTURE OF TECHNOLOGY (GEOG 062)" },
+    "confidence": 0.95
+  },
+  "meetingPatterns": [
+    {
+      "daysOfWeek": [2, 4],
+      "startTime": "15:30",
+      "endTime": "16:45",
+      "location": "CH 204",
+      "evidence": { "page": 1, "excerpt": "T/Th 3:30-4:45pm CH 204" },
+      "confidence": 0.95
+    }
+  ],
+  "gradingCategories": [
+    {
+      "name": "Participation/classwork",
+      "weightPercent": 25,
+      "pointsPossible": null,
+      "dropLowest": null,
+      "evidence": { "page": 2, "excerpt": "25% Participation/classwork" },
+      "confidence": 0.95
+    },
+    {
+      "name": "Seminar and response assignments",
+      "weightPercent": 20,
+      "pointsPossible": null,
+      "dropLowest": null,
+      "evidence": { "page": 2, "excerpt": "20% Seminar and response assignments" },
+      "confidence": 0.95
+    },
+    {
+      "name": "Mid-term exam",
+      "weightPercent": 20,
+      "pointsPossible": null,
+      "dropLowest": null,
+      "evidence": { "page": 2, "excerpt": "20% Mid-term exam" },
+      "confidence": 0.95
+    },
+    {
+      "name": "Story-mapping projects",
+      "weightPercent": 15,
+      "pointsPossible": null,
+      "dropLowest": null,
+      "evidence": { "page": 2, "excerpt": "15% Story-mapping projects" },
+      "confidence": 0.95
+    },
+    {
+      "name": "Final exam",
+      "weightPercent": 20,
+      "pointsPossible": null,
+      "dropLowest": null,
+      "evidence": { "page": 2, "excerpt": "20% Final exam" },
+      "confidence": 0.95
+    }
+  ],
+  "assignments": [
+    {
+      "title": "Mid-Term exam",
+      "type": "exam",
+      "dueDate": { "iso": null, "raw": "Feb 21/28 [assigned/due]", "time": null, "ambiguity": "conflicting" },
+      "pointsPossible": null,
+      "category": "Mid-term exam",
+      "isMajorProject": true,
+      "recurrence": null,
+      "evidence": { "page": 3, "excerpt": "Feb 21/28 Mid-Term exam [assigned/due]" },
+      "confidence": 0.7
+    },
+    {
+      "title": "Final exam (take-home)",
+      "type": "exam",
+      "dueDate": { "iso": "2023-05-08", "raw": "May 8", "time": "16:00", "ambiguity": "none" },
+      "pointsPossible": null,
+      "category": "Final exam",
+      "isMajorProject": true,
+      "recurrence": null,
+      "evidence": { "page": 3, "excerpt": "May 8 Final Exams due 4pm (‘take-home’ exam)" },
+      "confidence": 0.9
+    },
+    {
+      "title": "Seminar response assignment",
+      "type": "paper",
+      "dueDate": { "iso": null, "raw": "one of the course texts that week", "time": null, "ambiguity": "missing" },
+      "pointsPossible": null,
+      "category": "Seminar and response assignments",
+      "isMajorProject": false,
+      "recurrence": { "frequency": "weekly", "dayOfWeek": null, "count": null, "dropLowest": null },
+      "evidence": {
+        "page": 2,
+        "excerpt": "written response assignments, focusing on one of the course texts that week, to be followed"
+      },
+      "confidence": 0.6
+    },
+    {
+      "title": "Story map presentation",
+      "type": "presentation",
+      "dueDate": { "iso": null, "raw": "Apr 18/20, Apr 25/27", "time": null, "ambiguity": "conflicting" },
+      "pointsPossible": null,
+      "category": "Story-mapping projects",
+      "isMajorProject": true,
+      "recurrence": null,
+      "evidence": { "page": 3, "excerpt": "6. Workshops" },
+      "confidence": 0.45
+    }
+  ],
+  "policies": [
+    {
+      "kind": "attendance",
+      "summary": "The course is designed as an in-class learning experience and attendance is expected; missed work can be made up for good reasons.",
+      "evidence": {
+        "page": 2,
+        "excerpt": "The course is designed as an in-class learning experience and attendance is"
+      },
+      "confidence": 0.85
+    }
+  ],
+  "clarificationQuestions": [
+    {
+      "question": "Your schedule row reads \"Feb 21/28 Mid-Term exam [assigned/due]\". Is the mid-term assigned on 21 February and due on 28 February?",
+      "why": "Those are two different dates for one exam, and which one goes in the plan changes when you need to be ready.",
+      "relatesToTitle": "Mid-Term exam",
+      "kind": "conflicting_information"
+    },
+    {
+      "question": "Two rows in your schedule have a placeholder instead of a date: \"Feb xx/16\" and \"Apr 04/xx\". What are those dates?",
+      "why": "Anything due in those weeks cannot be placed on a calendar until the missing day is known.",
+      "relatesToTitle": null,
+      "kind": "missing_date"
+    },
+    {
+      "question": "The syllabus lists \"Story-mapping projects\" as 15% of the grade but never gives a due date or says how many there are. When are they due?",
+      "why": "It is 15% of your grade with nothing on the calendar, so nothing is being planned for it.",
+      "relatesToTitle": "Story map presentation",
+      "kind": "missing_date"
+    },
+    {
+      "question": "Response assignments are described as weekly but no dates or total count are given. Is one due every week the class meets?",
+      "why": "Without a count or a day the app cannot turn the rule into individual pieces of work to plan.",
+      "relatesToTitle": "Seminar response assignment",
+      "kind": "relative_date"
+    }
+  ]
+}
