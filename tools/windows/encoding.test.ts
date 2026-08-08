@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { globSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -24,11 +24,15 @@ import { describe, expect, it } from "vitest";
  */
 const ROOT = join(import.meta.dirname, "..", "..");
 
-const WINDOWS_SCRIPTS = [
-  "install.ps1",
-  "tools/windows/create-shortcut.ps1",
-  "tools/windows/SchoolQuest.cmd",
-];
+/**
+ * Found by glob rather than listed, so a script added later is covered without anyone remembering
+ * to add it here. A hard-coded list would have gone stale silently, which is the same failure
+ * mode as having no test.
+ */
+const WINDOWS_SCRIPTS = globSync("**/*.{ps1,psm1,cmd,bat,sh}", {
+  cwd: ROOT,
+  exclude: (name) => name === "node_modules" || name === "dist" || name === ".git",
+}).sort();
 
 describe("Windows scripts", () => {
   it.each(WINDOWS_SCRIPTS)("%s is pure ASCII", (relativePath) => {
@@ -56,14 +60,23 @@ describe("Windows scripts", () => {
     },
   );
 
-  it("create-shortcut.ps1 has balanced block comments", () => {
-    // `<#` and `#>` must strictly alternate. An unbalanced pair comments out the rest of the file,
-    // which on Windows presents as the script doing nothing at all rather than as an error.
-    const text = readFileSync(join(ROOT, "tools/windows/create-shortcut.ps1"), "utf8");
-    const delimiters = text.match(/<#|#>/g) ?? [];
-    expect(delimiters.length % 2).toBe(0);
-    delimiters.forEach((delimiter, index) => {
-      expect(delimiter).toBe(index % 2 === 0 ? "<#" : "#>");
-    });
+  it("finds the scripts it is meant to be checking", () => {
+    // Without this, a broken glob would report a cheerful zero failures over zero files.
+    expect(WINDOWS_SCRIPTS).toContain("install.ps1");
+    expect(WINDOWS_SCRIPTS).toContain("tools/windows/create-shortcut.ps1");
+    expect(WINDOWS_SCRIPTS).toContain("tools/windows/SchoolQuest.cmd");
   });
+
+  it.each(WINDOWS_SCRIPTS.filter((p) => p.endsWith(".ps1")))(
+    "%s has balanced block comments",
+    (relativePath) => {
+      // `<#` and `#>` must strictly alternate. An unbalanced pair comments out the rest of the
+      // file, which presents as the script doing nothing rather than as an error.
+      const delimiters = readFileSync(join(ROOT, relativePath), "utf8").match(/<#|#>/g) ?? [];
+      delimiters.forEach((delimiter, index) => {
+        expect(delimiter).toBe(index % 2 === 0 ? "<#" : "#>");
+      });
+      expect(delimiters.length % 2).toBe(0);
+    },
+  );
 });
