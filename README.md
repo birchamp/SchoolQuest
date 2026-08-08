@@ -79,36 +79,81 @@ Three rules hold this together:
 
 ## Getting started
 
+Three commands, on any platform. No Cloudflare account, no email provider, no admin rights.
+
 ```bash
+git clone https://github.com/birchamp/SchoolQuest
+cd SchoolQuest
 pnpm install
-
-# 1. Create the Cloudflare resources (one time)
-npx wrangler d1 create schoolquest        # paste the id into apps/api/wrangler.toml
-npx wrangler r2 bucket create schoolquest-documents
-
-# 2. Local database
-pnpm db:migrate:local                     # also run this after pulling — migrations are additive
-pnpm db:seed:local                        # loads the reference semester
-
-# 3. Secrets for local dev — apps/api/.dev.vars
-cat > apps/api/.dev.vars <<'EOF'
-OPENROUTER_API_KEY=sk-or-v1-...
-AUTH_SECRET=<openssl rand -hex 32>
-EOF
-
-# 4. Run it
-pnpm dev:api      # Worker on :8787
-pnpm dev:web      # SPA on :5173 (proxies /api to the Worker)
-pnpm dev:desktop  # Tauri window (starts the web dev server itself)
+pnpm setup       # writes apps/api/.dev.vars with a fresh AUTH_SECRET, creates the local database
+pnpm preflight   # checks everything that would otherwise fail halfway through a session
+pnpm dev         # Worker on :8787 and the app on :5173, together
 ```
 
-With no `RESEND_API_KEY` set, the sign-in endpoint returns the magic link in its response
-and the sign-in screen shows it — local development needs no mail account.
+Then open **http://127.0.0.1:5173** and sign in with any email address — with no mail provider
+configured the sign-in link comes back on screen instead of being sent, which is what makes a
+local run possible with no email account at all.
 
-`pnpm db:reset-progress:local` returns the reference semester to "nothing done yet" without
-replaying extraction: it clears session outcomes, recorded interruptions, and the answers
-given about them, leaving courses, dates and weights exactly as extraction produced them.
-It is not scoped to one term — it resets every term in the local database.
+> Fine on your own machine, and **not safe on the public internet**: without a mail provider,
+> anyone who can reach it can sign in as anyone.
+
+`pnpm setup` is idempotent and never overwrites an existing `.dev.vars`, since that file may hold
+a real key. `pnpm preflight` explains what to do about anything it finds — it exists because a
+busy port looks like the app failing to start, an unmigrated database looks like a server crash,
+and a placeholder API key looks like the model refusing to answer.
+
+### On Windows
+
+Install [Node 22+](https://nodejs.org), [Git](https://git-scm.com), then `npm install -g pnpm`.
+Run the commands above in **PowerShell**.
+
+Then make yourself a shortcut, once:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\windows\create-shortcut.ps1
+```
+
+That puts **SchoolQuest** on your Desktop with the app icon. Double-clicking it checks the
+install, starts both halves, and opens your browser once they are actually answering. Leave the
+console window open while you use the app — closing it stops everything.
+
+| | |
+|---|---|
+| `-StartMenu` | also add it to the Start Menu, so typing "schoolquest" finds it |
+| `-Remove` | delete the shortcuts again |
+
+[`docs/12-first-run.md`](docs/12-first-run.md) is the full walkthrough: what to install, the
+order to set a term up in and why the calendar has to come first, and a table of what each
+failure actually means.
+
+**The desktop app is a separate thing.** The shortcut above runs SchoolQuest in your browser,
+which needs nothing built. The packaged `.exe` in [`apps/desktop`](apps/desktop/README.md) only
+adds dragging syllabus PDFs straight in, and it needs a deployed API to talk to — see below.
+It ships unsigned, so Windows shows a SmartScreen warning;
+[`docs/11-installing-on-windows.md`](docs/11-installing-on-windows.md) explains why and what to
+do about it.
+
+### Providing an OpenRouter key
+
+Reading a syllabus is a paid API call. Each person adds their own key in the app under
+**Setup → AI and model**, where it is encrypted at rest and never shown again. A whole
+five-course semester costs about eleven cents on the strongest model.
+
+Set `OPENROUTER_API_KEY` in `apps/api/.dev.vars` instead to give the whole installation one key —
+useful for a single-user self-hosted setup, and the per-user key still overrides it.
+
+### Other local commands
+
+```bash
+pnpm db:migrate:local        # after pulling — migrations are additive
+pnpm db:seed:local           # loads the reference semester
+pnpm db:reset-progress:local # back to "nothing done yet" without replaying extraction
+pnpm dev:desktop             # the Tauri window (starts its own web dev server)
+```
+
+`db:reset-progress:local` clears session outcomes, recorded interruptions and the answers given
+about them, leaving courses, dates and weights exactly as extraction produced them. It is not
+scoped to one term — it resets every term in the local database.
 
 ### Deploying
 
