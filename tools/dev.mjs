@@ -112,30 +112,98 @@ console.log(
  * a cold one, and a browser opened at a dead port shows a connection error that reads as the app
  * being broken.
  */
-if (OPEN) {
-  const url = "http://127.0.0.1:5173";
-  const deadline = Date.now() + 90_000;
-  const poll = () => {
-    if (shuttingDown) return;
-    const socket = createConnection({ port: 5173, host: "127.0.0.1" });
-    socket.setTimeout(500);
-    const retry = () => {
+const URL = "http://127.0.0.1:5173";
+
+/** Resolves true if something is listening, false otherwise. Never rejects. */
+function isListening(port) {
+  return new Promise((resolve) => {
+    const socket = createConnection({ port, host: "127.0.0.1" });
+    const done = (answer) => {
       socket.destroy();
-      if (Date.now() < deadline) setTimeout(poll, 500);
-      else console.log(`\nStill not up after 90s. Open ${url} yourself, and read the lines above.`);
+      resolve(answer);
     };
-    socket.on("connect", () => {
-      socket.destroy();
-      const [cmd, args] = WINDOWS
-        ? ["cmd", ["/c", "start", "", url]]
-        : process.platform === "darwin"
-          ? ["open", [url]]
-          : ["xdg-open", [url]];
-      spawn(cmd, args, { stdio: "ignore", detached: true }).unref();
-      console.log(`\nOpened ${url}\n`);
-    });
-    socket.on("timeout", retry);
-    socket.on("error", retry);
+    socket.setTimeout(500);
+    socket.on("connect", () => done(true));
+    socket.on("timeout", () => done(false));
+    socket.on("error", () => done(false));
+  });
+}
+
+function openBrowser(url) {
+  const [cmd, args] = WINDOWS
+    ? ["cmd", ["/c", "start", "", url]]
+    : process.platform === "darwin"
+      ? ["open", [url]]
+      : ["xdg-open", [url]];
+
+  const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+
+  /**
+   * Failing to open a browser must not stop the app.
+   *
+   * `spawn` reports a missing binary as an `error` *event*, and an unhandled one is a thrown
+   * exception that ends this process - which then takes both servers down on its way out. A
+   * container with no `xdg-open` did exactly that here: two healthy servers killed by the
+   * convenience that was meant to save a copy-paste.
+   */
+  child.on("error", () => {
+    console.log(`Could not open a browser automatically. Open ${url} yourself.`);
+  });
+  child.unref();
+}
+
+if (OPEN) {
+  /**
+   * Both halves, not just the one being opened.
+   *
+   * Waiting only on 5173 opens a browser as soon as Vite is up, which on a cold start is well
+   * before `wrangler` is — and the app then renders a network error on every screen. That is the
+   * exact confusion this file exists to prevent, arrived at from the other direction.
+   *
+   * Three minutes, not ninety seconds. A first run on Windows downloads the `workerd` binary and
+   * pre-bundles every dependency, and ninety seconds was observed timing out on a machine where
+   * nothing was actually wrong. The cost of waiting too long is a slightly later browser; the
+   * cost of giving up too early is someone concluding the app is broken.
+   */
+  const halves = [
+    { name: "api", port: 8787 },
+    { name: "web", port: 5173 },
+  ];
+  const deadline = Date.now() + 180_000;
+  let announced = 0;
+
+  const poll = async () => {
+    if (shuttingDown) return;
+
+    const states = await Promise.all(halves.map((half) => isListening(half.port)));
+    const waitingFor = halves.filter((_, index) => !states[index]);
+
+    if (waitingFor.length === 0) {
+      openBrowser(URL);
+      console.log(`\nOpened ${URL}\n`);
+      return;
+    }
+
+    if (Date.now() >= deadline) {
+      // Naming the half that never came up, because the fix differs: the api is usually a busy
+      // 8787 or a migration that never ran, the web side is usually a busy 5173.
+      const names = waitingFor.map((half) => `${half.name} (port ${half.port})`).join(" and ");
+      console.log(`\nStill waiting on ${names} after 3 minutes.`);
+      console.log(`Read the [api] and [web] lines above - they say why. Open ${URL} to try anyway.\n`);
+      return;
+    }
+
+    // A silent console for three minutes is indistinguishable from a hang, and someone who
+    // concludes it has hung presses Ctrl-C at the ninety-second mark of a two-minute install.
+    const waited = Math.round((Date.now() - (deadline - 180_000)) / 1000);
+    if (waited >= announced + 15) {
+      announced = waited;
+      const names = waitingFor.map((half) => half.name).join(" and ");
+      console.log(`  still starting (${waited}s) - waiting on ${names}. This is normal on a first run.`);
+    }
+
+    setTimeout(poll, 500);
   };
+
   setTimeout(poll, 1500);
 }

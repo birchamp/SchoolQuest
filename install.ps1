@@ -186,15 +186,34 @@ if ($PSScriptRoot -and
 if (Test-Path (Join-Path $Path ".git")) {
   # Updating rather than refusing: running this again is what people do when something looks
   # wrong, and "the folder already exists" is a useless thing to say to them.
-  Good "already there - updating it"
   Push-Location $Path
-  git pull --ff-only 2>&1 | Out-Null
+  <#
+    git reports normal progress on stderr - "From https://github.com/..." is not an error - and
+    `2>&1` turns every one of those lines into an ErrorRecord. Under $ErrorActionPreference =
+    "Stop" that is a *terminating* error, so a successful pull aborted the installer and printed
+    the fetch banner in red as its cause.
+
+    Exit code is the only thing that says whether git succeeded, so that is what gets checked.
+  #>
+  $ErrorActionPreference = "Continue"
+  git pull --ff-only --quiet 2>&1 | Out-String | Out-Null
+  $pulled = $LASTEXITCODE
+  $ErrorActionPreference = "Stop"
   Pop-Location
+
+  if ($pulled -eq 0) {
+    Good "already there - updated it"
+  } else {
+    # Not fatal. A dirty tree or a diverged branch is a good reason not to touch it, and the copy
+    # already on disk is almost certainly fine to install from.
+    Warn "already there, but could not update it (git exit $pulled) - using it as it is"
+  }
 } else {
   if (Test-Path $Path) {
     throw "$Path already exists and is not a SchoolQuest checkout. Move it, or pass -Path somewhere else."
   }
   git clone --quiet $repoUrl $Path
+  if ($LASTEXITCODE -ne 0) { throw "git clone failed. Check your connection and try again." }
   Good "downloaded to $Path"
 }
 
