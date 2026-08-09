@@ -1,4 +1,4 @@
-import { colorTokenFor, type CourseColorToken } from "@schoolquest/domain";
+import { colorTokenFor, type CourseColorToken, type ThemeName } from "@schoolquest/domain";
 
 /**
  * One course, one colour, everywhere.
@@ -93,4 +93,41 @@ export function courseInitials(
   if (!first) return "?";
   const second = words[1];
   return (second ? first.slice(0, 1) + second.slice(0, 1) : first.slice(0, 3)).toUpperCase();
+}
+
+/**
+ * The same identities as *text on the theme's own ground*, which is a different job.
+ *
+ * `courseTincture` returns a fill for a chip that carries pale lettering, so it is deliberately
+ * dark. Used as a text colour it inverts the requirement -- and the week map did exactly that,
+ * painting the beat-kind label in a chip fill. On Quest's parchment that happens to work; on
+ * Mission's steel the amber measured 3.25:1 and on plain's white 4.42:1, both under the floor.
+ *
+ * These are the same hues lifted until they clear 4.5:1 on the ground they are used on. Mission
+ * is a dark theme, so its set is light; the plain set stays as it is because plain has both a
+ * light and a dark ground and one hex cannot serve both -- see the note in the README of this
+ * problem, which is older than this function.
+ */
+const MISSION_INK: Record<CourseColorToken, string> = {
+  azure: "#7fb0e8",
+  vermilion: "#ef9a86",
+  verdant: "#7ecb92",
+  amber: "#e0b74e",
+  violet: "#c0a0e0",
+  sable: "#b6c2cc",
+  teal: "#6fd3cf",
+  rose: "#ef94bd",
+  slate: "#a9b8cc",
+};
+
+/** A course's identity colour, safe to use as text on the given theme's ground. */
+export function courseLabelInk(
+  courseId: string,
+  colorToken: string | null | undefined,
+  theme: ThemeName,
+): string {
+  const token = colorTokenFor(courseId, colorToken);
+  if (theme === "mission") return MISSION_INK[token];
+  // Quest labels sit on parchment, where the heraldic tinctures are what they were tuned for.
+  return theme === "quest" ? HERALDRY[token] : PLAIN_TINT[token];
 }

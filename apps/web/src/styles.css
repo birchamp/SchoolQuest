@@ -49,6 +49,9 @@
 
 body {
   margin: 0;
+  /* Short screens must still paint to the bottom of the window rather than stopping at the
+     end of the content and leaving the canvas showing through. */
+  min-height: 100vh;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
@@ -1784,4 +1787,292 @@ body[data-theme="quest"] .guessed-time {
 
 body[data-theme="quest"] .model-list label {
   border-color: #b9a06a;
+}
+
+/* =============================================================================
+ * MISSION THEME - presentation layer only.
+ *
+ * Everything below is scoped to body[data-theme="mission"], exactly as the Quest block
+ * above is. No domain data changes with the theme.
+ *
+ * This existed as words and nothing else. The language layer has had a full identity
+ * since the beginning -- Deployment, Theater, Sortie, Operations board, Handler,
+ * after-action review -- while the stylesheet carried 103 rules for Quest and zero for
+ * Mission, so choosing it produced the Plain theme with different nouns. The picker made
+ * that worse by previewing a slate-and-steel card the app then never delivered.
+ *
+ * The look is an instrument panel: cold steel ground, lit panels, hairline rules, labels
+ * set as stencilled legends, and numbers on a tabular grid so columns line up down the
+ * screen. Where Quest is warm, round and hand-made, this is cool, square and machined --
+ * the two have to be unmistakable at a glance or the choice means nothing.
+ *
+ * All texture is CSS gradients: no external assets, because the desktop shell's CSP
+ * forbids them.
+ * ========================================================================== */
+
+body[data-theme="mission"] {
+  --m-void: #0a0f14;
+  --m-steel: #121b24;
+  --m-steel-2: #18242f;
+  --m-rule: #2b3d4e;
+  --m-ink: #06131a;
+  --m-signal: #4fc3d9;
+  --m-signal-dim: #2b7f93;
+  --m-legend: #8fa6b8;
+  --m-text: #d3e0ea;
+
+  --bg: var(--m-void);
+  --surface: var(--m-steel);
+  --surface-2: var(--m-steel-2);
+  --border: var(--m-rule);
+  --text: var(--m-text);
+  --text-dim: var(--m-legend);
+  --accent: var(--m-signal);
+  --accent-dim: var(--m-signal-dim);
+  --safe: #5cc99a;
+  --watch: #e0b74e;
+  --at-risk: #e08a5c;
+
+  /* Square, not rounded. The single cheapest signal that this is an instrument. */
+  --radius: 3px;
+
+  /* Longhands, not the shorthand: `background: <gradients>` resets background-color to
+     transparent, and a body background is what paints the canvas outside the viewport. With
+     only gradients and `attachment: fixed`, everything past one screen height came out white. */
+  background-color: var(--m-void);
+  background-image:
+    linear-gradient(180deg, #0d141b, var(--m-void) 45%),
+    repeating-linear-gradient(0deg, rgba(79, 195, 217, 0.028) 0 1px, transparent 1px 4px);
+  background-attachment: fixed;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Figures line up in a column wherever they appear -- times, minutes, percentages. A
+     readout whose digits jitter between rows is the thing this theme is least allowed to be. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Header and navigation ------------------------------------------------- */
+
+body[data-theme="mission"] .app-header h1 {
+  font-size: 1.2rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--m-text);
+}
+
+body[data-theme="mission"] .app-header h1::before {
+  /* A lit indicator, not an ornament: the panel is powered. */
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 0.6rem;
+  vertical-align: 0.08em;
+  background: var(--m-signal);
+  box-shadow: 0 0 8px var(--m-signal);
+}
+
+body[data-theme="mission"] .tabs {
+  background: linear-gradient(180deg, #16212c, #101922);
+  border: 1px solid var(--m-rule);
+  border-radius: 3px;
+}
+
+body[data-theme="mission"] .tabs button {
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 2px;
+}
+
+body[data-theme="mission"] .tabs button[aria-current="page"] {
+  /* Dark ink on a lit key, not pale text on a mid tone. Light-on-cyan measured 4.3:1 on the
+     selected tab and 3.34:1 on every primary button -- both under the 4.5:1 floor, on the two
+     controls a student reads most. Inverting to near-black on the bright signal measures 9.1:1
+     and reads as a backlit switch, which is what this theme is imitating anyway. */
+  background: var(--m-signal);
+  color: var(--m-ink);
+  box-shadow: inset 0 -2px 0 #7fdcee;
+}
+
+/* --- Panels ---------------------------------------------------------------- */
+
+body[data-theme="mission"] .card {
+  position: relative;
+  background: linear-gradient(180deg, var(--m-steel-2), var(--m-steel));
+  border: 1px solid var(--m-rule);
+  border-radius: 3px;
+  box-shadow:
+    inset 0 1px 0 rgba(143, 166, 184, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* The lit edge along the top of each panel. One rule, and the screen stops reading as a
+   stack of web forms and starts reading as a rack of instruments. */
+body[data-theme="mission"] .card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--m-signal-dim), transparent 65%);
+}
+
+body[data-theme="mission"] .card h2,
+body[data-theme="mission"] .card h3 {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--m-legend);
+}
+
+body[data-theme="mission"] .primary-action {
+  background: linear-gradient(180deg, #1a2836, #14202b);
+  border: 1px solid var(--m-signal-dim);
+  border-left: 3px solid var(--m-signal);
+  border-radius: 3px;
+}
+
+body[data-theme="mission"] .primary-action h2 {
+  color: var(--m-signal);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+body[data-theme="mission"] .primary-action .title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--m-text);
+}
+
+/* --- Controls -------------------------------------------------------------- */
+
+body[data-theme="mission"] button.action,
+body[data-theme="mission"] label.action {
+  background: linear-gradient(180deg, #1d2b38, #16222d);
+  border: 1px solid var(--m-rule);
+  border-radius: 2px;
+  color: var(--m-text);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+body[data-theme="mission"] button.action:hover:not(:disabled),
+body[data-theme="mission"] label.action:hover {
+  border-color: var(--m-signal-dim);
+  background: linear-gradient(180deg, #24374a, #1a2835);
+}
+
+body[data-theme="mission"] button.action.primary,
+body[data-theme="mission"] label.action.primary {
+  background: linear-gradient(180deg, var(--m-signal), #3aa8bd);
+  border-color: #7fdcee;
+  color: var(--m-ink);
+}
+
+body[data-theme="mission"] input,
+body[data-theme="mission"] select,
+body[data-theme="mission"] textarea {
+  border-radius: 2px;
+  border-color: var(--m-rule);
+  background: #0f171e;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Readouts and status --------------------------------------------------- */
+
+body[data-theme="mission"] .capacity-bar {
+  border-radius: 1px;
+  background: #0f171e;
+  border: 1px solid var(--m-rule);
+}
+
+body[data-theme="mission"] .capacity-bar > span {
+  background: linear-gradient(90deg, var(--m-signal-dim), var(--m-signal));
+  border-radius: 0;
+}
+
+/* Status reads as a stencilled legend, not a rounded pill. The word carries the meaning;
+   the colour only reinforces it, which is the rule the whole app follows. */
+body[data-theme="mission"] .risk .level {
+  border-radius: 1px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.66rem;
+  font-weight: 700;
+  border: 1px solid currentColor;
+  background: transparent;
+}
+
+body[data-theme="mission"] .day {
+  background: linear-gradient(180deg, var(--m-steel-2), var(--m-steel));
+  border: 1px solid var(--m-rule);
+  border-radius: 3px;
+}
+
+body[data-theme="mission"] .day h3 {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.74rem;
+  color: var(--m-legend);
+}
+
+body[data-theme="mission"] .day.is-today {
+  border-color: var(--m-signal-dim);
+  box-shadow: inset 0 0 0 1px rgba(79, 195, 217, 0.25);
+}
+
+body[data-theme="mission"] .block {
+  border-radius: 2px;
+  border-left: 2px solid var(--m-signal-dim);
+  background: rgba(79, 195, 217, 0.05);
+}
+
+/* Times as a fixed-width readout: the one place a monospace face earns its keep, because
+   these are read down a column rather than along a line. */
+body[data-theme="mission"] .block .time,
+body[data-theme="mission"] .time {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 0.8rem;
+  color: var(--m-legend);
+  letter-spacing: 0.02em;
+}
+
+body[data-theme="mission"] .data-table {
+  font-variant-numeric: tabular-nums;
+}
+
+body[data-theme="mission"] .data-table th {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.7rem;
+  color: var(--m-legend);
+}
+
+/* --- The handler ----------------------------------------------------------- */
+
+body[data-theme="mission"] .bubble.assistant {
+  background: var(--m-steel-2);
+  border: 1px solid var(--m-rule);
+  border-left: 2px solid var(--m-signal-dim);
+  border-radius: 2px;
+}
+
+body[data-theme="mission"] .bubble.user {
+  background: #1d2b38;
+  border: 1px solid var(--m-rule);
+  border-radius: 2px;
+}
+
+body[data-theme="mission"] .bubble.assistant.refused {
+  border-left-color: var(--watch);
+}
+
+body[data-theme="mission"] .composer input {
+  border-radius: 2px;
 }

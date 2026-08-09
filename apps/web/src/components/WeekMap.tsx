@@ -6,7 +6,7 @@ import type {
   PlanResponse,
   SessionBriefView,
 } from "../lib/types";
-import { courseTincture } from "../lib/course-colour";
+import { courseLabelInk } from "../lib/course-colour";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -39,8 +39,13 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * (which today has fewer tokens than a nine-course student has courses) can be swapped in
  * one place rather than hunted for at each call.
  */
-function tinctureFor(courseId: string, course: Course | undefined): string {
-  return courseTincture(courseId, course?.colorToken, true);
+function tinctureFor(courseId: string, course: Course | undefined, theme: ThemeName): string {
+  // This is used as a *text* colour, so it needs `courseLabelInk`, not the chip fill. The chip
+  // fill was hard-coded to Quest's heraldry here, which is tuned to carry parchment lettering on
+  // a parchment card -- so every other theme drew these labels in a colour meant to be a
+  // background. On Mission's steel they measured 1.75:1, which is not a palette choice, it is
+  // text nobody can read.
+  return courseLabelInk(courseId, course?.colorToken, theme);
 }
 
 /**
@@ -289,7 +294,7 @@ export function WeekMap({
                   const beat = entry.beat;
                   const course = coursesById.get(beat.courseId);
                   const kind = explainBlockKind(beat.kind, theme);
-                  const tincture = tinctureFor(beat.courseId, course);
+                  const tincture = tinctureFor(beat.courseId, course, theme);
                   // Outside the lens the tile keeps every word it had and loses only its
                   // pull: one flat dim tone in place of dark-title-over-dim-metadata, and a
                   // neutral edge in place of the course's colour. Nothing is filtered out,
