@@ -49,12 +49,21 @@ const THEME_PREVIEWS: Record<
   },
   mission: {
     card: {
-      background: "#1a2027",
-      color: "#c6d4e2",
-      border: "1px solid #35506b",
+      // Matches the theme rather than approximating it: cold steel plate, one cut corner, and
+      // a lit edge in night-vision phosphor. The picker previously showed a plain slate box for
+      // a theme that is neither plain nor slate, which is the same broken promise as showing a
+      // styled card for a theme that had no styling at all.
+      background: "linear-gradient(180deg, #17222e, #111a24)",
+      color: "#d2e0ea",
+      border: "1px solid #29394a",
+      borderLeft: "3px solid #7df0a6",
+      clipPath:
+        "polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)",
+      boxShadow: "0 0 18px rgba(125, 240, 166, 0.10)",
       fontFamily: 'system-ui, -apple-system, "Segoe UI", Arial, sans-serif',
+      letterSpacing: "0.01em",
     },
-    description: { color: "#7d93a8" },
+    description: { color: "#8ba3b8" },
   },
   plain: {
     card: {
