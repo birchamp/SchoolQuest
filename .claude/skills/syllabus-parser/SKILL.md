@@ -85,8 +85,12 @@ what PDF extraction does to text, and contradictions between sections. Extract:
   in a schedule table, and *rules* in prose ("a weekly fitness log is due each Sunday").
   Expand rules into dated instances by arithmetic against the calendar -- counting
   Tuesdays between two dates is math, not inference -- and skip instances that land on
-  breaks. The same assignment is usually described in two places with different detail
-  (and sometimes different dates); merge into one item and flag any date conflict.
+  breaks. But when the schedule table itself dates two or more items of the series, the
+  table wins and the rule is *not* expanded: the prose is a summary of an irregular
+  reality, and the rows are what the student is graded against (details, including the
+  "every class meeting" case, in the field guide). The same assignment is usually
+  described in two places with different detail (and sometimes different dates); merge
+  into one item and flag any date conflict.
 - **Course-wide policies with grade consequences**: attendance cliffs ("miss more than 7
   classes and you fail"), late-work rules, academic integrity penalties. These change
   what a deadline costs and must appear in the output, not be dropped as boilerplate.

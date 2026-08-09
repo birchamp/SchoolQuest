@@ -83,6 +83,24 @@ almost nobody else does. Hold every "syllabi always..." belief loosely.
   weekly fitness log is due each Sunday by 9:00 pm ... There are 14 logs." In one real
   course this form carried 40% of the grade. Expand rules into dated instances by
   arithmetic; skip instances falling in breaks and say you did.
+- **"At every class meeting" is not a weekly rule.** "A short quiz at the start of every
+  class" in a class meeting twice a week is two quizzes a week, and "which day is it
+  due?" has no correct answer -- the answer is both. Take the days from the stated
+  meeting pattern, and number the occurrences in date order *across* the days: expanding
+  one weekday at a time makes "Quiz 2" the second Monday instead of the first Wednesday,
+  so every number the student reads names the wrong day. A syllabus that never states its
+  meeting times leaves this genuinely unanswerable -- those instances stay undated,
+  because an admitted gap beats an invented weekday.
+- **When prose states a rule and the schedule enumerates the items, the schedule wins.**
+  The same syllabus that says "a quiz at the start of every class" can show, in its own
+  table, quizzes that run weekly at first, skip some weeks, and sometimes fall on the
+  second class day. The rule is a summary of an irregular reality; expanding it fills the
+  term with confident wrong dates -- strictly worse than a question, because a wrong date
+  looks like an answer and nothing contradicts it. Where two or more *dated* items share
+  a base title ("Quiz 1", "Quiz 3"), do not expand the rule: the rows are the truth, and
+  prose-vs-table disagreement here is the normal case, not a contradiction to flag. One
+  dated row is not enough to suppress expansion -- a lone "Quiz 1" is as likely an
+  example as a schedule.
 - **Everything important is described twice**: a schedule-table row (date, terse title)
   and a grading-section paragraph (length, topic, rubric, often a different date).
   Neither is complete. Merge into one item carrying both sets of facts; flag date
