@@ -1795,31 +1795,37 @@ body[data-theme="quest"] .model-list label {
  * Everything below is scoped to body[data-theme="mission"], exactly as the Quest block
  * above is. No domain data changes with the theme.
  *
- * This existed as words and nothing else. The language layer has had a full identity
- * since the beginning -- Deployment, Theater, Sortie, Operations board, Handler,
- * after-action review -- while the stylesheet carried 103 rules for Quest and zero for
- * Mission, so choosing it produced the Plain theme with different nouns. The picker made
- * that worse by previewing a slate-and-steel card the app then never delivered.
+ * The look is a military operations console: cold blue-steel structure, and readouts lit in
+ * night-vision phosphor. The split is the whole idea and it is load-bearing, not decoration --
+ * steel is every surface, border and label that is merely *present*, and green is reserved for
+ * whatever is *live*: the selected tab, the primary action, the focused field, the filling bar.
+ * Because green never appears on anything inert, it works as a genuine signal rather than a
+ * colour scheme, and the eye lands on the one thing that wants attention.
  *
- * The look is an instrument panel: cold steel ground, lit panels, hairline rules, labels
- * set as stencilled legends, and numbers on a tabular grid so columns line up down the
- * screen. Where Quest is warm, round and hand-made, this is cool, square and machined --
- * the two have to be unmistakable at a glance or the choice means nothing.
+ * The ground carries a radar sweep drawn from the top centre -- range rings and bearing lines,
+ * at two to four percent opacity. It has to be findable and never legible: a grid a student can
+ * actually read is a grid competing with their coursework.
  *
- * All texture is CSS gradients: no external assets, because the desktop shell's CSP
- * forbids them.
+ * All texture is CSS gradients. No external assets, because the desktop shell's CSP forbids
+ * them, and no images to load.
  * ========================================================================== */
 
 body[data-theme="mission"] {
-  --m-void: #0a0f14;
-  --m-steel: #121b24;
-  --m-steel-2: #18242f;
-  --m-rule: #2b3d4e;
-  --m-ink: #06131a;
-  --m-signal: #4fc3d9;
-  --m-signal-dim: #2b7f93;
-  --m-legend: #8fa6b8;
-  --m-text: #d3e0ea;
+  --m-ink: #04140c;
+  --m-void: #080d13;
+  --m-steel: #111a24;
+  --m-steel-2: #17222e;
+  --m-rule: #29394a;
+
+  /* Night vision. Phosphor green, kept slightly desaturated so a screen full of it does not
+     vibrate the way true #00ff41 does at this size. */
+  --m-nv: #7df0a6;
+  --m-nv-bright: #a8ffc8;
+  --m-nv-dim: #2f8f5c;
+  --m-nv-glow: rgba(125, 240, 166, 0.35);
+
+  --m-legend: #8ba3b8;
+  --m-text: #d2e0ea;
 
   --bg: var(--m-void);
   --surface: var(--m-steel);
@@ -1827,13 +1833,13 @@ body[data-theme="mission"] {
   --border: var(--m-rule);
   --text: var(--m-text);
   --text-dim: var(--m-legend);
-  --accent: var(--m-signal);
-  --accent-dim: var(--m-signal-dim);
-  --safe: #5cc99a;
+  --accent: var(--m-nv);
+  --accent-dim: var(--m-nv-dim);
+  --safe: var(--m-nv);
   --watch: #e0b74e;
   --at-risk: #e08a5c;
 
-  /* Square, not rounded. The single cheapest signal that this is an instrument. */
+  /* Square, not rounded. The cheapest single signal that this is an instrument. */
   --radius: 3px;
 
   /* Longhands, not the shorthand: `background: <gradients>` resets background-color to
@@ -1841,12 +1847,23 @@ body[data-theme="mission"] {
      only gradients and `attachment: fixed`, everything past one screen height came out white. */
   background-color: var(--m-void);
   background-image:
-    linear-gradient(180deg, #0d141b, var(--m-void) 45%),
-    repeating-linear-gradient(0deg, rgba(79, 195, 217, 0.028) 0 1px, transparent 1px 4px);
+    /* Range rings and bearing lines, swept from the top centre. Faint enough to read as
+       texture; a grid legible enough to follow is a grid competing for attention. */
+    repeating-radial-gradient(
+      circle at 50% -5%,
+      transparent 0 118px,
+      rgba(125, 240, 166, 0.035) 118px 119px
+    ),
+    repeating-conic-gradient(
+      from 200deg at 50% -5%,
+      transparent 0 9deg,
+      rgba(125, 240, 166, 0.022) 9deg 9.25deg
+    ),
+    linear-gradient(180deg, #0b131b, var(--m-void) 45%);
   background-attachment: fixed;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  /* Figures line up in a column wherever they appear -- times, minutes, percentages. A
-     readout whose digits jitter between rows is the thing this theme is least allowed to be. */
+  /* Figures line up in a column wherever they appear -- times, minutes, percentages. A readout
+     whose digits jitter between rows is the thing this theme is least allowed to be. */
   font-variant-numeric: tabular-nums;
 }
 
@@ -1854,46 +1871,51 @@ body[data-theme="mission"] {
 
 body[data-theme="mission"] .app-header h1 {
   font-size: 1.2rem;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   font-weight: 600;
   color: var(--m-text);
 }
 
 body[data-theme="mission"] .app-header h1::before {
-  /* A lit indicator, not an ornament: the panel is powered. */
+  /* A live indicator, not an ornament: the panel is powered. */
   content: "";
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 0.6rem;
-  vertical-align: 0.08em;
-  background: var(--m-signal);
-  box-shadow: 0 0 8px var(--m-signal);
+  width: 7px;
+  height: 7px;
+  margin-right: 0.65rem;
+  vertical-align: 0.1em;
+  background: var(--m-nv);
+  box-shadow: 0 0 10px var(--m-nv-glow), 0 0 3px var(--m-nv);
 }
 
 body[data-theme="mission"] .tabs {
-  background: linear-gradient(180deg, #16212c, #101922);
+  background: linear-gradient(180deg, #16212c, #0f1821);
   border: 1px solid var(--m-rule);
   border-radius: 3px;
 }
 
 body[data-theme="mission"] .tabs button {
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   font-size: 0.72rem;
   font-weight: 600;
   border-radius: 2px;
+  color: var(--m-legend);
+}
+
+body[data-theme="mission"] .tabs button:hover:not([aria-current="page"]) {
+  color: var(--m-nv);
 }
 
 body[data-theme="mission"] .tabs button[aria-current="page"] {
-  /* Dark ink on a lit key, not pale text on a mid tone. Light-on-cyan measured 4.3:1 on the
-     selected tab and 3.34:1 on every primary button -- both under the 4.5:1 floor, on the two
-     controls a student reads most. Inverting to near-black on the bright signal measures 9.1:1
-     and reads as a backlit switch, which is what this theme is imitating anyway. */
-  background: var(--m-signal);
+  /* Dark ink on a lit key, not pale text on a mid tone. Light-on-signal measured 4.3:1 here and
+     3.34:1 on primary buttons -- both under the floor, on the two controls a student reads most.
+     Inverting to near-black on the phosphor measures far above it and reads as a backlit switch,
+     which is what this theme is imitating anyway. */
+  background: linear-gradient(180deg, var(--m-nv-bright), var(--m-nv));
   color: var(--m-ink);
-  box-shadow: inset 0 -2px 0 #7fdcee;
+  box-shadow: 0 0 14px var(--m-nv-glow), inset 0 -2px 0 rgba(4, 20, 12, 0.35);
 }
 
 /* --- Panels ---------------------------------------------------------------- */
@@ -1904,44 +1926,77 @@ body[data-theme="mission"] .card {
   border: 1px solid var(--m-rule);
   border-radius: 3px;
   box-shadow:
-    inset 0 1px 0 rgba(143, 166, 184, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.5);
+    inset 0 1px 0 rgba(139, 163, 184, 0.07),
+    0 1px 3px rgba(0, 0, 0, 0.55);
 }
 
-/* The lit edge along the top of each panel. One rule, and the screen stops reading as a
-   stack of web forms and starts reading as a rack of instruments. */
+/* The lit edge along the top of each panel. One rule, and the screen stops reading as a stack
+   of web forms and starts reading as a rack of instruments. */
 body[data-theme="mission"] .card::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--m-signal-dim), transparent 65%);
+  height: 1px;
+  background: linear-gradient(90deg, var(--m-nv-dim), rgba(125, 240, 166, 0.12) 40%, transparent 72%);
+}
+
+/* Corner registration marks, top-left and bottom-right. Drawn as a background rather than more
+   pseudo-elements, since ::before is already the lit edge and a card has only two. */
+body[data-theme="mission"] .card::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--m-nv-dim), var(--m-nv-dim)),
+    linear-gradient(var(--m-nv-dim), var(--m-nv-dim)),
+    linear-gradient(var(--m-nv-dim), var(--m-nv-dim)),
+    linear-gradient(var(--m-nv-dim), var(--m-nv-dim));
+  background-repeat: no-repeat;
+  background-size: 9px 1px, 1px 9px, 9px 1px, 1px 9px;
+  background-position: left top, left top, right bottom, right bottom;
+  opacity: 0.55;
 }
 
 body[data-theme="mission"] .card h2,
 body[data-theme="mission"] .card h3 {
   text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--m-legend);
 }
 
+/* A short lit tick before each panel legend, the way a console labels a channel. */
+body[data-theme="mission"] .card h2::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 1px;
+  margin-right: 0.55rem;
+  vertical-align: 0.28em;
+  background: var(--m-nv);
+  box-shadow: 0 0 6px var(--m-nv-glow);
+}
+
 body[data-theme="mission"] .primary-action {
-  background: linear-gradient(180deg, #1a2836, #14202b);
-  border: 1px solid var(--m-signal-dim);
-  border-left: 3px solid var(--m-signal);
+  background:
+    radial-gradient(120% 100% at 0% 0%, rgba(125, 240, 166, 0.09), transparent 55%),
+    linear-gradient(180deg, #182733, #121d27);
+  border: 1px solid var(--m-nv-dim);
+  border-left: 3px solid var(--m-nv);
   border-radius: 3px;
+  box-shadow: 0 0 22px rgba(125, 240, 166, 0.07);
 }
 
 body[data-theme="mission"] .primary-action h2 {
-  color: var(--m-signal);
+  color: var(--m-nv);
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
 }
 
 body[data-theme="mission"] .primary-action .title {
-  font-size: 1.1rem;
+  font-size: 1.12rem;
   font-weight: 600;
   letter-spacing: 0.01em;
   text-transform: none;
@@ -1952,27 +2007,30 @@ body[data-theme="mission"] .primary-action .title {
 
 body[data-theme="mission"] button.action,
 body[data-theme="mission"] label.action {
-  background: linear-gradient(180deg, #1d2b38, #16222d);
+  background: linear-gradient(180deg, #1c2b38, #15212c);
   border: 1px solid var(--m-rule);
   border-radius: 2px;
   color: var(--m-text);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   font-size: 0.74rem;
   font-weight: 600;
 }
 
 body[data-theme="mission"] button.action:hover:not(:disabled),
 body[data-theme="mission"] label.action:hover {
-  border-color: var(--m-signal-dim);
-  background: linear-gradient(180deg, #24374a, #1a2835);
+  border-color: var(--m-nv-dim);
+  color: var(--m-nv-bright);
+  background: linear-gradient(180deg, #223444, #1a2836);
+  box-shadow: inset 0 0 12px rgba(125, 240, 166, 0.06);
 }
 
 body[data-theme="mission"] button.action.primary,
 body[data-theme="mission"] label.action.primary {
-  background: linear-gradient(180deg, var(--m-signal), #3aa8bd);
-  border-color: #7fdcee;
+  background: linear-gradient(180deg, var(--m-nv-bright), var(--m-nv));
+  border-color: var(--m-nv-bright);
   color: var(--m-ink);
+  box-shadow: 0 0 14px var(--m-nv-glow);
 }
 
 body[data-theme="mission"] input,
@@ -1980,29 +2038,55 @@ body[data-theme="mission"] select,
 body[data-theme="mission"] textarea {
   border-radius: 2px;
   border-color: var(--m-rule);
-  background: #0f171e;
+  background: #0c141c;
   font-variant-numeric: tabular-nums;
+}
+
+body[data-theme="mission"] input:focus-visible,
+body[data-theme="mission"] select:focus-visible,
+body[data-theme="mission"] textarea:focus-visible {
+  border-color: var(--m-nv);
+  box-shadow: 0 0 0 1px var(--m-nv), 0 0 12px rgba(125, 240, 166, 0.18);
 }
 
 /* --- Readouts and status --------------------------------------------------- */
 
 body[data-theme="mission"] .capacity-bar {
   border-radius: 1px;
-  background: #0f171e;
+  background: #0c141c;
   border: 1px solid var(--m-rule);
+  /* Tick marks behind the fill, so the bar reads as a gauge with a scale rather than a
+     progress bar. */
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0 var(--m-tick, 24px),
+    rgba(139, 163, 184, 0.16) var(--m-tick, 24px),
+    rgba(139, 163, 184, 0.16) calc(var(--m-tick, 24px) + 1px)
+  );
 }
 
 body[data-theme="mission"] .capacity-bar > span {
-  background: linear-gradient(90deg, var(--m-signal-dim), var(--m-signal));
+  background: linear-gradient(90deg, var(--m-nv-dim), var(--m-nv));
   border-radius: 0;
+  box-shadow: 0 0 10px var(--m-nv-glow);
 }
 
-/* Status reads as a stencilled legend, not a rounded pill. The word carries the meaning;
-   the colour only reinforces it, which is the rule the whole app follows. */
+body[data-theme="mission"] .capacity-bar[data-pressure="tight"] > span {
+  background: linear-gradient(90deg, #8a6b1f, var(--watch));
+  box-shadow: 0 0 10px rgba(224, 183, 78, 0.3);
+}
+
+body[data-theme="mission"] .capacity-bar[data-pressure="full"] > span {
+  background: linear-gradient(90deg, #8a4a26, var(--at-risk));
+  box-shadow: 0 0 10px rgba(224, 138, 92, 0.3);
+}
+
+/* Status reads as a stencilled legend, not a rounded pill. The word carries the meaning; the
+   colour only reinforces it, which is the rule the whole app follows. */
 body[data-theme="mission"] .risk .level {
   border-radius: 1px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   font-size: 0.66rem;
   font-weight: 700;
   border: 1px solid currentColor;
@@ -2017,30 +2101,34 @@ body[data-theme="mission"] .day {
 
 body[data-theme="mission"] .day h3 {
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   font-size: 0.74rem;
   color: var(--m-legend);
 }
 
 body[data-theme="mission"] .day.is-today {
-  border-color: var(--m-signal-dim);
-  box-shadow: inset 0 0 0 1px rgba(79, 195, 217, 0.25);
+  border-color: var(--m-nv-dim);
+  box-shadow: inset 0 0 0 1px rgba(125, 240, 166, 0.22), 0 0 18px rgba(125, 240, 166, 0.06);
+}
+
+body[data-theme="mission"] .day.is-today h3 {
+  color: var(--m-nv);
 }
 
 body[data-theme="mission"] .block {
   border-radius: 2px;
-  border-left: 2px solid var(--m-signal-dim);
-  background: rgba(79, 195, 217, 0.05);
+  border-left: 2px solid var(--m-nv-dim);
+  background: rgba(125, 240, 166, 0.045);
 }
 
-/* Times as a fixed-width readout: the one place a monospace face earns its keep, because
-   these are read down a column rather than along a line. */
+/* Times as a fixed-width readout: the one place a monospace face earns its keep, because these
+   are read down a column rather than along a line. */
 body[data-theme="mission"] .block .time,
 body[data-theme="mission"] .time {
   font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
   font-size: 0.8rem;
   color: var(--m-legend);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
 }
 
 body[data-theme="mission"] .data-table {
@@ -2049,9 +2137,10 @@ body[data-theme="mission"] .data-table {
 
 body[data-theme="mission"] .data-table th {
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   font-size: 0.7rem;
   color: var(--m-legend);
+  border-bottom: 1px solid var(--m-rule);
 }
 
 /* --- The handler ----------------------------------------------------------- */
@@ -2059,12 +2148,12 @@ body[data-theme="mission"] .data-table th {
 body[data-theme="mission"] .bubble.assistant {
   background: var(--m-steel-2);
   border: 1px solid var(--m-rule);
-  border-left: 2px solid var(--m-signal-dim);
+  border-left: 2px solid var(--m-nv-dim);
   border-radius: 2px;
 }
 
 body[data-theme="mission"] .bubble.user {
-  background: #1d2b38;
+  background: #1c2b38;
   border: 1px solid var(--m-rule);
   border-radius: 2px;
 }
@@ -2075,4 +2164,67 @@ body[data-theme="mission"] .bubble.assistant.refused {
 
 body[data-theme="mission"] .composer input {
   border-radius: 2px;
+}
+
+/* --- Prose ----------------------------------------------------------------
+ *
+ * Style stops at the label. Everything above sets legends, keys and readouts in tracked-out
+ * uppercase, which is right for a word or two and actively hostile to a paragraph: uppercase
+ * removes the ascender-descender shape a reader uses to recognise words, and wide tracking
+ * slows the eye further. A console panel is allowed to be styled; the sentence explaining why
+ * a student should do this now is not.
+ *
+ * So body copy stays sentence case, at a comfortable measure and line height, in the plain
+ * text colour rather than the dim legend colour. It is the same typeface and the same ground,
+ * so nothing here breaks cohesion -- it just stops shouting at the one part of the screen the
+ * student actually has to read.
+ * ========================================================================== */
+
+body[data-theme="mission"] .card p,
+body[data-theme="mission"] .card li,
+body[data-theme="mission"] .rationale,
+body[data-theme="mission"] .bubble,
+body[data-theme="mission"] .question-stakes,
+body[data-theme="mission"] blockquote {
+  text-transform: none;
+  letter-spacing: normal;
+  line-height: 1.6;
+}
+
+/* Long-form panels read as documents, not as gauges: a hard cap on measure, because a sentence
+   running the full width of a 1280px window is measurably harder to track back from. */
+body[data-theme="mission"] .card p,
+body[data-theme="mission"] .rationale,
+body[data-theme="mission"] .bubble {
+  max-width: 68ch;
+}
+
+/* The coach speaks in paragraphs. Nothing about a conversation wants condensing. */
+body[data-theme="mission"] .bubble {
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--m-text);
+}
+
+/* `.muted` is the app's supporting-text class and carries real sentences, not only captions --
+   the "why this now" line under a recommendation is one. The legend blue is tuned to label a
+   control, and a paragraph of it is dimmer than a paragraph should be. */
+body[data-theme="mission"] .card p.muted,
+body[data-theme="mission"] .rationale {
+  color: #adbfd0;
+}
+
+/* The reason a recommendation exists: the single most important sentence on the screen, so it
+   gets the plain text colour and a lit edge rather than being set as an aside. */
+body[data-theme="mission"] .primary-action .rationale {
+  color: var(--m-text);
+  border-left: 2px solid var(--m-nv-dim);
+  padding-left: 0.7rem;
+}
+
+/* Quoted syllabus lines stay monospaced -- they are a verbatim reproduction of a document and
+   the fixed pitch is what says so -- but they get the room to be read. */
+body[data-theme="mission"] blockquote {
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
