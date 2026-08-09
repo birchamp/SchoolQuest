@@ -191,6 +191,36 @@ describe("what belongs in an email and what does not", () => {
     expect(result.courses[0]!.draftMessage).toBe("");
   });
 
+  it("quotes the syllabus line back to the instructor who wrote it", () => {
+    /**
+     * An instructor reading "which day is the Week 5 quiz due?" has to go and find what the
+     * student is looking at before they can answer, and that is the commonest reason a question
+     * like this comes back vague. The quote is already evidence-checked against the document, so
+     * pasting it cannot put words in their syllabus that are not there.
+     */
+    const question = build([
+      {
+        ...clarify("Which day of Week 5 is this due?", ["Quiz 2"]),
+        evidence: [{ page: 1, excerpt: "Quiz 2 covering chapters 3-4 during Week 5" }],
+      },
+    ]).courses[0]!.questions[0]!;
+
+    expect(question.askProfessor).toContain('Your syllabus says: "Quiz 2 covering chapters 3-4 during Week 5"');
+    // And the screen gets it too, not only the email.
+    expect(question.evidence).toEqual([
+      { page: 1, excerpt: "Quiz 2 covering chapters 3-4 during Week 5" },
+    ]);
+  });
+
+  it("sends an unquoted question unchanged when there is no line to quote", () => {
+    // Questions the validator derived from absence -- no meeting times at all -- have no source
+    // line by definition, and must not gain an empty quotation.
+    const question = build([clarify("Which date is right?", ["Research Paper"])]).courses[0]!
+      .questions[0]!;
+    expect(question.askProfessor).not.toContain("Your syllabus says");
+    expect(question.evidence).toBeUndefined();
+  });
+
   it("sends a question that names the work it is about", () => {
     const question = build([clarify("Which date is right?", ["Research Paper"])]).courses[0]!
       .questions[0]!;

@@ -231,6 +231,21 @@ export const clarificationQuestion = z.object({
    * produce one question, not thirteen (docs/02-prd.md FR-4: a minimal set, grouped).
    */
   relatesToTitles: z.array(z.string()).optional(),
+  /**
+   * The lines from the syllabus this question came from, quoted exactly.
+   *
+   * Set by the validator, never by the model. A question is easier to answer next to the text
+   * that raised it -- "which Tuesday?" means nothing on its own and is obvious beside the row
+   * that says "Weekly response due each Tuesday in class" -- and it also lets a student catch
+   * the app having misread something, which is the failure mode nothing else surfaces.
+   *
+   * Derived rather than asked for: the excerpts are copied from claims that already passed the
+   * evidence check against the document, so a quote here cannot be a fabrication even when the
+   * question that carries it was invented by the model.
+   */
+  evidence: z
+    .array(z.object({ page: z.number().int(), excerpt: z.string() }))
+    .optional(),
   kind: z.enum([
     "missing_date",
     "relative_date",

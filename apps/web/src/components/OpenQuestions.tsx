@@ -46,6 +46,8 @@ interface OpenQuestion {
   askProfessor: string;
   sendable: boolean;
   workItemIds: string[];
+  /** The syllabus lines behind the question, when it came from a document. */
+  evidence?: { page: number; excerpt: string }[];
 }
 
 interface CourseQuestions {
@@ -182,6 +184,32 @@ export function OpenQuestions({ termId }: { termId: string }) {
                 {/* Why it matters, in what it costs — never "for accuracy", which is a reason
                     for the app rather than a reason for the student. */}
                 {question.stakes && <span className="question-stakes muted">{question.stakes}</span>}
+                {question.evidence?.length ? (
+                  /* The line the question came from. Without it the student is asked to confirm
+                     something they have no way to look up short of reopening the PDF -- and has
+                     no way to notice the app misread it. */
+                  <blockquote
+                    style={{
+                      margin: "0.3rem 0 0",
+                      padding: "0.3rem 0.55rem",
+                      borderLeft: "3px solid var(--accent-dim)",
+                      background: "var(--surface-2)",
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+                      fontSize: "0.78rem",
+                      lineHeight: 1.4,
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {question.evidence[0]!.excerpt}
+                    <cite
+                      className="muted"
+                      style={{ display: "block", fontStyle: "normal", fontSize: "0.7rem", marginTop: "0.15rem" }}
+                    >
+                      page {question.evidence[0]!.page}
+                    </cite>
+                  </blockquote>
+                ) : null}
               </li>
             ))}
           </ul>

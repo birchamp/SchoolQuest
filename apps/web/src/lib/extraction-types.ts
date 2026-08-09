@@ -31,6 +31,8 @@ export interface QuestionPayload {
   why: string;
   relatesToTitle: string | null;
   kind: string;
+  /** The syllabus lines this question came from, set by the validator from verified claims. */
+  evidence?: { page: number; excerpt: string }[];
   /** Set once the student answers, including the explicit "I don't know yet". */
   answer?: string | null;
 }

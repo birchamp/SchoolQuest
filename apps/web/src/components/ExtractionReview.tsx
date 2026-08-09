@@ -259,6 +259,7 @@ export function ExtractionReview({
                 >
                   <p style={{ margin: "0 0 0.2rem", fontWeight: 500 }}>{q.question}</p>
                   <p className="muted" style={{ margin: "0 0 0.5rem" }}>{q.why}</p>
+                  <QuestionSource evidence={q.evidence} />
                   <div className="button-row">
                     {[
                       "Monday",
@@ -297,6 +298,7 @@ export function ExtractionReview({
               <div key={claim.id} style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--border)" }}>
                 <p style={{ margin: "0 0 0.2rem", fontWeight: 500 }}>{q.question}</p>
                 <p className="muted" style={{ margin: "0 0 0.5rem" }}>{q.why}</p>
+                <QuestionSource evidence={q.evidence} />
                 <div className="button-row">
                   <input
                     aria-label={q.question}
@@ -556,4 +558,50 @@ function SimpleRow({
 function formatDays(days: number[]): string {
   const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   return days.map((d) => names[d] ?? "?").join(" ");
+}
+
+/**
+ * The syllabus lines a question came from.
+ *
+ * A question with no source is a question a student cannot check. "Which day of Week 5?" means
+ * nothing alone and is obvious next to the row it came from -- and reading the real line is also
+ * the only way to notice the app has misread something, which no other part of this screen
+ * surfaces.
+ *
+ * Quoted, monospaced and marked with the page, so it reads as "this is what the document says"
+ * rather than as more of the app's own prose. `<blockquote>` and `<cite>` because that is what
+ * this is: a quotation with a source.
+ */
+function QuestionSource({ evidence }: { evidence?: { page: number; excerpt: string }[] }) {
+  if (!evidence || evidence.length === 0) return null;
+
+  return (
+    <div style={{ margin: "0 0 0.6rem" }}>
+      <p className="muted" style={{ margin: "0 0 0.25rem", fontSize: "0.78rem" }}>
+        {evidence.length === 1 ? "From your syllabus:" : "From your syllabus:"}
+      </p>
+      {evidence.map((source) => (
+        <blockquote
+          key={`${source.page}-${source.excerpt}`}
+          style={{
+            margin: "0 0 0.3rem",
+            padding: "0.35rem 0.6rem",
+            borderLeft: "3px solid var(--accent-dim)",
+            background: "var(--surface-2)",
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+            fontSize: "0.8rem",
+            lineHeight: 1.45,
+            /* Syllabus lines are often long table rows; wrapping beats a scrollbar here. */
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+          }}
+        >
+          {source.excerpt}
+          <cite className="muted" style={{ display: "block", fontStyle: "normal", fontSize: "0.72rem", marginTop: "0.2rem" }}>
+            page {source.page}
+          </cite>
+        </blockquote>
+      ))}
+    </div>
+  );
 }

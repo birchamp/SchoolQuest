@@ -596,8 +596,9 @@ export function validateExtraction(
       (a) => verifyEvidence(a.evidence.excerpt, pageText.get(a.evidence.page) ?? "").verified,
     ),
     policies: extraction.policies,
-    clarificationQuestions: groupQuestions(
-      dedupeQuestions([...extraction.clarificationQuestions, ...derivedQuestions]),
+    clarificationQuestions: attachQuestionEvidence(
+      groupQuestions(dedupeQuestions([...extraction.clarificationQuestions, ...derivedQuestions])),
+      validated,
     ),
     warnings,
   };
@@ -732,4 +733,61 @@ export function toDueAt(date: ExtractedDate): string | null {
 /** Weights are often written 33.3; a whole number reads better in a sentence. */
 function round(value: number): number {
   return Math.round(value * 10) / 10;
+}
+
+/** Enough to see where a question came from; more is a wall of text, not evidence. */
+const MAX_QUESTION_EXCERPTS = 3;
+
+/**
+ * Hands each question the syllabus lines it came from.
+ *
+ * A question with no source is a question a student cannot check. "Which Tuesday?" means
+ * nothing on its own and is obvious next to the row that says "Weekly response due each Tuesday
+ * in class" -- and seeing the line is also the only way to catch the app having misread
+ * something, which nothing else on the screen surfaces.
+ *
+ * The excerpts are *copied from claims that already passed the evidence check*, never asked of
+ * the model. That matters: it means a quote shown here cannot be a fabrication even when the
+ * question carrying it was invented, which is precisely the case where a student most needs to
+ * see the real text. Asking the model to quote alongside its question would have re-opened the
+ * hole the evidence check exists to close.
+ *
+ * Only verified assignments are drawn from. An assignment whose quote failed the check has
+ * nothing trustworthy to show, and showing its excerpt anyway would present unverified text as
+ * the source of a question.
+ */
+function attachQuestionEvidence(
+  questions: ClarificationQuestion[],
+  assignments: ValidatedAssignment[],
+): ClarificationQuestion[] {
+  const byTitle = new Map<string, { page: number; excerpt: string }>();
+  for (const { assignment, evidenceVerified } of assignments) {
+    if (!evidenceVerified) continue;
+    const key = assignment.title.trim().toLowerCase();
+    if (!byTitle.has(key)) {
+      byTitle.set(key, {
+        page: assignment.evidence.page,
+        excerpt: assignment.evidence.excerpt,
+      });
+    }
+  }
+
+  return questions.map((question) => {
+    // A grouped question names many titles; a single one names at most one.
+    const titles = question.relatesToTitles ?? (question.relatesToTitle ? [question.relatesToTitle] : []);
+
+    const seen = new Set<string>();
+    const evidence: { page: number; excerpt: string }[] = [];
+    for (const title of titles) {
+      const found = byTitle.get(title.trim().toLowerCase());
+      // Deduped by text: thirteen weekly quizzes stated once as a rule all quote the same line,
+      // and printing it thirteen times is noise rather than corroboration.
+      if (!found || seen.has(found.excerpt)) continue;
+      seen.add(found.excerpt);
+      evidence.push(found);
+      if (evidence.length === MAX_QUESTION_EXCERPTS) break;
+    }
+
+    return evidence.length > 0 ? { ...question, evidence } : question;
+  });
 }

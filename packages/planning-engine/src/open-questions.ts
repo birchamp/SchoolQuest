@@ -69,6 +69,13 @@ export interface OpenQuestion {
   sendable: boolean;
   /** Work items this bears on, so a screen can point at them. */
   workItemIds: string[];
+  /**
+   * The syllabus lines behind the question, when it came from a document.
+   *
+   * A question with no source is one the student cannot check -- and cannot tell apart from the
+   * app having misread something.
+   */
+  evidence?: { page: number; excerpt: string }[];
 }
 
 export interface CourseQuestions {
@@ -101,6 +108,8 @@ export interface PendingClarification {
   why: string;
   /** Titles of the work it bears on, when it is about specific items. */
   relatesToTitles: string[];
+  /** The syllabus lines it came from, already checked against the document. */
+  evidence?: { page: number; excerpt: string }[];
 }
 
 /** A policy claim that was extracted, stored, and shown on no screen. */
@@ -175,9 +184,12 @@ export function buildOpenQuestions(input: OpenQuestionsInput): OpenQuestionsResu
       kind: "unanswered_clarification",
       question: clarification.question,
       stakes: clarification.why,
-      askProfessor: sendable ? asAQuestion(clarification.question, clarification.relatesToTitles) : "",
+      askProfessor: sendable
+        ? asAQuestion(clarification.question, clarification.relatesToTitles, clarification.evidence)
+        : "",
       sendable,
       workItemIds: [],
+      ...(clarification.evidence?.length ? { evidence: clarification.evidence } : {}),
     });
   }
 
@@ -326,7 +338,11 @@ function listWords(words: string[]): string {
  * only prefixes rather than rewriting — rewriting a model's sentence with string surgery
  * produces worse English than leaving it alone.
  */
-function asAQuestion(question: string, relatesToTitles: string[] = []): string {
+function asAQuestion(
+  question: string,
+  relatesToTitles: string[] = [],
+  evidence: { page: number; excerpt: string }[] = [],
+): string {
   const trimmed = question.trim();
   const asked = `Could you help me with this: ${trimmed}${trimmed.endsWith("?") ? "" : "?"}`;
 
@@ -342,8 +358,22 @@ function asAQuestion(question: string, relatesToTitles: string[] = []): string {
    * Exam, Midterm Exam", which reads as carelessness in an email to a professor.
    */
   const named = [...new Set(relatesToTitles)].filter((t) => !trimmed.includes(t));
-  if (named.length === 0) return asked;
-  return `${asked} (${named.length === 1 ? "This is about" : "These are"} ${listWords(named)}.)`;
+  const about =
+    named.length === 0
+      ? asked
+      : `${asked} (${named.length === 1 ? "This is about" : "These are"} ${listWords(named)}.)`;
+
+  /**
+   * Quote the syllabus back to its author.
+   *
+   * An instructor reading "which day is the Week 5 quiz due?" has to go and find what the
+   * student is looking at before they can answer. Pasting the line removes that step, and it
+   * removes the commonest reason a question like this gets a vague reply. One line only: the
+   * point is to locate the question, not to reproduce the document.
+   */
+  const quoted = evidence[0];
+  if (!quoted) return about;
+  return `${about} Your syllabus says: "${quoted.excerpt.trim()}"`;
 }
 
 /**

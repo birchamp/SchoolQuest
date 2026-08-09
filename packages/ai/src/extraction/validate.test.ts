@@ -350,3 +350,84 @@ describe("toDueAt", () => {
     );
   });
 });
+
+describe("questions carry the lines they came from", () => {
+  const asking = (over: Partial<SyllabusExtraction["clarificationQuestions"][number]> = {}) => ({
+    question: "Which day of Week 5 is this due?",
+    why: "A week is five days; the plan needs one of them.",
+    relatesToTitle: "Developmental Analysis Paper",
+    kind: "relative_date" as const,
+    ...over,
+  });
+
+  it("quotes the syllabus line for the item the question is about", () => {
+    // A question with no source is a question nobody can check. "Which day?" means nothing on
+    // its own and is obvious beside the row it came from.
+    const result = validateExtraction(extraction({ clarificationQuestions: [asking()] }), {
+      pages: PAGES,
+    });
+
+    const question = result.clarificationQuestions[0]!;
+    expect(question.evidence).toEqual([
+      { page: 1, excerpt: "Developmental Analysis Paper (250 points) due October 18" },
+    ]);
+  });
+
+  it("quotes nothing when the question is not about a specific item", () => {
+    const result = validateExtraction(
+      extraction({ clarificationQuestions: [asking({ relatesToTitle: null })] }),
+      { pages: PAGES },
+    );
+    expect(result.clarificationQuestions[0]!.evidence).toBeUndefined();
+  });
+
+  it("quotes nothing for an item that is not in the syllabus", () => {
+    // The case that matters. A model that invents a question about an invented assignment must
+    // not be handed a quote to make it look sourced -- and it cannot be, because the excerpts
+    // come only from claims that already passed the evidence check.
+    const result = validateExtraction(
+      extraction({ clarificationQuestions: [asking({ relatesToTitle: "Group Presentation" })] }),
+      { pages: PAGES },
+    );
+    expect(result.clarificationQuestions[0]!.evidence).toBeUndefined();
+  });
+
+  it("never quotes an assignment whose own evidence failed the check", () => {
+    // Showing it anyway would present unverified text to the student as the source of the
+    // question, which is worse than showing nothing.
+    const result = validateExtraction(
+      extraction({
+        assignments: [
+          assignment({
+            title: "Phantom Paper",
+            evidence: { page: 1, excerpt: "Phantom Paper due at the end of term" },
+          }),
+        ],
+        clarificationQuestions: [asking({ relatesToTitle: "Phantom Paper" })],
+      }),
+      { pages: PAGES },
+    );
+    expect(result.clarificationQuestions[0]!.evidence).toBeUndefined();
+  });
+
+  it("caps how many lines one question quotes", () => {
+    // A grouped question can name a dozen items; a dozen quotes is a wall of text, not evidence.
+    const many = Array.from({ length: 8 }, (_, i) =>
+      assignment({
+        title: `Quiz ${i + 1}`,
+        evidence: { page: 1, excerpt: `Quiz ${i + 1} covering chapters 3-4 during Week 5` },
+      }),
+    );
+    const result = validateExtraction(
+      extraction({
+        assignments: many,
+        clarificationQuestions: many.map((a) => asking({ relatesToTitle: a.title })),
+      }),
+      { pages: PAGES },
+    );
+
+    for (const question of result.clarificationQuestions) {
+      expect((question.evidence ?? []).length).toBeLessThanOrEqual(3);
+    }
+  });
+});

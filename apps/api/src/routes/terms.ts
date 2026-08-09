@@ -219,6 +219,7 @@ termsRoute.get("/terms/:id/open-questions", async (c) => {
         why?: string;
         relatesToTitle?: string | null;
         relatesToTitles?: string[];
+        evidence?: { page: number; excerpt: string }[];
       };
       if (!payload.question) continue;
       clarifications.push({
@@ -227,6 +228,9 @@ termsRoute.get("/terms/:id/open-questions", async (c) => {
         question: payload.question,
         why: payload.why ?? "",
         relatesToTitles: payload.relatesToTitles ?? (payload.relatesToTitle ? [payload.relatesToTitle] : []),
+        // Claims written before questions carried evidence simply have none, which is a question
+        // with no quote rather than an error.
+        ...(payload.evidence?.length ? { evidence: payload.evidence } : {}),
       });
       continue;
     }

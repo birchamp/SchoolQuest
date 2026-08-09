@@ -964,8 +964,11 @@ function buildClaimRows(
       id: newId("extractionClaim"),
       claimType: "clarification_question",
       payloadJson: JSON.stringify(question),
-      pageNumber: null,
-      sourceExcerpt: null,
+      // The line the question came from, on the same two columns every other claim uses, so
+      // anything reading claims generically shows a question's source without knowing it is a
+      // question. The full set stays in the payload; these two are the first of them.
+      pageNumber: question.evidence?.[0]?.page ?? null,
+      sourceExcerpt: question.evidence?.[0]?.excerpt ?? null,
       confidence: null,
     });
   }
