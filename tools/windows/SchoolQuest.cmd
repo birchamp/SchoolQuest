@@ -111,6 +111,37 @@ echo.
 
 :after_update
 
+rem --- Dependencies, checked against the lockfile rather than against the pull. -----------------
+rem
+rem The update block above installs only when its own pull moved HEAD, which misses the ordinary
+rem case of someone running `git pull` by hand and then double-clicking this. The code is then
+rem newer than node_modules, and the symptom is a missing import at the moment a feature is used -
+rem far from anything that would suggest an install was skipped.
+rem
+rem /o-d sorts newest first, so if the lockfile outranks the installed-modules marker, the tree is
+rem stale. Cheap, and it makes the launcher correct however the code arrived.
+set "NEEDS_INSTALL="
+if not exist "node_modules\.modules.yaml" set "NEEDS_INSTALL=1"
+set "NEWEST="
+for /f "delims=" %%f in ('dir /b /o-d pnpm-lock.yaml node_modules\.modules.yaml 2^>nul') do if not defined NEWEST set "NEWEST=%%f"
+if /i "%NEWEST%"=="pnpm-lock.yaml" set "NEEDS_INSTALL=1"
+
+if defined NEEDS_INSTALL (
+  echo   Dependencies are out of date. Installing...
+  call pnpm install --silent
+  if errorlevel 1 (
+    echo.
+    echo   Dependencies did not install. Run this by hand and read the output:
+    echo       pnpm install
+    echo.
+    pause
+    exit /b 1
+  )
+  rem New dependencies usually arrive with new code, and new code can expect new columns.
+  call pnpm --filter @schoolquest/api db:migrate:local >nul 2>&1
+  echo.
+)
+
 rem Preflight. Every check it makes corresponds to something that otherwise appears later
 rem wearing a disguise - a busy port looks like the app failing to start, an unmigrated database
 rem looks like a server crash. Better to stop here with an instruction than to start and confuse.
