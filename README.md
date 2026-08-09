@@ -141,8 +141,16 @@ powershell -ExecutionPolicy Bypass -File tools\windows\create-shortcut.ps1
 ```
 
 Run from the repository root. It puts **SchoolQuest** on your Desktop with the app icon;
-double-clicking it checks the install, starts both halves and opens your browser once they are
-actually answering. Leave the console window open while you use the app.
+double-clicking it updates to the latest version, checks the install, starts both halves and
+opens your browser once they are actually answering. Leave the console window open while you use
+the app.
+
+**Updating never touches your work.** Your courses, assignments and plan live in
+`apps/api/.wrangler`, and your OpenRouter key and `AUTH_SECRET` live in `apps/api/.dev.vars` --
+both are in `.gitignore`, so a pull only ever replaces code. Database migrations are additive and
+run automatically. The update is best-effort in every direction: no connection, local edits you
+have made, or a failed fetch all leave the copy on disk alone and start it anyway, because
+"could not reach GitHub" is not a reason to refuse to open the app. Pass `--no-update` to skip it.
 
 | | |
 |---|---|

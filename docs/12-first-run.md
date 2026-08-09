@@ -111,9 +111,13 @@ Once, after `pnpm setup`:
 powershell -ExecutionPolicy Bypass -File tools\windows\create-shortcut.ps1
 ```
 
-That puts **SchoolQuest** on your Desktop. Double-click it and it checks itself, starts both
-halves, and opens your browser when they are ready. Leave the black window open while you use
-the app — closing it stops everything.
+That puts **SchoolQuest** on your Desktop. Double-click it and it updates itself, checks
+itself, starts both halves, and opens your browser when they are ready. Leave the black window
+open while you use the app — closing it stops everything.
+
+Updating cannot lose your work: the database and your key are both outside git, and migrations
+are additive. If there is no connection, or you have edited the code yourself, it says so and
+starts the copy you have. `--no-update` skips the check.
 
 Add `-StartMenu` to also make it findable by typing "schoolquest", or `-Remove` to take the
 shortcuts away again.

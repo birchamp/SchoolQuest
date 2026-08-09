@@ -38,7 +38,80 @@ if errorlevel 1 (
   exit /b 1
 )
 
-rem Preflight first. Every check it makes corresponds to something that otherwise appears later
+rem --- Update first, but never at the cost of the data or of starting at all. -----------------
+rem
+rem Your work is not in git and cannot be touched by an update: the database lives in
+rem apps\api\.wrangler and your key and AUTH_SECRET live in apps\api\.dev.vars, and .gitignore
+rem excludes both. A pull only ever replaces code.
+rem
+rem Everything below is best-effort. No network, a dirty tree, a failed install - none of them
+rem stop the app. Someone double-clicking this wants to work, and "could not reach GitHub" is
+rem not a reason to refuse to open the copy already sitting on the disk.
+rem
+rem Pass --no-update to skip it entirely.
+if /i "%~1"=="--no-update" goto :after_update
+
+where git >nul 2>&1
+if errorlevel 1 goto :after_update
+
+rem Local edits mean this is somebody's working copy, so leave it completely alone rather than
+rem deciding for them what happens to their changes.
+git diff --quiet 2>nul
+if errorlevel 1 (
+  echo   Local changes found - leaving this copy as it is.
+  echo.
+  goto :after_update
+)
+
+for /f "delims=" %%h in ('git rev-parse HEAD 2^>nul') do set "BEFORE=%%h"
+
+echo   Checking for a newer version...
+rem --ff-only so it can only ever fast-forward: no merge commit, no conflict to resolve, and
+rem nothing that could leave the checkout in a state needing git knowledge to get out of.
+git pull --ff-only --quiet 2>nul
+if errorlevel 1 (
+  echo   Could not check ^(no connection, most likely^). Starting the copy you have.
+  echo.
+  goto :after_update
+)
+
+for /f "delims=" %%h in ('git rev-parse HEAD 2^>nul') do set "AFTER=%%h"
+if "%BEFORE%"=="%AFTER%" (
+  echo   Already up to date.
+  echo.
+  goto :after_update
+)
+
+echo   Updated. Installing anything new...
+call pnpm install --silent
+if errorlevel 1 (
+  echo.
+  echo   Dependencies did not install. Run this by hand and read the output:
+  echo       cd /d "%CD%"
+  echo       pnpm install
+  echo.
+  pause
+  exit /b 1
+)
+
+rem New code can expect new database columns, and applying migrations is additive and tracked -
+rem already-applied ones are skipped. Skipping this step is what turns an update into the
+rem "no such column" error that reads as the app being broken.
+echo   Updating the database...
+call pnpm --filter @schoolquest/api db:migrate:local
+if errorlevel 1 (
+  echo.
+  echo   The database could not be updated, so the app would fail in confusing ways.
+  echo   Run this and read the output:  pnpm setup
+  echo.
+  pause
+  exit /b 1
+)
+echo.
+
+:after_update
+
+rem Preflight. Every check it makes corresponds to something that otherwise appears later
 rem wearing a disguise - a busy port looks like the app failing to start, an unmigrated database
 rem looks like a server crash. Better to stop here with an instruction than to start and confuse.
 echo   Checking...
