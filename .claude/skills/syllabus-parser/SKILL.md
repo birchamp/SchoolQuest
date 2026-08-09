@@ -158,6 +158,12 @@ Produce the standardized syllabus using the exact structure in
 5. **The original document appended in full** below a clear divider, verbatim, with a link
    to (or the path/name of) the original file. The regenerated syllabus is a reading of
    the original, and the reader must always be able to check the reading against the text.
+6. **Source links embedded throughout the generated text**, not only at the bottom. Give
+   each page (or section) of the appended original an anchor heading, and link every
+   extracted fact -- each schedule row, each grading weight, each policy -- to the anchor
+   for the page it came from, so one click jumps from any claim to the text that supports
+   it. Where the original lives at a URL or file path, link the anchor headings back to it
+   too. The template shows the exact mechanics.
 
 Write output as Markdown by default; produce a Word or PDF version only if asked (the
 relevant document skills handle that -- keep this same content structure).
