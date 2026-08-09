@@ -70,6 +70,20 @@ function weekdaysInTerm(term: TermWindow, dayOfWeek: number): string[] {
   return out;
 }
 
+
+/**
+ * Every occurrence of any of these weekdays in the term, in date order.
+ *
+ * Interleaved rather than concatenated per weekday: a Monday/Wednesday quiz numbered by
+ * `weekdaysInTerm` twice over would make "Quiz 2" the second Monday rather than the first
+ * Wednesday, and every number a student saw would name the wrong day.
+ */
+function datesForWeekdays(term: TermWindow, days: readonly number[]): string[] {
+  return days
+    .flatMap((day) => weekdaysInTerm(term, day))
+    .sort((a, b) => a.localeCompare(b));
+}
+
 /**
  * Expand one assignment into its occurrences. Returns the assignment untouched, as a single
  * element, when there is no recurrence to expand.
@@ -82,11 +96,33 @@ function weekdaysInTerm(term: TermWindow, dayOfWeek: number): string[] {
 export function expandRecurrence(
   assignment: ExtractedAssignment,
   term: TermWindow,
+  /**
+   * The weekdays the class meets, for rules stated per class session rather than per week.
+   *
+   * Read from the same syllabus by the same extraction, so this is not a second source to
+   * disagree with -- it is the document answering its own question. Empty or absent leaves an
+   * `everyClassMeeting` rule undated, which is the honest outcome and already flagged.
+   */
+  meetingDays: readonly number[] = [],
 ): ExtractedAssignment[] {
   const rule = assignment.recurrence;
   if (!rule) return [assignment];
 
-  const dates = rule.dayOfWeek === null ? [] : weekdaysInTerm(term, rule.dayOfWeek);
+  /**
+   * A rule can fire on more than one day a week.
+   *
+   * "A quiz at the start of every class" in a Monday/Wednesday course is two a week, and
+   * `dayOfWeek` holds one day. Asking the student which day it is has no correct answer, so
+   * the days come from the meeting pattern instead -- and a course meeting twice gets twice
+   * as many occurrences, which is the count that was wrong before.
+   */
+  const days = rule.everyClassMeeting
+    ? [...new Set(meetingDays)].sort((a, b) => a - b)
+    : rule.dayOfWeek === null
+      ? []
+      : [rule.dayOfWeek];
+
+  const dates = days.length === 0 ? [] : datesForWeekdays(term, days);
   const total = Math.min(
     MAX_INSTANCES,
     rule.count ?? (dates.length || 0),
@@ -122,6 +158,7 @@ export function expandRecurrence(
 export function expandAll(
   assignments: readonly ExtractedAssignment[],
   term: TermWindow,
+  meetingDays: readonly number[] = [],
 ): ExtractedAssignment[] {
-  return assignments.flatMap((a) => expandRecurrence(a, term));
+  return assignments.flatMap((a) => expandRecurrence(a, term, meetingDays));
 }

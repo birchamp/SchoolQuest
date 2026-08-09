@@ -89,6 +89,7 @@ Some coursework is never enumerated. The syllabus states a pattern — "a short 
 Report that as **one** assignment with recurrence filled in. Do not list the occurrences yourself and do not try to count them:
 
 - dayOfWeek — the weekday named, 0 for Sunday through 6 for Saturday. Null if the document never names one.
+- everyClassMeeting — true when the rule is once per class session rather than once a week: "a quiz at the start of every class", "each class meeting begins with a check-in". Leave dayOfWeek null in that case. A class that meets twice a week produces two of these a week, and the days come from the class meeting times, not from you.
 - count — only when the document states a number outright ("there are 14 logs", "four submissions"). Null otherwise.
 - dropLowest — what the document says is dropped, if anything.
 

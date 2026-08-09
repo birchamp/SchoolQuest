@@ -183,7 +183,7 @@ describe("recurrence against the real calendar", () => {
     pointsPossible: null,
     category: "Reading Responses",
     isMajorProject: false,
-    recurrence: { frequency: "weekly", dayOfWeek: 2, count: null, dropLowest: null },
+    recurrence: { frequency: "weekly", everyClassMeeting: false, dayOfWeek: 2, count: null, dropLowest: null },
     evidence: { page: 1, excerpt: "due each Tuesday in class" },
     confidence: 0.9,
   };
@@ -221,7 +221,7 @@ describe("recurrence against the real calendar", () => {
       {
         ...response,
         title: "Weekly Fitness Log",
-        recurrence: { frequency: "weekly", dayOfWeek: 0, count: 14, dropLowest: 2 },
+        recurrence: { frequency: "weekly", everyClassMeeting: false, dayOfWeek: 0, count: 14, dropLowest: 2 },
       },
       TERM,
     );

@@ -758,3 +758,26 @@ in the corpus — MATH 104 from its own printed dates, COSC 1315 from its number
 two land on the same Monday from different evidence, which is the check on the arithmetic. It is
 **not yet wired into `resolve-weekday`**, so the semester run still reports Assignment 5 landing
 on 17 March. The test that will confirm the fix is already written.
+
+### A quiz at every class meeting, in a class that meets twice a week
+
+**Status: handled.**
+
+> "A short quiz at the start of every class."
+
+The recurrence model held a single `dayOfWeek`, so a rule that fires twice a week could not be
+expressed at all. The model put null there, the validator raised "which day of the week is this
+due?", and that question has no correct answer -- the answer is both. Seen live: the student
+entered every quiz of the term by hand.
+
+The fix is not a better guess. The same syllabus states its own meeting pattern and the same
+extraction already reads it, so `everyClassMeeting` marks the rule and the days come from the
+meeting days. A course meeting twice gets twice as many occurrences, and nobody is asked
+anything.
+
+Occurrences are numbered in date order across the days rather than one weekday at a time -- the
+naive version makes "Quiz 2" the second Monday instead of the first Wednesday, so every number a
+student reads names the wrong day.
+
+A syllabus that never states its meeting times leaves this genuinely unanswerable, and those
+occurrences stay undated rather than being guessed.

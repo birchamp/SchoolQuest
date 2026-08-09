@@ -291,13 +291,28 @@ export function validateExtraction(
    * counted, so the assignment stays as the single item the model reported and the missing
    * dates are raised as questions in the ordinary way.
    */
+  /**
+   * The days this class meets, taken from the same document.
+   *
+   * A rule stated per class session -- "a quiz at the start of every class" -- fires on each of
+   * these rather than on one weekday. The syllabus that sets the rule is the syllabus that
+   * states the meeting pattern, so this needs no second source and no question to the student.
+   */
+  const meetingDays = [
+    ...new Set(extraction.meetingPatterns.flatMap((pattern) => pattern.daysOfWeek)),
+  ].sort((a, b) => a - b);
+
   const assignments =
     context.termStartDate && context.termEndDate
-      ? expandAll(extraction.assignments, {
-          termStartDate: context.termStartDate,
-          termEndDate: context.termEndDate,
-          ...(context.termCalendar ? { calendar: context.termCalendar } : {}),
-        })
+      ? expandAll(
+          extraction.assignments,
+          {
+            termStartDate: context.termStartDate,
+            termEndDate: context.termEndDate,
+            ...(context.termCalendar ? { calendar: context.termCalendar } : {}),
+          },
+          meetingDays,
+        )
       : extraction.assignments;
 
   for (const assignment of assignments) {

@@ -157,6 +157,18 @@ export const extractedAssignment = z.object({
       frequency: z.literal("weekly"),
       /** 0 = Sunday. Null when the syllabus gives a count but never names a day. */
       dayOfWeek: z.number().int().min(0).max(6).nullable(),
+      /**
+       * True when the rule is "once per class session" rather than once a week.
+       *
+       * A class meeting twice a week with a quiz each time produces two a week, and `dayOfWeek`
+       * cannot say so -- it holds one day. A real syllabus did exactly this and the app asked
+       * "which day of the week?", a question with no correct answer, so the student entered
+       * every quiz of the term by hand.
+       *
+       * Nothing is guessed from it. The days come from the course's own meeting pattern, which
+       * the same syllabus states and the same extraction already reads.
+       */
+      everyClassMeeting: z.boolean().default(false),
       /** Stated outright ("There are 14 logs"). Null when only the rule is given. */
       count: z.number().int().positive().max(60).nullable(),
       /** How many the syllabus says are dropped, which does not reduce what must be done. */
@@ -407,10 +419,11 @@ export const SYLLABUS_EXTRACTION_JSON_SCHEMA = {
           recurrence: {
             type: ["object", "null"],
             additionalProperties: false,
-            required: ["frequency", "dayOfWeek", "count", "dropLowest"],
+            required: ["frequency", "dayOfWeek", "everyClassMeeting", "count", "dropLowest"],
             properties: {
               frequency: { type: "string", enum: ["weekly"] },
               dayOfWeek: { type: ["number", "null"] },
+              everyClassMeeting: { type: "boolean" },
               count: { type: ["number", "null"] },
               dropLowest: { type: ["number", "null"] },
             },
