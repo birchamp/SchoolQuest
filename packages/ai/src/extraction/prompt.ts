@@ -97,6 +97,8 @@ The occurrences are generated afterwards from the real term dates. Counting Tues
 
 Leave recurrence null for anything the document lists item by item. A schedule table with Quiz 1 through Quiz 13 in it is thirteen assignments, not a recurrence: report all thirteen.
 
+**When the document does both, the schedule wins.** A syllabus often states a rule in prose and then shows what actually happens in its schedule table -- "a quiz at the start of every class", and then a table where the quizzes run weekly at first, skip some weeks, and sometimes fall on the second class day instead of the first. Report the rows. Report every one you can see, with the date the table gives it, and leave recurrence null. The prose is a summary; the table is what the student is graded against, and the two disagreeing is the normal case rather than a contradiction worth flagging.
+
 ## Clarification questions
 
 Ask only when the answer would change how the work gets scheduled: an unresolved date, unknown class meeting times, whether something is optional or dropped, or a contradiction you found. Do not ask about contact details, office hours, or anything already stated clearly. Phrase each question for a student, and say plainly why the plan needs it.

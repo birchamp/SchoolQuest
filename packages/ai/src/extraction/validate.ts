@@ -302,10 +302,29 @@ export function validateExtraction(
     ...new Set(extraction.meetingPatterns.flatMap((pattern) => pattern.daysOfWeek)),
   ].sort((a, b) => a - b);
 
+  /**
+   * A rule is only safe to expand when the document does not also show the real placement.
+   *
+   * The case that taught this: a syllabus states "a quiz at the start of every class" and then
+   * its schedule table shows the quizzes running weekly for two weeks, skipping some weeks, and
+   * landing on the second class day rather than the first. The rule is a summary of an irregular
+   * reality, and expanding it produces a full term of confident, wrong dates -- worse than the
+   * question it was meant to remove, because a wrong date looks like an answer.
+   *
+   * So enumeration wins. Where the schedule names the occurrences, those are the truth and the
+   * rule is left as the single item the model reported, with its dates coming from the rows.
+   */
+  const enumerated = enumeratedBaseTitles(extraction.assignments);
+  const expandable = extraction.assignments.map((assignment) =>
+    assignment.recurrence && enumerated.has(baseTitle(assignment.title))
+      ? { ...assignment, recurrence: null }
+      : assignment,
+  );
+
   const assignments =
     context.termStartDate && context.termEndDate
       ? expandAll(
-          extraction.assignments,
+          expandable,
           {
             termStartDate: context.termStartDate,
             termEndDate: context.termEndDate,
@@ -313,7 +332,7 @@ export function validateExtraction(
           },
           meetingDays,
         )
-      : extraction.assignments;
+      : expandable;
 
   for (const assignment of assignments) {
     const issues: ClaimIssue[] = [];
@@ -805,4 +824,38 @@ function attachQuestionEvidence(
 
     return evidence.length > 0 ? { ...question, evidence } : question;
   });
+}
+
+/** A title with any trailing number or ordinal removed: "Quiz 4" and "Quiz #4" both give "quiz". */
+function baseTitle(title: string): string {
+  return normalizeTitle(title)
+    .replace(/\b(no|num|number)\b\s*\d+\s*$/i, "")
+    .replace(/\s*\d+\s*$/, "")
+    .trim();
+}
+
+/** Below this, two rows named "Quiz 1" and "Quiz 2" are as likely a coincidence as a schedule. */
+const ENUMERATED_THRESHOLD = 2;
+
+/**
+ * Base titles the document lists out individually, rather than only stating as a rule.
+ *
+ * Counted over items that are *dated by the document*, because that is the whole question: a
+ * schedule table showing "Quiz 3 -- Sept 24" knows something the rule does not, and a bare
+ * mention with no date does not. Derived dates are excluded by construction -- nothing has been
+ * expanded yet at the point this runs.
+ */
+function enumeratedBaseTitles(assignments: readonly ExtractedAssignment[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const assignment of assignments) {
+    if (assignment.recurrence) continue;
+    if (!assignment.dueDate.iso) continue;
+    const base = baseTitle(assignment.title);
+    if (base.length === 0) continue;
+    counts.set(base, (counts.get(base) ?? 0) + 1);
+  }
+
+  return new Set(
+    [...counts.entries()].filter(([, n]) => n >= ENUMERATED_THRESHOLD).map(([base]) => base),
+  );
 }

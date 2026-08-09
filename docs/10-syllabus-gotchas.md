@@ -781,3 +781,15 @@ student reads names the wrong day.
 
 A syllabus that never states its meeting times leaves this genuinely unanswerable, and those
 occurrences stay undated rather than being guessed.
+
+**Then it got subtler.** The same syllabus turned out to state the rule in prose *and* show the
+real placement in its schedule table: weekly for the first two, some weeks skipped, and some on
+the second class day rather than the first. The rule was a summary of an irregular reality, and
+expanding it fills the term with confident wrong dates -- strictly worse than the question it
+replaced, because a wrong date looks like an answer and nothing on screen contradicts it.
+
+So enumeration beats a stated rule. Where two or more dated rows share a base title ("Quiz 1",
+"Quiz 3"), the rule is not expanded and the rows are the truth. One dated row is not enough: a
+single "Quiz 1" is as likely an example as a schedule. The prompt now says the same thing --
+report the rows, leave recurrence null, and treat prose and table disagreeing as the normal case
+rather than a contradiction to flag.

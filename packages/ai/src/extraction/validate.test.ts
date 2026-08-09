@@ -431,3 +431,101 @@ describe("questions carry the lines they came from", () => {
     }
   });
 });
+
+describe("a schedule that lists the work beats a rule that summarises it", () => {
+  /**
+   * The case that taught this. A syllabus says "a quiz at the start of every class" and its
+   * schedule table then shows the quizzes running weekly for two weeks, skipping some weeks, and
+   * landing on the second class day rather than the first.
+   *
+   * The rule is a summary of an irregular reality. Expanding it fills the term with confident
+   * wrong dates, which is worse than the question it replaced: a wrong date looks like an answer
+   * and nothing on screen contradicts it.
+   */
+  const PAGE = `PSY 210 Developmental Psychology
+Class meets Monday and Wednesday, 10:00-11:15 AM
+
+A short quiz at the start of every class.
+
+Schedule
+Quiz 1 - September 2
+Quiz 2 - September 9
+Quiz 3 - September 23`;
+
+  const listed = (title: string, iso: string, raw: string) =>
+    assignment({
+      title,
+      type: "quiz" as const,
+      dueDate: { iso, raw, time: null, ambiguity: "none" as const },
+      recurrence: null,
+      evidence: { page: 1, excerpt: `${title} - ${raw}` },
+    });
+
+  const rule = assignment({
+    title: "Quiz",
+    type: "quiz" as const,
+    dueDate: { iso: null, raw: "every class", time: null, ambiguity: "missing" as const },
+    recurrence: {
+      frequency: "weekly" as const,
+      dayOfWeek: null,
+      everyClassMeeting: true,
+      count: null,
+      dropLowest: null,
+    },
+    evidence: { page: 1, excerpt: "A short quiz at the start of every class." },
+  });
+
+  const run = (assignments: Parameters<typeof extraction>[0] extends never ? never : ReturnType<typeof extraction>["assignments"]) =>
+    validateExtraction(extraction({ assignments }), {
+      pages: [{ page: 1, text: PAGE }],
+      termStartDate: "2026-09-01",
+      termEndDate: "2026-10-15",
+    });
+
+  it("does not expand the rule when the schedule lists the occurrences", () => {
+    const result = run([
+      rule,
+      listed("Quiz 1", "2026-09-02", "September 2"),
+      listed("Quiz 2", "2026-09-09", "September 9"),
+      listed("Quiz 3", "2026-09-23", "September 23"),
+    ]);
+
+    // The three the schedule states, plus the rule left as one item -- not a quiz on every
+    // Monday and Wednesday of a six-week term.
+    const quizzes = result.assignments.filter((a) => a.assignment.title.toLowerCase().includes("quiz"));
+    expect(quizzes.length).toBeLessThanOrEqual(4);
+
+    // Nothing invented on a day the schedule skipped.
+    const dates = quizzes.map((a) => a.assignment.dueDate.iso).filter(Boolean);
+    expect(dates).not.toContain("2026-09-16");
+    expect(dates).toEqual(expect.arrayContaining(["2026-09-02", "2026-09-09", "2026-09-23"]));
+  });
+
+  it("keeps the schedule's own irregular placement", () => {
+    // Quiz 3 is on a Wednesday while quizzes 1 and 2 are Mondays. A rule cannot say that; the
+    // table can, and the table is what the student is graded against.
+    const result = run([
+      rule,
+      listed("Quiz 1", "2026-09-02", "September 2"),
+      listed("Quiz 2", "2026-09-09", "September 9"),
+      listed("Quiz 3", "2026-09-23", "September 23"),
+    ]);
+    const three = result.assignments.find((a) => a.assignment.title === "Quiz 3");
+    expect(three?.assignment.dueDate.iso).toBe("2026-09-23");
+  });
+
+  it("still expands a rule the schedule does not list", () => {
+    // Enumeration only wins where it exists. A genuine rule with nothing in the table is the
+    // case the expansion was built for and must keep working.
+    const result = run([rule]);
+    const quizzes = result.assignments.filter((a) => a.assignment.title.toLowerCase().includes("quiz"));
+    expect(quizzes.length).toBeGreaterThan(1);
+  });
+
+  it("is not fooled by a single dated mention", () => {
+    // One row named "Quiz 1" is as likely an example as a schedule, so the rule still expands.
+    const result = run([rule, listed("Quiz 1", "2026-09-02", "September 2")]);
+    const quizzes = result.assignments.filter((a) => a.assignment.title.toLowerCase().includes("quiz"));
+    expect(quizzes.length).toBeGreaterThan(2);
+  });
+});
