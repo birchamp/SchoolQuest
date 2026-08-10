@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { startupReport } from "./startup-report.mjs";
+import { freePorts, SCHOOLQUEST_PORTS } from "./free-ports.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WINDOWS = process.platform === "win32";
@@ -95,6 +96,35 @@ for (const task of TASKS) {
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => stopAll(0));
 
 const OPEN = process.argv.includes("--open");
+
+/**
+ * Take the ports back before starting, rather than failing on them.
+ *
+ * Closing the window with the X leaves wrangler and vite running, and the next launch then dies
+ * on a busy port -- one port at a time, so the student kills one, runs again, dies on the other.
+ * Three rounds of `netstat` and `taskkill` were observed on a real machine. Reclaiming our own
+ * processes is not a convenience here; it is the difference between the app starting and the
+ * app appearing broken.
+ *
+ * Only processes that are recognisably ours; anything else is reported and left alone, because
+ * 5173 is a conventional port and killing someone's unrelated dev server would be indefensible.
+ */
+{
+  const results = await freePorts(SCHOOLQUEST_PORTS, (line) => console.log(line));
+  const blocked = results.filter((r) => r.state === "blocked" || r.state === "stuck");
+  if (blocked.length > 0) {
+    console.log("");
+    for (const r of blocked) {
+      console.log(
+        r.state === "blocked"
+          ? `Port ${r.port} is being used by ${r.by}, which is not part of SchoolQuest.`
+          : `Port ${r.port} would not free up.`,
+      );
+    }
+    console.log("Close that program, or restart the machine, and try again.\n");
+    process.exit(1);
+  }
+}
 
 console.log("\nSchoolQuest is starting.  API on http://127.0.0.1:8787,  app on http://127.0.0.1:5173");
 console.log(

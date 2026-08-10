@@ -15,8 +15,8 @@
  *
  * Exits non-zero if anything would stop a run. Warnings do not fail it.
  */
+import { freePorts, SCHOOLQUEST_PORTS } from "./free-ports.mjs";
 import { existsSync, readFileSync } from "node:fs";
-import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -31,16 +31,6 @@ const fail = (m, fix) => {
 };
 const warn = (m, note) => console.log(`  !  ${m}\n     → ${note}`);
 
-/** True when something is already listening — which for us means a leftover process. */
-function portBusy(port) {
-  return new Promise((resolve) => {
-    const socket = createConnection({ port, host: "127.0.0.1" });
-    socket.setTimeout(700);
-    socket.on("connect", () => (socket.destroy(), resolve(true)));
-    socket.on("timeout", () => (socket.destroy(), resolve(false)));
-    socket.on("error", () => resolve(false));
-  });
-}
 
 console.log("\nSchoolQuest preflight\n");
 
@@ -112,19 +102,31 @@ const d1 = join(API, ".wrangler", "state", "v3", "d1");
 if (existsSync(d1)) pass("local database exists");
 else fail("no local database yet", "run: pnpm setup");
 
-// --- Ports.
-for (const [port, what] of [
-  [8787, "the API"],
-  [5173, "the app"],
-]) {
-  if (await portBusy(port)) {
+/**
+ * --- Ports. Reclaimed rather than reported.
+ *
+ * This used to fail with a netstat-and-taskkill recipe, one port at a time -- so a student who
+ * closed the window with the X killed one process, ran again, hit the other port, killed that,
+ * ran again. Three rounds of it were observed on a real machine. Handing that to someone who
+ * finds multi-step processes costly, as the first thing the app does, is indefensible.
+ *
+ * Our own leftovers are stopped here. Anything else still fails, and says what has the port:
+ * 5173 is a conventional dev port and another project's server has every right to it.
+ */
+for (const result of await freePorts(SCHOOLQUEST_PORTS)) {
+  if (result.state === "free") pass(`port ${result.port} is free (${result.label})`);
+  else if (result.state === "freed")
+    pass(`port ${result.port} reclaimed from an earlier run (${result.label})`);
+  else if (result.state === "blocked")
     fail(
-      `port ${port} is already in use, so ${what} cannot start`,
-      process.platform === "win32"
-        ? `find it with: netstat -ano | findstr :${port}   then: taskkill /pid <pid> /f`
-        : `find it with: lsof -i :${port}   then kill that process`,
+      `port ${result.port} is in use by ${result.by}, so ${result.label} cannot start`,
+      "close that program, then run this again",
     );
-  } else pass(`port ${port} is free (${what})`);
+  else
+    fail(
+      `port ${result.port} would not free up, so ${result.label} cannot start`,
+      "restarting the machine always clears it",
+    );
 }
 
 console.log(
