@@ -30,6 +30,7 @@ import { useViewMode } from "./lib/view-mode";
 import { CampaignTable } from "./components/CampaignTable";
 import { buildLayers, LayerBar } from "./components/LayerBar";
 import { SyllabusUpload } from "./components/SyllabusUpload";
+import { SetupStatus } from "./components/SetupStatus";
 
 /**
  * App shell.
@@ -101,6 +102,15 @@ export function App() {
   const [term, setTerm] = useState<Term | null>(null);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [tab, setTab] = useState<Tab>("today");
+  /**
+   * Bumped by anything on Setup that saves, so the status panel re-reads.
+   *
+   * A counter rather than another callback threaded through nine cards: each already reports
+   * upward through `onChanged`, and adding a tenth consumer to every one is how one gets
+   * forgotten and the panel goes quietly stale -- exactly the calendar-gate bug.
+   */
+  const [setupSaves, setSetupSaves] = useState(0);
+  const noteSetupChange = useCallback(() => setSetupSaves((n) => n + 1), []);
 
   /**
    * Setup, landing on the effort survey rather than at the top of the tab.
@@ -527,6 +537,12 @@ export function App() {
                 the rest works: with no key, pasting a calendar and uploading a syllabus both fail
                 at the point the student has already done the work.
               */}
+              {/*
+                First on the page. The one question a student has while working through Setup --
+                have I done this for every class yet -- was answered by none of the nine cards
+                below, so the only way to know was to scroll, remember, and count.
+              */}
+              <SetupStatus termId={term.id} refreshKey={setupSaves} />
               <ProviderSettings onChanged={refreshPlan} />
               {/*
                 The term is re-read, not only the plan: what the calendar changes lives on the
@@ -537,9 +553,16 @@ export function App() {
                 onChanged={async () => {
                   await refreshTerm();
                   await regenerate();
+                  noteSetupChange();
                 }}
               />
-              <CourseManager termId={term.id} onChanged={refreshPlan} />
+              <CourseManager
+                termId={term.id}
+                onChanged={() => {
+                  refreshPlan();
+                  noteSetupChange();
+                }}
+              />
               {/*
                 Above the effort survey on purpose. The survey asks the student what they know;
                 this says what nobody knows yet and hands them the message that gets it answered,
@@ -551,7 +574,10 @@ export function App() {
               <MealWindows term={term} onChanged={regenerate} />
               <SyllabusUpload
                 courses={plan.courses}
-                onPlanChanged={regenerate}
+                onPlanChanged={async () => {
+                  await regenerate();
+                  noteSetupChange();
+                }}
                 hasCalendar={(term.calendar?.exceptions.length ?? 0) > 0}
               />
               <section className="card">

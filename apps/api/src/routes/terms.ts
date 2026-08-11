@@ -154,6 +154,59 @@ termsRoute.post("/terms/:id/archive", async (c) => {
 });
 
 /** Everything the client needs to render a term in one round trip. */
+termsRoute.get("/terms/:id/readiness", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+  if (!(await assertTermOwner(db, id, c.get("userId")))) {
+    return c.json({ error: "Term not found" }, 404);
+  }
+
+  const [termRow] = await db.select().from(terms).where(eq(terms.id, id));
+  const courseRows = await db.select().from(courses).where(eq(courses.termId, id));
+  const courseIds = courseRows.map((course) => course.id);
+
+  const documents = courseIds.length
+    ? await db.select().from(sourceDocuments).where(inArray(sourceDocuments.courseId, courseIds))
+    : [];
+  const patterns = courseIds.length
+    ? await db.select().from(meetingPatterns).where(inArray(meetingPatterns.courseId, courseIds))
+    : [];
+  const items = courseIds.length
+    ? await db.select().from(workItems).where(inArray(workItems.courseId, courseIds))
+    : [];
+
+  // courseId is nullable on work items -- term-level work belongs to no class -- so rows
+  // without one are simply not counted against any course.
+  const countBy = (rows: { courseId: string | null }[]) => {
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      if (!row.courseId) continue;
+      counts.set(row.courseId, (counts.get(row.courseId) ?? 0) + 1);
+    }
+    return counts;
+  };
+  const syllabi = countBy(documents.filter((d) => d.type === "syllabus"));
+  const meetings = countBy(patterns);
+  const work = countBy(items);
+
+  const calendar = JSON.parse(termRow?.calendarJson || "{}") as { exceptions?: unknown[] };
+
+  return c.json({
+    calendarEntries: calendar.exceptions?.length ?? 0,
+    courses: courseRows.map((course) => ({
+      id: course.id,
+      name: course.name,
+      code: course.code,
+      colorToken: course.colorToken,
+      syllabusCount: syllabi.get(course.id) ?? 0,
+      hasMeetingTimes: (meetings.get(course.id) ?? 0) > 0,
+      workItemCount: work.get(course.id) ?? 0,
+      // "unknown" is the default until a syllabus or the student says otherwise.
+      gradingKnown: course.gradingConfidence !== "unknown",
+    })),
+  });
+});
+
 termsRoute.get("/terms/:id/snapshot", async (c) => {
   const db = getDb(c.env.DB);
   const id = c.req.param("id");
