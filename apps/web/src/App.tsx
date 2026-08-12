@@ -31,6 +31,7 @@ import { CampaignTable } from "./components/CampaignTable";
 import { buildLayers, LayerBar } from "./components/LayerBar";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 import { SetupStatus } from "./components/SetupStatus";
+import { StopButton } from "./components/StopButton";
 
 /**
  * App shell.
@@ -580,6 +581,23 @@ export function App() {
                 }}
                 hasCalendar={(term.calendar?.exceptions.length ?? 0) > 0}
               />
+              {/*
+                At the end of Setup rather than in the header. "How do I close this?" is a
+                question someone asks deliberately, not one they want a button for beside the
+                thing they are working on -- and a control that stops the whole app should not
+                sit a few pixels from the tabs.
+              */}
+              <section className="card">
+                <h2>Stopping SchoolQuest</h2>
+                <p className="muted">
+                  Closing this tab leaves SchoolQuest running in the background, which is what
+                  makes it complain about a busy port next time. This stops it properly.
+                </p>
+                <div className="button-row">
+                  <StopButton />
+                </div>
+              </section>
+
               <section className="card">
                 <h2>Preferences</h2>
                 <div className="button-row">

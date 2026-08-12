@@ -69,6 +69,18 @@ for (const task of TASKS) {
     cwd: ROOT,
     shell: WINDOWS,
     stdio: ["ignore", "pipe", "pipe"],
+    /**
+     * Our own pid, so the app can ask to be stopped.
+     *
+     * Closing the browser tab stops nothing -- both servers keep running, which is how the
+     * orphans that jam the ports get made in the first place. The Vite dev server exposes a
+     * `/__shutdown` route that signals this pid, and everything after that is the existing
+     * Ctrl-C path: `stopAll` takes down the whole tree, cleanly, once.
+     *
+     * Only reachable from the dev server on localhost, and only in dev -- the built bundle the
+     * PWA and the packaged desktop app load has no such route to call.
+     */
+    env: { ...process.env, SCHOOLQUEST_DEV_PID: String(process.pid) },
     // Makes the child its own process-group leader on POSIX, which is what lets `stopAll` take
     // the whole tree down. Meaningless on Windows, where `taskkill /t` does the same job.
     detached: !WINDOWS,

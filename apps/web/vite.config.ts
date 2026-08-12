@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
@@ -10,11 +10,64 @@ import { VitePWA } from "vite-plugin-pwa";
  * service worker from the desktop bundle — a desktop app caching itself offline is
  * redundant and makes updates confusing.
  */
+
+/**
+ * A way for the app to stop itself.
+ *
+ * Closing the browser tab stops nothing: both servers keep running, invisibly, and the next
+ * launch trips over the ports they still hold. The only shutdown that existed was Ctrl-C in a
+ * console window that a student has usually minimised and reasonably assumes is not their
+ * problem -- so "how do I close this?" had no answer anywhere on screen.
+ *
+ * `configureServer` runs only when Vite is serving, so this route exists in development and is
+ * absent from the built bundle the PWA and the packaged desktop app load. It signals the pid
+ * `tools/dev.mjs` put in the environment, which is the same SIGTERM that Ctrl-C sends -- the
+ * existing `stopAll` then takes both halves down cleanly, once.
+ */
+function shutdownRoute(): Plugin {
+  return {
+    name: "schoolquest-shutdown",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/__shutdown", (req, res) => {
+        // POST only, so a prefetch or a stray link cannot stop someone's app.
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end();
+          return;
+        }
+
+        const pid = Number(process.env["SCHOOLQUEST_DEV_PID"]);
+        res.setHeader("Content-Type", "application/json");
+
+        if (!Number.isInteger(pid) || pid <= 0) {
+          // Vite started on its own rather than under the launcher. Stopping just this half
+          // would leave the API running, which is worse than saying so.
+          res.statusCode = 501;
+          res.end(JSON.stringify({ error: "not started by the SchoolQuest launcher" }));
+          return;
+        }
+
+        res.end(JSON.stringify({ ok: true }));
+        // After the response, so the browser is told before the server goes away.
+        setTimeout(() => {
+          try {
+            process.kill(pid, "SIGTERM");
+          } catch {
+            // Already gone. Nothing to stop, which is the outcome asked for.
+          }
+        }, 150);
+      });
+    },
+  };
+}
+
 const isTauri = Boolean(process.env["TAURI_ENV_PLATFORM"]);
 
 export default defineConfig({
   plugins: [
     react(),
+    shutdownRoute(),
     ...(isTauri
       ? []
       : [
