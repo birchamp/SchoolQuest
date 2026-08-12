@@ -21,9 +21,15 @@ import type { PlanResponse } from "../lib/types";
  *    table is a different rendering of the same facts; if it needs a figure the map does not
  *    have, the map is missing something and that is the bug to fix.
  *
- * The assignments table is also the only place a due date can be corrected, which is why it
- * carries inputs rather than text: extraction gets dates wrong, and a plan built on a wrong
- * date is wrong in a way the student cannot see.
+ * The assignments table is also where work is *changed*, which is why it carries inputs rather
+ * than text. A syllabus is a forecast, not a record: an instructor moves an exam, announces a
+ * paper in class, or drops a chapter, and none of that is in the PDF. Three things happen in a
+ * lecture and all three land here -- a new date, a new task, a task skipped.
+ *
+ * Kept in one table rather than spread across three screens, because they are one job: the
+ * student is reconciling what was said in class against what the app believes. Splitting that
+ * across a date field here, an add form there and a delete somewhere else is how two of the
+ * three never get done.
  */
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -123,7 +129,9 @@ export function AssignmentsTable({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const [titles, setTitles] = useState<Record<string, string>>({});
   const [showDone, setShowDone] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   const rows = useMemo(() => {
     const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
@@ -163,6 +171,42 @@ export function AssignmentsTable({
     }
   }
 
+  async function saveTitle(item: WorkItem, value: string) {
+    const next = value.trim();
+    if (next.length === 0 || next === item.title) return;
+    setBusy(item.id);
+    setError(null);
+    try {
+      await api.patch(`/api/work-items/${item.id}`, { title: next });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /**
+   * Skipping is a status, never a delete.
+   *
+   * "We are not doing chapter 7" is a fact about this term that can be reversed next week, and a
+   * row that vanishes takes its history with it -- what it was worth, what was already done
+   * against it, whether it was ever graded. `canceled` keeps the record and takes it out of the
+   * plan, and "Show finished too" is how it is found again.
+   */
+  async function setStatus(item: WorkItem, status: "canceled" | "not_started") {
+    setBusy(item.id);
+    setError(null);
+    try {
+      await api.patch(`/api/work-items/${item.id}`, { status });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section className="card" aria-labelledby="assignments-table-heading">
       <h2 id="assignments-table-heading">
@@ -170,15 +214,30 @@ export function AssignmentsTable({
         <span className="sr-only">All assignments</span>
       </h2>
       <p className="muted" style={{ margin: "0 0 0.6rem" }}>
-        Change a due date here and the week is replanned around it. A date the syllabus never
-        stated is shown empty rather than guessed.
+        When an instructor moves a date, sets something new, or drops a task, change it here and
+        the week is replanned around it. A date the syllabus never stated is shown empty rather
+        than guessed, and skipping keeps the record rather than deleting it.
       </p>
 
       <div className="button-row" style={{ marginBottom: "0.6rem" }}>
+        <button className="action primary" onClick={() => setAdding((v) => !v)}>
+          {adding ? "Cancel" : "Add an assignment"}
+        </button>
         <button className="action" onClick={() => setShowDone((v) => !v)}>
-          {showDone ? "Hide finished" : "Show finished too"}
+          {showDone ? "Hide finished and skipped" : "Show finished and skipped too"}
         </button>
       </div>
+
+      {adding && (
+        <AddAssignmentForm
+          courses={plan.courses}
+          onAdded={() => {
+            setAdding(false);
+            onChanged();
+          }}
+          onError={setError}
+        />
+      )}
 
       <div className="table-scroll">
         <table className="data-table">
@@ -190,13 +249,32 @@ export function AssignmentsTable({
               <SortHeader column="due" label="Due" sort={sort} onSort={onSort} />
               <SortHeader column="effort" label="Effort" sort={sort} onSort={onSort} numeric />
               <SortHeader column="status" label="Status" sort={sort} onSort={onSort} />
+              <th scope="col" style={{ textAlign: "right" }}>
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.map(({ item, course, type, effort, status }) => (
               <tr key={item.id}>
                 <th scope="row" style={{ fontWeight: 500 }}>
-                  {item.title}
+                  {/* Editable, because "the paper is now an annotated bibliography" is a thing
+                      instructors say, and a title nobody can correct is one the student stops
+                      trusting the whole list over. */}
+                  <label>
+                    <span className="sr-only">Name of {item.title}</span>
+                    <input
+                      type="text"
+                      disabled={busy === item.id}
+                      value={titles[item.id] ?? item.title}
+                      onChange={(e) => setTitles((t) => ({ ...t, [item.id]: e.target.value }))}
+                      onBlur={(e) => void saveTitle(item, e.target.value)}
+                      /* Wide enough to read a real title. Rendered at 12rem, "Settle the topic and re-read
+                          the" was cut mid-phrase, which makes the column useless for telling two
+                          milestones of the same project apart. */
+                      style={{ width: "100%", minWidth: "18rem", fontWeight: 500 }}
+                    />
+                  </label>
                   {item.sourceConfidence !== "confirmed" && (
                     <span className="muted" style={{ fontSize: "0.74rem", display: "block" }}>
                       date unconfirmed
@@ -227,6 +305,26 @@ export function AssignmentsTable({
                   {effort === null ? <span className="muted">—</span> : formatMinutes(effort)}
                 </td>
                 <td style={{ textTransform: "capitalize" }}>{status}</td>
+                <td style={{ textAlign: "right" }}>
+                  {item.status === "canceled" ? (
+                    <button
+                      className="action"
+                      disabled={busy === item.id}
+                      onClick={() => void setStatus(item, "not_started")}
+                    >
+                      Put back
+                    </button>
+                  ) : (
+                    <button
+                      className="action"
+                      disabled={busy === item.id}
+                      onClick={() => void setStatus(item, "canceled")}
+                      title="Takes it out of the plan and keeps the record"
+                    >
+                      Skip
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -602,5 +700,130 @@ export function CoursesTable({ plan, theme }: { plan: PlanResponse; theme: Theme
         </table>
       </div>
     </section>
+  );
+}
+
+/**
+ * Work an instructor set in class, which is in no syllabus.
+ *
+ * The commonest real change and the one with no path at all before this: a paper announced on a
+ * Tuesday exists nowhere in the PDF, so the plan simply did not know about it, and a plan
+ * missing a quarter of the work is worse than no plan -- it is confidently wrong.
+ *
+ * Deliberately four fields. A course, a name, a date and roughly how long: enough for the
+ * scheduler to place it, and nothing that would turn a thirty-second entry between classes into
+ * a form. Everything else has a sensible default and can be corrected in the table afterwards.
+ */
+function AddAssignmentForm({
+  courses,
+  onAdded,
+  onError,
+}: {
+  courses: Course[];
+  onAdded: () => void;
+  onError: (message: string | null) => void;
+}) {
+  const [courseId, setCourseId] = useState(courses[0]?.id ?? "");
+  const [title, setTitle] = useState("");
+  const [workType, setWorkType] = useState("assignment");
+  const [due, setDue] = useState("");
+  const [minutes, setMinutes] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function add() {
+    if (!courseId || title.trim().length === 0) return;
+    setBusy(true);
+    onError(null);
+    try {
+      await api.post("/api/work-items", {
+        courseId,
+        title: title.trim(),
+        workType,
+        // Same reading of a calendar day as the date column: end of day is what "due Friday"
+        // means, and it matches what extraction writes.
+        dueAt: due ? `${due}T23:59:00.000Z` : null,
+        estimatedMinutes: minutes ? Number(minutes) : null,
+      });
+      setTitle("");
+      setDue("");
+      setMinutes("");
+      onAdded();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: "0.5rem",
+        flexWrap: "wrap",
+        alignItems: "flex-end",
+        margin: "0 0 0.8rem",
+        padding: "0.7rem",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+        background: "var(--surface-2)",
+      }}
+    >
+      <label style={{ display: "grid", gap: "0.2rem" }}>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>Class</span>
+        <select value={courseId} onChange={(e) => setCourseId(e.target.value)}>
+          {courses.map((course) => (
+            <option key={course.id} value={course.id}>
+              {course.code ?? course.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label style={{ display: "grid", gap: "0.2rem", flex: "1 1 14rem" }}>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>What is it</span>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Reading response 4"
+        />
+      </label>
+
+      <label style={{ display: "grid", gap: "0.2rem" }}>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>Type</span>
+        <select value={workType} onChange={(e) => setWorkType(e.target.value)}>
+          {["assignment", "reading", "quiz", "exam", "paper", "project", "lab", "discussion"].map(
+            (type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ),
+          )}
+        </select>
+      </label>
+
+      <label style={{ display: "grid", gap: "0.2rem" }}>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>Due</span>
+        <input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+      </label>
+
+      <label style={{ display: "grid", gap: "0.2rem" }}>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>Minutes</span>
+        <input
+          type="number"
+          min={5}
+          step={5}
+          value={minutes}
+          onChange={(e) => setMinutes(e.target.value)}
+          placeholder="45"
+          style={{ width: "6rem" }}
+        />
+      </label>
+
+      <button className="action primary" disabled={busy || title.trim().length === 0} onClick={() => void add()}>
+        {busy ? "Adding…" : "Add it"}
+      </button>
+    </div>
   );
 }
