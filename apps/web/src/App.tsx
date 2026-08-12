@@ -29,9 +29,11 @@ import { AssignmentsTable, CoursesTable, LookaheadTable, WeekTable } from "./com
 import { useViewMode } from "./lib/view-mode";
 import { CampaignTable } from "./components/CampaignTable";
 import { buildLayers, LayerBar } from "./components/LayerBar";
+import type { GaugeTarget } from "@schoolquest/planning-engine";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 import { SetupStatus } from "./components/SetupStatus";
 import { StopButton } from "./components/StopButton";
+import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 
 /**
  * App shell.
@@ -121,6 +123,49 @@ export function App() {
    * app's reader is the one who does not scroll. `requestAnimationFrame` waits for the tab to
    * render before the element exists to scroll to.
    */
+  /**
+   * Switches tab and scrolls to a card, waiting for it to exist.
+   *
+   * Generalised from the effort-survey jump, which had this logic inline. Cards on Setup fetch
+   * their own data after mounting, so for the first frames the element is not there and the
+   * scroll silently does nothing -- landing the reader at the top of a nine-card page, several
+   * cards above the thing they asked for, which is the step the jump exists to remove. Polls
+   * briefly and gives up rather than leaving a timer running on a page that never settles.
+   */
+  const goTo = useCallback((tabId: Tab, elementId?: string) => {
+    setTab(tabId);
+    if (!elementId) {
+      window.scrollTo({ top: 0 });
+      return;
+    }
+    const deadline = Date.now() + 2000;
+    const tryScroll = () => {
+      const target = document.getElementById(elementId);
+      if (target) target.scrollIntoView({ block: "start" });
+      else if (Date.now() < deadline) requestAnimationFrame(tryScroll);
+    };
+    requestAnimationFrame(tryScroll);
+  }, []);
+
+  /** Where each gauge's "what to do next" lands. The board chooses; this routes. */
+  const goToGaugeTarget = useCallback(
+    (target: GaugeTarget) => {
+      const routes: Record<GaugeTarget, [Tab, string?]> = {
+        "setup:calendar": ["setup", "term-calendar"],
+        "setup:syllabus": ["setup", "syllabus-upload"],
+        "setup:courses": ["setup", "course-manager"],
+        "setup:grading": ["setup", "course-manager"],
+        "setup:effort": ["setup", "effort-survey"],
+        today: ["today"],
+        week: ["week"],
+        stats: ["stats"],
+      };
+      const [tabId, elementId] = routes[target];
+      goTo(tabId, elementId);
+    },
+    [goTo],
+  );
+
   const goToEffortSurvey = () => {
     setTab("setup");
     /**
@@ -506,6 +551,15 @@ export function App() {
               course needs me — and only then goes into the detail behind it. */}
           {tab === "stats" && viewMode === "table" && <CoursesTable plan={plan} theme={theme} />}
           {tab === "stats" && viewMode === "visual" && plan.health && (
+            <CourseGaugeBoard
+              termId={term.id}
+              health={plan.health}
+              courses={plan.courses}
+              onNavigate={goToGaugeTarget}
+              refreshKey={setupSaves}
+            />
+          )}
+          {tab === "stats" && viewMode === "visual" && plan.health && (
             <Dashboard
               health={plan.health}
               courses={plan.courses}
@@ -549,6 +603,7 @@ export function App() {
                 The term is re-read, not only the plan: what the calendar changes lives on the
                 term, and the syllabus upload below gates on it.
               */}
+              <div id="term-calendar">
               <TermCalendar
                 termId={term.id}
                 onChanged={async () => {
@@ -557,6 +612,8 @@ export function App() {
                   noteSetupChange();
                 }}
               />
+              </div>
+              <div id="course-manager">
               <CourseManager
                 termId={term.id}
                 onChanged={() => {
@@ -564,6 +621,7 @@ export function App() {
                   noteSetupChange();
                 }}
               />
+              </div>
               {/*
                 Above the effort survey on purpose. The survey asks the student what they know;
                 this says what nobody knows yet and hands them the message that gets it answered,
@@ -573,6 +631,7 @@ export function App() {
               <EffortSurvey termId={term.id} onChanged={regenerate} />
               <StudyHours termId={term.id} onChanged={regenerate} />
               <MealWindows term={term} onChanged={regenerate} />
+              <div id="syllabus-upload">
               <SyllabusUpload
                 courses={plan.courses}
                 onPlanChanged={async () => {
@@ -581,6 +640,7 @@ export function App() {
                 }}
                 hasCalendar={(term.calendar?.exceptions.length ?? 0) > 0}
               />
+              </div>
               {/*
                 At the end of Setup rather than in the header. "How do I close this?" is a
                 question someone asks deliberately, not one they want a button for beside the
