@@ -115,8 +115,13 @@ export function SetupStatus({ termId, refreshKey }: { termId: string; refreshKey
                 {courses.map((course) => (
                   <tr key={course.id}>
                     <th scope="row" style={{ fontWeight: 500, textAlign: "left" }}>
+                      {/*
+                        Plenty of course names already contain the code -- "General Biology I
+                        (BIO 240)" -- and printing both gave "BIO 240 General Biology I (BIO
+                        240)". Same guard the course list uses.
+                      */}
                       {course.code ?? course.name}
-                      {course.code && (
+                      {course.code && !course.name.includes(course.code) && (
                         <span className="muted" style={{ marginLeft: "0.4rem" }}>
                           {course.name}
                         </span>

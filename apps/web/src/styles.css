@@ -2135,7 +2135,10 @@ body[data-theme="mission"] .data-table {
   font-variant-numeric: tabular-nums;
 }
 
-body[data-theme="mission"] .data-table th {
+/* `thead th` only. A row header is content -- a class name, a student's own words -- and
+   uppercasing it is the same mistake as uppercasing a paragraph: it removes the word shape a
+   reader recognises. Column headings are labels and keep the stencil. */
+body[data-theme="mission"] .data-table thead th {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-size: 0.7rem;
@@ -2472,5 +2475,12 @@ body[data-theme="mission"] .campaign-strip-title::before {
 
 body[data-theme="mission"] .campaign-strip-count {
   font-variant-numeric: tabular-nums;
+  color: var(--m-text);
+}
+
+body[data-theme="mission"] .data-table tbody th {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.9rem;
   color: var(--m-text);
 }
