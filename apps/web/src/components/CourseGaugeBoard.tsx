@@ -226,19 +226,16 @@ export function CourseGaugeBoard({
         {ordered.map((row) => {
           const overall = row.gauges.overall;
           return (
+            /* The ground comes from CSS, not from an inline `var(--surface-2)`.
+               A theme that repaints the card under this panel has to repaint the panel
+               with it -- hardcoded here, the Quest card put its own dark surface token
+               inside a parchment card and printed five course codes in ink at 1.04:1,
+               which is text that is simply not there. Only the level colour, which is
+               data, stays inline. */
             <div
               key={row.courseId}
-              style={{
-                display: "flex",
-                gap: "1rem",
-                alignItems: "center",
-                flexWrap: "wrap",
-                padding: "0.7rem",
-                border: "1px solid var(--border)",
-                borderLeft: `3px solid ${LEVEL_COLOUR[overall.level]}`,
-                borderRadius: "var(--radius)",
-                background: "var(--surface-2)",
-              }}
+              className="gauge-row"
+              style={{ borderLeftColor: LEVEL_COLOUR[overall.level] }}
             >
               <div style={{ textAlign: "center", minWidth: "6.5rem" }}>
                 <Dial gauge={overall} size={104} />

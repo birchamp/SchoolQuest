@@ -736,7 +736,18 @@ body[data-theme="quest"] .card {
      measured at 1.06:1 against its own card. Re-pointing the tokens here fixes every
      descendant at once instead of chasing them rule by rule. */
   --text: var(--q-ink);
-  --text-dim: #6b5636;
+  /* Measured against the deepest parchment a card panel uses, not against the lightest.
+     At #6b5636 the dim tone cleared 4.77:1 on plain parchment and 4.27:1 on the tinted
+     panels inside it, which is the half of the cases nobody checks. */
+  --text-dim: #5e4b2c;
+  /* The verdict colours flip with the ground for exactly the same reason as the text
+     tokens. Set at :root they are tuned to read as light against dark leather, and on
+     parchment the gold went to 1.01:1 — a dial's own number, invisible inside it. These
+     are the same three signals in ink, measured at or above 4.5:1 against every parchment
+     tone a card uses. */
+  --safe: #1b5230;
+  --watch: #6a4d0c;
+  --at-risk: #94301a;
   color: var(--q-ink);
   background:
     radial-gradient(ellipse at 18% 8%, rgba(140, 47, 40, 0.05), transparent 45%),
@@ -769,7 +780,7 @@ body[data-theme="quest"] .card h2 {
   padding-bottom: 0.35rem;
 }
 
-body[data-theme="quest"] .card .muted { color: #6b5636; }
+body[data-theme="quest"] .card .muted { color: #5e4b2c; }
 body[data-theme="quest"] .card .rationale {
   border-left-color: var(--q-wax);
   font-style: italic;
@@ -888,7 +899,7 @@ body[data-theme="quest"] .bubble.user {
 
 body[data-theme="quest"] .bubble.assistant.refused {
   border-style: dashed;
-  color: #6b5636;
+  color: #5e4b2c;
 }
 
 body[data-theme="quest"] .composer { background: transparent; }
@@ -921,7 +932,7 @@ body[data-theme="quest"] .day.is-today {
   box-shadow: 0 0 0 1px var(--q-gold), 0 0 18px rgba(201, 162, 39, 0.3);
 }
 
-body[data-theme="quest"] .day .muted { color: #6b5636; }
+body[data-theme="quest"] .day .muted { color: #5e4b2c; }
 
 body[data-theme="quest"] .block {
   background: rgba(239, 227, 200, 0.65);
@@ -929,7 +940,7 @@ body[data-theme="quest"] .block {
   color: var(--q-ink);
 }
 
-body[data-theme="quest"] .block .time { color: #6b5636; }
+body[data-theme="quest"] .block .time { color: #5e4b2c; }
 
 /* On parchment the dashed edge is drawn in dimmed gold, which is decoration only — the
    words inside keep the measured ink, never the gold (1.6:1 on this ground). */
@@ -1074,7 +1085,7 @@ body[data-theme="quest"] select {
 }
 
 body[data-theme="quest"] input[type="file"] {
-  color: #6b5636;
+  color: #5e4b2c;
   font-family: inherit;
 }
 body[data-theme="quest"] input[type="file"]::file-selector-button {
@@ -1596,7 +1607,10 @@ body[data-theme="quest"] .view-switch button[aria-pressed="true"] {
 /* Parchment, like a card, because that is the ground its contents were measured against. */
 body[data-theme="quest"] .terrain-layers {
   --text: var(--q-ink);
-  --text-dim: #6b5636;
+  /* Measured against the deepest parchment a card panel uses, not against the lightest.
+     At #6b5636 the dim tone cleared 4.77:1 on plain parchment and 4.27:1 on the tinted
+     panels inside it, which is the half of the cases nobody checks. */
+  --text-dim: #5e4b2c;
   border-radius: 3px;
   border-color: rgba(201, 162, 39, 0.45);
   background:
@@ -1721,7 +1735,7 @@ body[data-theme="quest"] .terrain-layers-note {
 
 body[data-theme="quest"] .question-kind {
   border-color: #b9a06a;
-  color: #6b5636;
+  color: #5e4b2c;
 }
 
 body[data-theme="quest"] .draft-message,
@@ -3198,4 +3212,29 @@ body[data-theme="mission"] .radar-key li {
   text-transform: none;
   letter-spacing: normal;
   color: var(--m-text);
+}
+
+/* One class per class: the four dials and the one thing to do next.
+ *
+ * The ground lives here rather than inline on the element, because a theme that repaints
+ * the card under this panel has to repaint the panel with it. Inlined as
+ * `background: var(--surface-2)`, the Quest card -- which flips its ground to parchment and
+ * re-points --text to ink -- ended up with a dark panel carrying ink text: five course codes
+ * measured at 1.04:1, which is not dim, it is absent. */
+.gauge-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-left-style: solid;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+body[data-theme="quest"] .card .gauge-row {
+  background: rgba(74, 54, 32, 0.07);
+  border-color: rgba(138, 111, 31, 0.45);
 }
