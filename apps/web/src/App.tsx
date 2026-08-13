@@ -44,7 +44,16 @@ import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
  * check is false. Emphasis, not enforcement.
  */
 
-type Tab = "today" | "week" | "stats" | "coach" | "setup";
+/**
+ * `work` is its own tab rather than a view toggle.
+ *
+ * The assignments table is where a syllabus gets corrected -- a date moved, a task set in class,
+ * a chapter dropped -- which is a weekly errand for the whole term. It was reachable only by
+ * switching the view mode to Tables while on the week, which is two deductions a student has to
+ * make before they can fix a date their instructor just changed. A thing done every week gets a
+ * door of its own, and correcting a date is not a "table view" preference.
+ */
+type Tab = "today" | "week" | "work" | "stats" | "coach" | "setup";
 
 /** How the week is drawn. A peer of the map, not a fallback for it — the map answers what
  *  the student is working on, the calendar answers where the hours go. */
@@ -377,6 +386,7 @@ export function App() {
   const tabs: { id: Tab; labelText: string }[] = [
     { id: "today", labelText: "Today" },
     { id: "week", labelText: label("weekMap", theme) },
+    { id: "work", labelText: `${label("assignment", theme)}s` },
     { id: "stats", labelText: label("statsPage", theme) },
     { id: "coach", labelText: label("coach", theme) },
     { id: "setup", labelText: "Setup" },
@@ -544,6 +554,10 @@ export function App() {
               )}
             </>
           )}
+          {tab === "work" && (
+            <AssignmentsTable plan={plan} theme={theme} onChanged={regenerate} />
+          )}
+
           {/* Where the big things stand. Its own screen rather than another card on the
               week: "am I going to make it" is a question about months, and answering it
               underneath a seven-day grid buries it. */}
