@@ -2484,3 +2484,718 @@ body[data-theme="mission"] .data-table tbody th {
   font-size: 0.9rem;
   color: var(--m-text);
 }
+
+/* ---------------------------------------------------------------------------
+ * Campaign radar
+ *
+ * The surface the term is planned from. Four weeks drawn as a half-plane sweep:
+ * distance is time, bearing is the day, size is the share of the course grade,
+ * and colour is whether enough time is booked -- and nothing else.
+ *
+ * Colour is never the only channel. Each state also carries a ring shape that
+ * survives greyscale and colour blindness, its word in the accessible name, and
+ * the same facts in the forecast list beside the board.
+ *
+ * Everything is positioned in percentages of a 980x520 box so the whole scope
+ * scales down with the column without any of the maths knowing about it.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  --glow-safe: rgba(95, 191, 143, 0.75);
+  --glow-watch: rgba(214, 180, 95, 0.75);
+  --glow-risk: rgba(214, 143, 95, 0.8);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --glow-safe: rgba(23, 121, 74, 0.55);
+    --glow-watch: rgba(138, 100, 16, 0.55);
+    --glow-risk: rgba(176, 69, 26, 0.6);
+  }
+}
+
+/* The one screen that breaks the app's 900px measure.
+ *
+ * 900px is right for prose and wrong for a scale: at that width four week arcs sit about
+ * fifty pixels apart, their labels collide into one grey smear, and a month of work lands
+ * inside a circle small enough that the pile-ups the board exists to reveal overlap into a
+ * single blob. The radar is a picture of a month, so it gets the room a month needs, and
+ * everything else on the page keeps the measure that suits it. */
+.radar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: min(1800px, calc(100vw - 3rem));
+  padding-inline: 0.25rem;
+  margin-left: 50%;
+  transform: translateX(-50%);
+}
+
+.radar-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.radar-head h2 {
+  margin: 0.15rem 0 0;
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+
+.radar-kicker {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.radar-stats {
+  display: flex;
+  gap: 1.75rem;
+  margin: 0;
+}
+
+.radar-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.radar-stats dt {
+  font-size: 0.65rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.radar-stats dd {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.radar-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.radar-toolbar-label,
+.radar-legend {
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.radar-horizon {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.radar-horizon button {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.radar-horizon button + button {
+  margin-left: -1px;
+}
+
+.radar-horizon button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+.radar-legend {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0 0 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.radar-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.radar-swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.radar-swatch.is-ok { background: var(--safe); }
+.radar-swatch.is-warn { background: var(--watch); }
+.radar-swatch.is-crit { background: var(--at-risk); }
+.radar-swatch.is-boss {
+  border-radius: 0;
+  background: var(--at-risk);
+  transform: rotate(45deg);
+}
+
+.radar-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+/* The board column: the sweep, and the whole term underneath it.
+ *
+ * The term map used to sit below the entire grid, which left a screen of empty space beside
+ * the dossier -- the dossier is the taller column, and nothing filled the gap. Under the
+ * scope it also reads better: "which week do I steal hours from" is the question you ask
+ * immediately after seeing that this week is oversubscribed. */
+.radar-board {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+/* Both columns may shrink. Without this the dossier's widest line -- an uppercased,
+   letter-spaced state word -- sets a floor the grid honours by pushing the panel past
+   the section's own right edge, where it is simply clipped. */
+.radar-body > * { min-width: 0; }
+
+/* The scope keeps a fixed aspect so every percentage below lands where the
+   projection put it, whatever size the column ends up with.
+ *
+ * Height drives width rather than the other way round. Sized from the column, a wide
+ * laptop gave a scope over a thousand pixels tall -- the outer rings fell below the fold,
+ * so the board could not be read at a glance, which is the entire claim it makes. Bounded
+ * by the viewport instead, it fills whatever screen it is given in both directions and
+ * never needs scrolling to be read. */
+.radar-scope {
+  position: relative;
+  height: min(74vh, 720px);
+  width: auto;
+  max-width: 100%;
+  margin-inline: auto;
+  aspect-ratio: 980 / 668;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.radar-grid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--text);
+}
+
+.radar-spoke { stroke: currentColor; stroke-opacity: 0.12; stroke-width: 1; }
+.radar-ring { fill: none; stroke: currentColor; stroke-opacity: 0.28; stroke-width: 1.5; }
+.radar-baseline { stroke: currentColor; stroke-opacity: 0.6; stroke-width: 2; }
+
+.radar-ring-label,
+.radar-day-label,
+.radar-you-label {
+  position: absolute;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.radar-ring-label {
+  background: var(--surface);
+  padding: 0 0.3rem;
+  transform: translate(-50%, -50%);
+}
+
+.radar-day-label { transform: translate(-50%, -50%); }
+
+/* The band below the baseline: work already past its date, drawn behind the student.
+   Dimmer than the sweep above it -- the past is context, the week ahead is the decision. */
+.radar-behind { opacity: 0.55; }
+
+.radar-behind-label {
+  position: absolute;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--at-risk);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.radar-you-label { transform: translateX(-50%); color: var(--text); }
+
+/* You are here. Above the markers, because a board six weeks into a term crowds the
+   origin and the one fixed point on it was ending up underneath the pile. */
+.radar-you {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  background: var(--text);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.radar-you-label {
+  z-index: 2;
+  padding: 0 0.3rem;
+  background: var(--surface);
+}
+
+/* --- Markers ------------------------------------------------------------- */
+
+.radar-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  background: var(--safe);
+  box-shadow: 0 0 14px var(--glow-safe);
+}
+
+.radar-marker.is-warn { background: var(--watch); box-shadow: 0 0 14px var(--glow-watch); }
+.radar-marker.is-crit { background: var(--at-risk); box-shadow: 0 0 18px var(--glow-risk); }
+
+/* The shape channel. A student who cannot separate amber from red -- or who is
+   looking at this in bright sun -- still sees one ring against two. */
+.radar-marker::before,
+.radar-marker::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.radar-marker.is-warn::before,
+.radar-marker.is-crit::before {
+  inset: -5px;
+  border: 1px solid currentColor;
+  opacity: 0.7;
+}
+
+.radar-marker.is-crit::after {
+  inset: -10px;
+  border: 1px solid currentColor;
+  opacity: 0.45;
+}
+
+.radar-marker.is-warn { color: var(--watch); }
+.radar-marker.is-crit { color: var(--at-risk); animation: radar-pulse 1.8s ease-in-out infinite; }
+
+.radar-marker.is-boss {
+  border-radius: 0;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--at-risk);
+  color: var(--at-risk);
+  box-shadow: 0 0 26px var(--glow-risk);
+  animation: radar-throb 1.4s ease-in-out infinite;
+}
+
+.radar-marker.is-boss::before {
+  inset: -6px;
+  border-radius: 0;
+  border: 2px solid currentColor;
+  animation: radar-shockwave 2.4s ease-out infinite;
+}
+
+.radar-marker.is-boss::after { content: none; }
+
+.radar-marker.is-distant { opacity: 0.35; box-shadow: none; }
+
+.radar-marker.is-active,
+.radar-marker:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 4px;
+}
+
+@keyframes radar-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.22); }
+}
+
+@keyframes radar-throb {
+  0%, 100% { transform: translate(-50%, -50%) rotate(45deg) scale(1); }
+  50% { transform: translate(-50%, -50%) rotate(45deg) scale(1.16); }
+}
+
+@keyframes radar-shockwave {
+  0% { transform: scale(0.8); opacity: 0.8; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+
+/* Nothing on this board moves for a reader who has asked for stillness. The
+   states stay legible without it: the rings carry them. */
+@media (prefers-reduced-motion: reduce) {
+  .radar-marker,
+  .radar-marker::before {
+    animation: none !important;
+  }
+}
+
+/* --- Hover card ---------------------------------------------------------- */
+
+.radar-tip {
+  position: absolute;
+  width: 15rem;
+  padding: 0.6rem 0.7rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.radar-tip p { margin: 0 0 0.35rem; }
+
+.radar-tip-kicker {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.radar-tip-title { font-size: 0.95rem; font-weight: 700; line-height: 1.25; }
+.radar-tip-meta { font-size: 0.78rem; color: var(--text-dim); }
+
+.radar-empty {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -50%);
+  max-width: 26rem;
+  margin: 0;
+  text-align: center;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+/* --- Dossier ------------------------------------------------------------- */
+
+.radar-dossier {
+  border-left: 1px solid var(--border);
+  padding-left: 1.25rem;
+  padding-right: 0.25rem;
+}
+
+.radar-dossier h3 {
+  margin: 0.4rem 0 0.2rem;
+  font-size: 1.15rem;
+  line-height: 1.2;
+}
+
+.radar-dossier h4 {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.radar-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+  margin: 1rem 0 0;
+}
+
+.radar-facts div { display: flex; flex-direction: column; gap: 0.15rem; }
+
+.radar-facts dt {
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.radar-facts dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.radar-prep { margin-top: 1rem; }
+
+.radar-prep-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 0.35rem;
+}
+
+.radar-prep-head strong.is-ok { color: var(--safe); }
+.radar-prep-head strong.is-warn { color: var(--watch); }
+.radar-prep-head strong.is-crit { color: var(--at-risk); }
+
+.radar-bar {
+  height: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.radar-bar span { display: block; height: 100%; }
+.radar-bar span.is-ok { background: var(--safe); }
+.radar-bar span.is-warn { background: var(--watch); }
+.radar-bar span.is-crit { background: var(--at-risk); }
+
+/* Prose, not chrome: this is the one sentence on the page that has to be read
+   rather than scanned, so it gets normal case, real leading and a measure. */
+.radar-advice {
+  margin: 0.9rem 0 0;
+  padding: 0.7rem 0.85rem;
+  max-width: 44ch;
+  background: var(--surface-2);
+  border-left: 3px solid var(--border);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.radar-advice.is-ok { border-left-color: var(--safe); }
+.radar-advice.is-warn { border-left-color: var(--watch); }
+.radar-advice.is-crit { border-left-color: var(--at-risk); }
+
+.radar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.radar-members {
+  list-style: none;
+  margin: 0.7rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.radar-members button {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+}
+
+.radar-forecast-head { margin-top: 1.5rem !important; padding-top: 1rem; border-top: 1px solid var(--border); }
+
+.radar-forecast {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+/* A term six weeks in can carry twenty past-due items. Unbounded, that one list decides
+   how tall the whole board is and leaves a screen of empty space beside the radar. */
+.radar-forecast.is-scroll {
+  max-height: 15rem;
+  overflow-y: auto;
+}
+
+.radar-forecast li + li { border-top: 1px solid var(--border); }
+
+.radar-forecast button {
+  display: grid;
+  grid-template-columns: 3.2rem 1fr auto;
+  gap: 0.6rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.45rem 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.radar-forecast-day {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.radar-forecast-title { font-size: 0.8rem; line-height: 1.3; }
+
+.radar-offboard { margin-top: 0.8rem; font-size: 0.78rem; line-height: 1.45; }
+
+/* --- Term map ------------------------------------------------------------ */
+
+.radar-term-map {
+  border-top: 1px solid var(--border);
+  padding-top: 0.9rem;
+}
+
+.radar-term-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.radar-term-head p { margin: 0; font-size: 0.72rem; }
+
+.radar-term-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  list-style: none;
+  margin: 0.8rem 0 0;
+  padding: 0;
+}
+
+.radar-term-bars li {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 3px;
+  min-width: 0;
+}
+
+.radar-term-flag {
+  height: 0.85rem;
+  font-size: 0.7rem;
+  line-height: 1;
+  text-align: center;
+  color: var(--at-risk);
+}
+
+.radar-term-bar { display: block; background: var(--text-dim); opacity: 0.55; }
+.radar-term-bars li.is-past .radar-term-bar { opacity: 0.25; }
+.radar-term-bars li.is-current .radar-term-bar { background: var(--accent); opacity: 1; }
+
+.radar-term-week {
+  font-size: 0.6rem;
+  text-align: center;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.radar-term-bars li.is-current .radar-term-week { color: var(--text); font-weight: 700; }
+
+/* --- The key ------------------------------------------------------------- */
+
+.radar-key summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.radar-key ul {
+  margin: 0.7rem 0 0;
+  padding-left: 1.1rem;
+  max-width: 68ch;
+}
+
+.radar-key li {
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 1100px) {
+  .radar-body { grid-template-columns: minmax(0, 1fr); }
+  .radar-dossier { border-left: 0; border-top: 1px solid var(--border); padding: 1rem 0 0; }
+  .radar-legend { margin-left: 0; }
+}
+
+/* --- Quest ---------------------------------------------------------------- */
+
+body[data-theme="quest"] {
+  --glow-safe: rgba(125, 187, 122, 0.6);
+  --glow-watch: rgba(232, 201, 90, 0.65);
+  --glow-risk: rgba(208, 132, 106, 0.7);
+}
+
+body[data-theme="quest"] .radar-scope {
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 100%, rgba(201, 162, 39, 0.07), transparent 65%),
+    var(--q-leather-2);
+  border-color: var(--q-gold-dim);
+}
+
+body[data-theme="quest"] .radar-head h2 {
+  color: var(--q-gold-bright);
+  letter-spacing: 0.03em;
+}
+
+body[data-theme="quest"] .radar-ring-label,
+body[data-theme="quest"] .radar-you-label { background: var(--q-leather-2); }
+
+/* --- Mission -------------------------------------------------------------- */
+
+body[data-theme="mission"] {
+  --glow-safe: var(--m-nv-glow);
+  --glow-watch: rgba(224, 183, 78, 0.5);
+  --glow-risk: rgba(224, 138, 92, 0.55);
+}
+
+body[data-theme="mission"] .radar-scope {
+  background:
+    radial-gradient(ellipse 80% 70% at 50% 100%, rgba(125, 240, 166, 0.06), transparent 60%),
+    var(--m-void);
+  border-color: var(--m-rule);
+}
+
+body[data-theme="mission"] .radar-head h2 {
+  color: var(--m-nv);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-shadow: 0 0 18px rgba(125, 240, 166, 0.3);
+}
+
+body[data-theme="mission"] .radar-grid { color: var(--m-nv); }
+body[data-theme="mission"] .radar-spoke { stroke-opacity: 0.14; }
+body[data-theme="mission"] .radar-ring { stroke-opacity: 0.3; }
+body[data-theme="mission"] .radar-ring-label { background: var(--m-void); color: var(--m-legend); }
+body[data-theme="mission"] .radar-you-label { background: var(--m-void); }
+body[data-theme="mission"] .radar-you { background: var(--m-nv); box-shadow: 0 0 12px var(--m-nv-glow); }
+
+/* Larger prose stays readable rather than styled: sentence case, real leading,
+   a measure. The chrome around it carries the theme. */
+body[data-theme="mission"] .radar-advice,
+body[data-theme="mission"] .radar-key li {
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--m-text);
+}

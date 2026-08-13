@@ -34,6 +34,7 @@ import { SyllabusUpload } from "./components/SyllabusUpload";
 import { SetupStatus } from "./components/SetupStatus";
 import { StopButton } from "./components/StopButton";
 import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
+import { CampaignRadar } from "./components/CampaignRadar";
 
 /**
  * App shell.
@@ -53,7 +54,7 @@ import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
  * make before they can fix a date their instructor just changed. A thing done every week gets a
  * door of its own, and correcting a date is not a "table view" preference.
  */
-type Tab = "today" | "week" | "work" | "stats" | "coach" | "setup";
+type Tab = "radar" | "today" | "week" | "work" | "stats" | "coach" | "setup";
 
 /** How the week is drawn. A peer of the map, not a fallback for it — the map answers what
  *  the student is working on, the calendar answers where the hours go. */
@@ -113,7 +114,15 @@ export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [term, setTerm] = useState<Term | null>(null);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
-  const [tab, setTab] = useState<Tab>("today");
+  /**
+   * The radar opens the app.
+   *
+   * Today answers "what do I do in the next hour", which is the right question once you have
+   * already decided the week is under control. Deciding that is the harder problem and the
+   * one nothing else here answered: the radar is where a student sees what is coming before
+   * choosing what to do about it, so it comes first and it comes up first.
+   */
+  const [tab, setTab] = useState<Tab>("radar");
   /**
    * Bumped by anything on Setup that saves, so the status panel re-reads.
    *
@@ -227,7 +236,20 @@ export function App() {
 
   const loadPlan = useCallback(async (termId: string) => {
     try {
-      const current = await api.get<PlanResponse>(`/api/terms/${termId}/plans/current`);
+      /**
+       * Read the plan as of another moment. **Development only, twice over**: the server
+       * ignores the parameter outright once a mail provider is configured, so a stray key in
+       * a real browser does nothing at all.
+       *
+       * It exists so the screenshot and simulation tools can look at a term from week nine.
+       * Every derived view on this page — the radar, health, the recommendation list — is
+       * "as of now", and without this they were all pinned to the wall clock however far the
+       * plan underneath them had been walked.
+       */
+      const devNow = localStorage.getItem("sq_dev_now");
+      const current = await api.get<PlanResponse>(
+        `/api/terms/${termId}/plans/current${devNow ? `?now=${encodeURIComponent(devNow)}` : ""}`,
+      );
       // No plan yet (fresh account, or the horizon has rolled over): generate the first one.
       if (!current.planVersion) {
         setPlan(await api.post<PlanResponse>(`/api/terms/${termId}/plans/generate`, {}));
@@ -318,6 +340,31 @@ export function App() {
     await loadPlan(term.id);
   }, [term, loadPlan]);
 
+  /**
+   * The radar's one action: put these items at the front of the queue and replan.
+   *
+   * A board that shows a shortfall and offers nothing to do about it hands the planning
+   * problem straight back, which is the whole thing this app is for. Raising the student's
+   * own priority is the honest lever — it is the field the scheduler already reads as "the
+   * student says this matters", and it survives every later replan rather than being a
+   * one-off nudge that quietly evaporates on Sunday.
+   */
+  const prioritize = useCallback(
+    async (workItemIds: string[]) => {
+      if (!term) return;
+      for (const id of workItemIds) {
+        await api.patch(`/api/work-items/${id}`, { userPriority: 2 });
+      }
+      await regenerate();
+    },
+    [term, regenerate],
+  );
+
+  const openWorkItem = useCallback(
+    (workItemId: string) => goTo("work", `work-item-${workItemId}`),
+    [goTo],
+  );
+
   async function changeTheme(next: ThemeName) {
     const { user } = await api.patch<{ user: Me }>("/api/me", { theme: next });
     setMe(user);
@@ -384,6 +431,7 @@ export function App() {
     );
 
   const tabs: { id: Tab; labelText: string }[] = [
+    { id: "radar", labelText: label("radar", theme) },
     { id: "today", labelText: "Today" },
     { id: "week", labelText: label("weekMap", theme) },
     { id: "work", labelText: `${label("assignment", theme)}s` },
@@ -426,6 +474,24 @@ export function App() {
         <p className="muted">Building your first plan…</p>
       ) : (
         <>
+          {tab === "radar" &&
+            (plan.radar ? (
+              <CampaignRadar
+                radar={plan.radar}
+                courses={plan.courses}
+                theme={theme}
+                termName={term.name}
+                onOpenWork={openWorkItem}
+                onPrioritize={prioritize}
+              />
+            ) : (
+              // The radar is built on saved-plan reads. A plan generated a moment ago in this
+              // session has not been read back yet, so say that rather than drawing an empty
+              // board that reads as "you have nothing due".
+              <p className="muted">
+                The radar comes up with your saved plan. Refresh, or generate a plan from Today.
+              </p>
+            ))}
           {tab === "today" && (
             <Today
               plan={plan}

@@ -6,6 +6,15 @@ import type {
   ThemeName,
   WorkItem,
 } from "@schoolquest/domain";
+import type { CampaignRadar, RadarEncounter } from "@schoolquest/planning-engine";
+
+/**
+ * The radar crosses the wire verbatim, so the view type is the engine's own rather than a
+ * hand-kept mirror of it. A mirror of twenty fields is a mirror that drifts, and every field
+ * here is a number the student reads off the screen.
+ */
+export type RadarEncounterView = RadarEncounter;
+export type CampaignRadarView = CampaignRadar;
 
 export interface Recommendation {
   rank: number;
@@ -362,6 +371,8 @@ export interface PlanResponse {
   review?: WeeklyReviewView;
   /** Present on saved-plan reads only. */
   health?: TermHealthView;
+  /** What is coming and whether time is set aside for it. Saved-plan reads only. */
+  radar?: CampaignRadarView;
   /** The rest of the week, so an hour calendar can account for every hour and not just
    *  the booked ones. Present on saved-plan reads only. */
   meetingPatterns?: MeetingPattern[];

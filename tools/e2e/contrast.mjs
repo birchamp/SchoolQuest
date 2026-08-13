@@ -259,7 +259,10 @@ const MEASURE = () => {
 };
 
 const TABS = [
-  ["today", null],
+  // The radar is the landing tab, so it needs no click. Everything after it does — a null
+  // matcher means "whatever is already on screen", not "Today".
+  ["radar", null],
+  ["today", /^today$/i],
   ["week", /week|map|board/i],
   ["stats", /progress|chronicle|readiness/i],
   ["coach", /coach|guide|handler/i],

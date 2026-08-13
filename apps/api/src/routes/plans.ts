@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { newId, toEpochMinutes } from "@schoolquest/domain";
 import {
+  buildCampaignRadar,
   buildSessionBrief,
   computeCourseHealth,
   computeCourseLoad,
@@ -183,6 +184,21 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
 
   if (!current) return c.json({ planVersion: null, sessions: [] });
 
+  /**
+   * The moment this plan is being read at. **Honoured only in local development**, gated on
+   * the same signal as the generate route's `now`.
+   *
+   * That route could already be walked across a term while this one could not, and the read
+   * side is where most of the derived views live: the radar, course health, project progress
+   * and the recommendation list are all "as of now" and all read the wall clock. Simulating a
+   * term therefore produced a correct plan for week nine and then showed it through week-one
+   * eyes, which looks like a bug in the views rather than in the clock.
+   */
+  const asOf =
+    !c.env.RESEND_API_KEY && c.req.query("now")
+      ? new Date(c.req.query("now")!).toISOString()
+      : new Date().toISOString();
+
   const sessions = (
     await db.select().from(workSessions).where(eq(workSessions.planVersionId, current.id))
   )
@@ -203,7 +219,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
   const open = sessions.filter((s) => s.status === "planned" || s.status === "started");
   const recommendations = selectRecommendedSessions(
     open,
-    toEpochMinutes(new Date().toISOString()),
+    toEpochMinutes(asOf),
   ).map(
     (session, index) => {
       const item = itemsById.get(session.workItemId);
@@ -242,7 +258,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     booked: snapshot.existingSessions
       .filter((s) => s.status === "planned" || s.status === "started")
       .map((s) => ({ workItemId: s.workItemId, minutes: minutesOf(s) })),
-    now: new Date().toISOString(),
+    now: asOf,
     // Health claims are measured against the student's real weekly study time, not against
     // how much this horizon happens to hold.
     weeklyCapacityMinutes: isCapacity(summary["capacity"]) ? summary["capacity"].availableMinutes : 0,
@@ -259,7 +275,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
       .filter((s) => s.status === "completed" || s.status === "partial")
       .map((s) => ({ workItemId: s.workItemId, endAt: s.endAt, minutes: minutesOf(s) })),
     capacityMinutes: isCapacity(summary["capacity"]) ? summary["capacity"].availableMinutes : 0,
-    now: new Date().toISOString(),
+    now: asOf,
   });
 
   // Which class needs me? Folded together here rather than on the client because it draws on
@@ -273,7 +289,36 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     standings: snapshot.standings,
     load: courseLoad.courses,
     projects: projectRows,
-    now: new Date().toISOString(),
+    now: asOf,
+  });
+
+  // What is coming, and whether time has been set aside for it. Built from the term's whole
+  // session history rather than the current horizon: the question the radar answers is about
+  // the next four weeks, and a seven-day window cannot see the exam at the far end of them.
+  //
+  // Time counts as banked whether it has been worked or is still standing on the calendar —
+  // three hours already spent on a paper prepare it exactly as much as three hours booked for
+  // Thursday. Missed, skipped and released blocks are not time; they are gone.
+  const bankedByItem: Record<string, number> = {};
+  for (const session of snapshot.existingSessions) {
+    if (
+      session.status !== "planned" &&
+      session.status !== "started" &&
+      session.status !== "completed" &&
+      session.status !== "partial"
+    ) {
+      continue;
+    }
+    bankedByItem[session.workItemId] =
+      (bankedByItem[session.workItemId] ?? 0) + minutesOf(session);
+  }
+  const radar = buildCampaignRadar({
+    workItems: snapshot.workItems,
+    gradingCategories: snapshot.gradingCategories,
+    bookedByItem: bankedByItem,
+    now: asOf,
+    termStartDate: snapshot.termStartDate,
+    termEndDate: snapshot.termEndDate,
   });
 
   const projects = {
@@ -310,7 +355,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
         ),
       })),
       workItems: snapshot.workItems,
-      now: new Date().toISOString(),
+      now: asOf,
       horizonStart: current.horizonStart,
       horizonDays: 7,
       ...(isCapacity(summary["capacity"])
@@ -325,6 +370,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     projects,
     courseLoad,
     health,
+    radar,
     // What the weeks that already happened have to say about the week being planned. Asked
     // here rather than on its own screen because the answer changes the plan, and a question
     // the student has to go looking for is a question nobody answers.

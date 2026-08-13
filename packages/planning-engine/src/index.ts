@@ -16,4 +16,5 @@ export * from "./effort-survey.js";
 export * from "./open-questions.js";
 export * from "./course-health.js";
 export * from "./course-gauges.js";
+export * from "./campaign-radar.js";
 export * from "./seed-input.js";

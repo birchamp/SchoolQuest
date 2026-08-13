@@ -31,7 +31,15 @@ export type LabelKey =
   | "dayShape"
   | "mealBreak"
   | "weekReview"
-  | "dashboard";
+  | "dashboard"
+  | "radar"
+  | "dossier"
+  | "threatTier"
+  | "bossEncounter"
+  | "termMap"
+  | "preparedFull"
+  | "preparedPartial"
+  | "preparedShort";
 
 type LabelSet = Record<ThemeName, string>;
 
@@ -71,6 +79,22 @@ export const LABELS: Record<LabelKey, LabelSet> = {
   weekReview: { quest: "Last session's recap", mission: "After-action review", plain: "How last week went" },
   /** Which class needs me — the one question no other screen answers. */
   dashboard: { quest: "The war table", mission: "Status board", plain: "What needs you" },
+  /**
+   * The surface the term is planned from: what is coming, and whether time is set aside.
+   *
+   * The three preparation labels are the one place metaphor is nearly absent on purpose.
+   * They are the meaning of every colour on the radar, and a student who has to translate
+   * "provisioned" before they can read the board has lost the thing the board is for. The
+   * plain column says it in the fewest words that are still true.
+   */
+  radar: { quest: "Campaign radar", mission: "Threat radar", plain: "Radar" },
+  dossier: { quest: "Field notes", mission: "Dossier", plain: "Details" },
+  threatTier: { quest: "Threat tier", mission: "Threat tier", plain: "Grade weight" },
+  bossEncounter: { quest: "Boss", mission: "Convergence", plain: "Pile-up" },
+  termMap: { quest: "Campaign map", mission: "Term map", plain: "The whole term" },
+  preparedFull: { quest: "Provisioned", mission: "Provisioned", plain: "Time booked" },
+  preparedPartial: { quest: "Under-planned", mission: "Under-planned", plain: "Short on time" },
+  preparedShort: { quest: "Critical", mission: "Critical", plain: "Far short" },
 };
 
 export function label(key: LabelKey, theme: ThemeName): string {

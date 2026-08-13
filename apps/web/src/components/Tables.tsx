@@ -256,7 +256,9 @@ export function AssignmentsTable({
           </thead>
           <tbody>
             {rows.map(({ item, course, type, effort, status }) => (
-              <tr key={item.id}>
+              // Anchored so the radar can send the reader straight to the row it is talking
+              // about rather than to the top of a table of forty.
+              <tr key={item.id} id={`work-item-${item.id}`}>
                 <th scope="row" style={{ fontWeight: 500 }}>
                   {/* Editable, because "the paper is now an annotated bibliography" is a thing
                       instructors say, and a title nobody can correct is one the student stops

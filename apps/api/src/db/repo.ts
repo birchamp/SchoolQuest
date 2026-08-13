@@ -115,6 +115,8 @@ export interface TermSnapshot {
   preferences: PlanningInput["preferences"];
   /** Last day of the term. Undated work is paced across what is left of it. */
   termEndDate: string;
+  /** First day of instruction. Week numbers on the term map are counted from it. */
+  termStartDate: string;
 }
 
 /**
@@ -296,6 +298,7 @@ export async function loadTermSnapshot(
     // Preferences are stored as JSON; parsing applies the schema defaults for missing keys.
     preferences: planningPreferences.parse(JSON.parse(termRow.planningPreferencesJson || "{}")),
     termEndDate: termRow.endDate,
+    termStartDate: termRow.startDate,
   };
 }
 

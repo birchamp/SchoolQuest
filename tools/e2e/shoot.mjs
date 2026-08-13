@@ -71,8 +71,12 @@ await page.evaluate((t) => localStorage.setItem("sq_session_token", t), sessionT
 await page.goto(APP, { waitUntil: "networkidle" });
 await page.waitForTimeout(1500);
 
+// The radar is the landing tab, so it needs no click; every other tab does. The first
+// entry used to be Today with a null matcher, which quietly meant "whatever loads first" —
+// after the radar took the landing slot that shot the radar and filed it as today.png.
 const tabs = [
-  ["today", null],
+  ["radar", null],
+  ["today", /^today$/i],
   ["week", /week|map|board/i],
   ["coach", /coach|guide|handler/i],
   ["setup", /setup/i],
@@ -123,7 +127,7 @@ for (const [name, matcher] of tabs) {
 // the same fixture-grinding trap the seeding block above already had to be fixed for, one
 // step further down the script. Set SQ_SHOOT_COMPLETION=1 when that frame is what you want.
 if (process.env.SQ_SHOOT_COMPLETION === "1") {
-  const todayTab = page.locator("nav.tabs button").first();
+  const todayTab = page.locator("nav.tabs button", { hasText: /^today$/i }).first();
   await todayTab.click();
   await page.waitForTimeout(700);
   const markDone = page.locator("button", { hasText: /^mark done$/i }).first();

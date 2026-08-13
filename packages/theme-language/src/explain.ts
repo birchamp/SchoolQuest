@@ -327,3 +327,65 @@ export function explainHealth(
   if (!entry) return { label: level, hint: "", plainLabel: level };
   return { ...entry[theme], plainLabel: entry.plain.label };
 }
+
+/**
+ * The one concrete instruction in the radar dossier.
+ *
+ * Sentences rather than a code because the whole panel exists to answer "so what do I do",
+ * and a student who has to translate a verdict into an action has been handed the planning
+ * problem back. The numbers are passed in already computed: nothing here does arithmetic,
+ * so the sentence and the bar beside it can never disagree.
+ */
+const ADVICE_TEXT: Record<
+  string,
+  Record<ThemeName, (facts: { shortfallHours: string; daysAway: number }) => string>
+> = {
+  OVERDUE: {
+    quest: () => "This one is past its date and still open. Settle it or strike it from the roll.",
+    mission: () => "Past its date and still open. Close it out or formally drop it.",
+    plain: () => "This is past due and still open. Finish it, or mark it dropped.",
+  },
+  NOT_YET_DUE_WORK: {
+    quest: () => "Far enough out that nothing is owed yet. It is on the map, not on your plate.",
+    mission: () => "Outside its working window. Tracked, not yet actionable.",
+    plain: () => "Too far out to have started. Nothing to do about this one yet.",
+  },
+  HOLD: {
+    quest: (f) =>
+      `Provisioned. Hold the blocks already on the calendar and this one resolves without a fight.${f.daysAway <= 1 ? " It lands tomorrow." : ""}`,
+    mission: (f) =>
+      `Provisioned. Hold the blocks already booked and this stays green.${f.daysAway <= 1 ? " It lands tomorrow." : ""}`,
+    plain: (f) =>
+      `Enough time is booked. Keep the sessions you have and this one is fine.${f.daysAway <= 1 ? " It is due tomorrow." : ""}`,
+  },
+  ONE_MORE_SESSION: {
+    quest: (f) => `Short by ${f.shortfallHours}. One more session this week closes the gap.`,
+    mission: (f) => `Short by ${f.shortfallHours}. One more block closes the gap.`,
+    plain: (f) => `You are ${f.shortfallHours} short. One more study session covers it.`,
+  },
+  BOOK_NOW: {
+    quest: (f) =>
+      `Short by ${f.shortfallHours} with ${f.daysAway <= 0 ? "no days" : `${f.daysAway} day${f.daysAway === 1 ? "" : "s"}`} left. Book the time now, or something else has to give.`,
+    mission: (f) =>
+      `Short by ${f.shortfallHours} with ${f.daysAway <= 0 ? "no days" : `${f.daysAway} day${f.daysAway === 1 ? "" : "s"}`} left. Book it now or stand something down.`,
+    plain: (f) =>
+      `You are ${f.shortfallHours} short with ${f.daysAway <= 0 ? "no days" : `${f.daysAway} day${f.daysAway === 1 ? "" : "s"}`} left. Book time now, or drop something else.`,
+  },
+  SPLIT_THE_BOSS: {
+    quest: (f) =>
+      `Two heavy things land the same day. Split the prep: start the one with the longer runway first, and book ${f.shortfallHours} before the week turns.`,
+    mission: (f) =>
+      `Two heavy tasks land the same day. Sequence the prep and book ${f.shortfallHours} before the week turns.`,
+    plain: (f) =>
+      `Two big things are due the same day. Start the one you can start earlier, and book ${f.shortfallHours} before the week ends.`,
+  },
+};
+
+export function explainRadarAdvice(
+  code: string,
+  theme: ThemeName,
+  facts: { shortfallHours: string; daysAway: number },
+): string {
+  const entry = ADVICE_TEXT[code];
+  return entry ? entry[theme](facts) : "";
+}
