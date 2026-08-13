@@ -118,8 +118,25 @@ export function CampaignRadar({
 }: Props) {
   const [weeks, setWeeks] = useState(4);
   const [activeId, setActiveId] = useState<string | null>(null);
+  /**
+   * The marker whose card is fixed in place.
+   *
+   * Separate from `activeId` because hovering must not disturb it. A pinned card carries
+   * buttons, and moving the pointer toward a button is exactly the gesture that would
+   * otherwise re-target the selection out from under it.
+   */
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const markerRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  const preview = (id: string) => {
+    if (pinnedId === null) setActiveId(id);
+  };
+  const pin = (id: string) => {
+    setActiveId(id);
+    setPinnedId((current) => (current === id ? null : id));
+  };
+  const unpin = () => setPinnedId(null);
 
   const courseName = useCallback(
     (id: string) => {
@@ -189,10 +206,21 @@ export function CampaignRadar({
     const next = placed[(index + step + placed.length) % placed.length];
     if (!next) return;
     setActiveId(next.encounter.id);
+    // Keyboard users have no hover, so a pinned card has to travel with the walk or it
+    // strands itself on a marker the reader has already left.
+    if (pinnedId !== null) setPinnedId(next.encounter.id);
     markerRefs.current.get(next.encounter.id)?.focus();
   };
 
   const onMarkerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, id: string) => {
+    // Escape has to be handled here as well as on the card. Focus stays on the marker when
+    // a card is pinned by keyboard -- the card is not in the tab order until you walk into
+    // it -- so a handler on the card alone never sees the key that is meant to dismiss it.
+    if (event.key === "Escape") {
+      event.preventDefault();
+      unpin();
+      return;
+    }
     if (event.key === "ArrowRight" || event.key === "ArrowDown") {
       event.preventDefault();
       walk(id, 1);
@@ -211,6 +239,7 @@ export function CampaignRadar({
     }
   };
 
+  const isPinned = pinnedId !== null && activeId === pinnedId;
   const tip = selected && activeId ? placed.find((p) => p.encounter.id === activeId) : undefined;
 
   return (
@@ -380,10 +409,11 @@ export function CampaignRadar({
                     width: `${at.size}px`,
                     height: `${at.size}px`,
                   }}
-                  onMouseEnter={() => setActiveId(encounter.id)}
-                  onFocus={() => setActiveId(encounter.id)}
+                  aria-expanded={pinnedId === encounter.id}
+                  onMouseEnter={() => preview(encounter.id)}
+                  onFocus={() => preview(encounter.id)}
                   onKeyDown={(e) => onMarkerKeyDown(e, encounter.id)}
-                  onClick={() => setActiveId(encounter.id)}
+                  onClick={() => pin(encounter.id)}
                 >
                   <span className="sr-only">
                     {encounter.title}. {courseLine(encounter, courseName)}. {dueWord(encounter)}.{" "}
@@ -394,18 +424,30 @@ export function CampaignRadar({
               );
             })}
 
+            {/* Hover previews; a click pins.
+                A card that appears under the pointer cannot hold a button — the moment you
+                set off toward it you leave the marker and it vanishes. So the hovering card
+                is inert and says so, and clicking the marker fixes it in place, at which
+                point it can carry the same two actions the dossier has. */}
             {tip && (
               <div
-                className="radar-tip"
+                className={`radar-tip${isPinned ? " is-pinned" : ""}`}
                 style={{
                   left: `${(tooltipPosition(tip.at).x / RADAR_VIEWBOX.width) * 100}%`,
                   top: `${(tooltipPosition(tip.at).y / RADAR_VIEWBOX.height) * 100}%`,
                 }}
-                aria-hidden="true"
+                // Pinned, it is real UI and screen readers should find it. Hovering, it is a
+                // duplicate of the marker's own accessible name and would only be noise.
+                aria-hidden={!isPinned}
+                role={isPinned ? "dialog" : undefined}
+                aria-label={isPinned ? tip.encounter.title : undefined}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") unpin();
+                }}
               >
                 <p className={`radar-tip-kicker ${HEALTH_CLASS[tip.encounter.health]}`}>
                   {tip.encounter.boss
-                    ? label("bossEncounter", theme)
+                    ? bossWord(tip.encounter, theme)
                     : `${courseLine(tip.encounter, courseName)} · ${TIER_WORD[tip.encounter.tier]}`}
                 </p>
                 <p className="radar-tip-title">{tip.encounter.title}</p>
@@ -414,6 +456,31 @@ export function CampaignRadar({
                   {hours(tip.encounter.hoursNeeded)} booked
                 </p>
                 <Bar coverage={tip.encounter.coverage} health={tip.encounter.health} />
+                {isPinned ? (
+                  <div className="radar-tip-actions">
+                    <button
+                      type="button"
+                      className="action primary"
+                      disabled={busy || tip.encounter.health === "ok"}
+                      onClick={() => void prioritize(tip.encounter)}
+                    >
+                      {busy ? "Replanning…" : "Book the time"}
+                    </button>
+                    <button
+                      type="button"
+                      className="action"
+                      onClick={() => onOpenWork(tip.encounter.memberIds[0]!)}
+                    >
+                      Open
+                    </button>
+                    <button type="button" className="radar-tip-close" onClick={unpin}>
+                      <span aria-hidden="true">×</span>
+                      <span className="sr-only">Close</span>
+                    </button>
+                  </div>
+                ) : (
+                  <p className="radar-tip-hint">Click to pin and act on it</p>
+                )}
               </div>
             )}
 
@@ -468,12 +535,12 @@ export function CampaignRadar({
               <h3>{selected.title}</h3>
               <p className="muted">
                 {courseLine(selected, courseName)}
-                {selected.boss && ` · ${selected.memberIds.length} together on one day`}
+                {selected.boss && ` · ${bossWord(selected, theme)}`}
               </p>
 
               <dl className="radar-facts">
                 <div>
-                  <dt>Due</dt>
+                  <dt>{selected.bossKind === "consecutive" ? "Run starts" : "Due"}</dt>
                   <dd>{dueWord(selected)}</dd>
                 </div>
                 <div>
@@ -656,6 +723,20 @@ function ForecastRow({
       </button>
     </li>
   );
+}
+
+/**
+ * What kind of pile-up this is, said in words.
+ *
+ * "Boss" alone does not distinguish the two, and they need different responses: one day
+ * oversubscribed is a deadline problem, a run of days is a runway problem.
+ */
+function bossWord(encounter: RadarEncounter, theme: ThemeName): string {
+  const base = label("bossEncounter", theme);
+  if (encounter.bossKind === "consecutive") {
+    return `${base} · ${encounter.bossSpanDays + 1} days back to back`;
+  }
+  return `${base} · ${encounter.memberIds.length} on one day`;
 }
 
 function courseLine(encounter: RadarEncounter, courseName: (id: string) => string): string {

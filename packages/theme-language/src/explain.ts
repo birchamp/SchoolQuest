@@ -371,6 +371,14 @@ const ADVICE_TEXT: Record<
     plain: (f) =>
       `You are ${f.shortfallHours} short with ${f.daysAway <= 0 ? "no days" : `${f.daysAway} day${f.daysAway === 1 ? "" : "s"}`} left. Book time now, or drop something else.`,
   },
+  STAGGER_THE_RUN: {
+    quest: (f) =>
+      `Heavy work on back-to-back days -- one run-up covers both, and clearing the first spends the night the second needed. Stagger the prep and bank ${f.shortfallHours} before the run starts.`,
+    mission: (f) =>
+      `Back-to-back heavy tasks share one prep window. Stagger the work and bank ${f.shortfallHours} before the first one lands.`,
+    plain: (f) =>
+      `These are due on back-to-back days, so there is no night in between to catch up. Start earlier and book ${f.shortfallHours} before the first one is due.`,
+  },
   SPLIT_THE_BOSS: {
     quest: (f) =>
       `Two heavy things land the same day. Split the prep: start the one with the longer runway first, and book ${f.shortfallHours} before the week turns.`,

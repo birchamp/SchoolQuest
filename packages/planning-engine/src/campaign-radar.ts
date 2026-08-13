@@ -67,13 +67,28 @@ export type RadarAdviceCode =
   /** Book time now or drop something else. */
   | "BOOK_NOW"
   /** Two heavy encounters on one day: the day is oversubscribed, not just the work. */
-  | "SPLIT_THE_BOSS";
+  | "SPLIT_THE_BOSS"
+  /** Heavy work on consecutive days: one shared run-up, and no recovery night between. */
+  | "STAGGER_THE_RUN";
 
 export interface RadarEncounter {
   /** A work item id, or `boss:<date>` for a merged encounter. */
   id: string;
-  /** True when two or more heavy items landing on one day were folded together. */
+  /** True when two or more heavy items sharing a prep window were folded together. */
   boss: boolean;
+  /**
+   * Which shape of pile-up this is. Null when it is not a merged encounter.
+   *
+   * They are different problems and need different advice. `same_day` means the day is
+   * oversubscribed and everything must be finished by it. `consecutive` means the *run* is
+   * oversubscribed: the pieces have separate dates but one shared run-up, and clearing the
+   * first one spends the evening the second one needed.
+   */
+  bossKind: "same_day" | "consecutive" | null;
+  /** Calendar days from the first member's due date to the last. Zero on a same-day pile. */
+  bossSpanDays: number;
+  /** When the last piece of the run lands. Equals `dueAt` for anything unmerged. */
+  lastDueAt: string;
   /** The work items behind this marker. A solo encounter lists only itself. */
   memberIds: string[];
   /** Every course involved, in the order the members are listed. */
@@ -195,6 +210,14 @@ const TIER_THRESHOLDS: readonly { tier: ThreatTier; minShare: number }[] = [
 const BOSS_TIER = 4;
 
 /**
+ * The largest gap between two heavy pieces that still counts as one fight.
+ *
+ * One day: consecutive dates share a prep window, two days apart do not. A weekend between
+ * a Friday and a Monday is deliberately not merged -- that is a run-up, not a collision.
+ */
+const BOSS_GAP_DAYS = 1;
+
+/**
  * Tier for work whose weight the syllabus never stated.
  *
  * Deliberately a coarse prior on the work type and nothing cleverer: guessing a percentage
@@ -278,11 +301,14 @@ function verdict(readiness: number, overdue: boolean): RadarHealth {
 function adviceFor(input: {
   health: RadarHealth;
   boss: boolean;
+  bossKind: "same_day" | "consecutive" | null;
   overdue: boolean;
   hoursExpected: number;
 }): RadarAdviceCode {
   if (input.overdue) return "OVERDUE";
-  if (input.boss && input.health !== "ok") return "SPLIT_THE_BOSS";
+  if (input.boss && input.health !== "ok") {
+    return input.bossKind === "consecutive" ? "STAGGER_THE_RUN" : "SPLIT_THE_BOSS";
+  }
   if (input.health === "ok") {
     return input.hoursExpected <= 0 ? "NOT_YET_DUE_WORK" : "HOLD";
   }
@@ -366,31 +392,58 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
     });
   }
 
-  // Heavy work landing on one day is a fight with the day, not with either assignment, and
-  // it usually has to be solved a week earlier than either piece suggests alone. Group by
-  // calendar date so the merge is about the day the student actually lives through.
-  const heavyByDate = new Map<string, Placed[]>();
-  for (const p of placed) {
-    if (p.tier < BOSS_TIER) continue;
-    const list = heavyByDate.get(p.dueDate);
-    if (list) list.push(p);
-    else heavyByDate.set(p.dueDate, [p]);
+  /**
+   * Heavy work clustered by the prep window it has to share.
+   *
+   * Two heavy things on one day are a fight with the day. Two on consecutive days are the
+   * same fight with a longer name: you get one run-up for both, and finishing Thursday's
+   * exam does not buy you an evening for Friday's paper — it spends the evening you had.
+   * Either way the shortfall the student must solve is the sum, and it has to be solved
+   * before the *first* of them, which is a week earlier than either piece suggests alone.
+   *
+   * So the merge runs over consecutive calendar days rather than over a single date. Three
+   * heavy pieces on Thursday, Friday and Saturday are one stretch and are drawn as one.
+   */
+  const heavy = placed
+    .filter((p) => p.tier >= BOSS_TIER)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.item.id.localeCompare(b.item.id));
+
+  const clusters: Placed[][] = [];
+  for (const p of heavy) {
+    const current = clusters[clusters.length - 1];
+    const previous = current?.[current.length - 1];
+    const gapDays = previous
+      ? (dateToEpochMinutes(p.dueDate) - dateToEpochMinutes(previous.dueDate)) / MINUTES_PER_DAY
+      : Infinity;
+    if (current && gapDays <= BOSS_GAP_DAYS) current.push(p);
+    else clusters.push([p]);
   }
 
   const merged = new Set<string>();
   const encounters: RadarEncounter[] = [];
+  /** Every date a merged cluster touches, so the term map flags each week it spans. */
+  const bossDates = new Set<string>();
 
-  for (const [date, group] of heavyByDate) {
-    if (group.length < 2) continue;
-    const members = [...group].sort((a, b) => a.item.id.localeCompare(b.item.id));
-    for (const m of members) merged.add(m.item.id);
+  for (const cluster of clusters) {
+    if (cluster.length < 2) continue;
+    const members = [...cluster].sort(
+      (a, b) => a.dueAt.localeCompare(b.dueAt) || a.item.id.localeCompare(b.item.id),
+    );
+    for (const m of members) {
+      merged.add(m.item.id);
+      bossDates.add(m.dueDate);
+    }
+
+    const first = members[0]!;
+    const last = members[members.length - 1]!;
+    const spanDays = Math.round(
+      (dateToEpochMinutes(last.dueDate) - dateToEpochMinutes(first.dueDate)) / MINUTES_PER_DAY,
+    );
 
     const minutesNeeded = members.reduce((sum, m) => sum + m.minutesNeeded, 0);
     const minutesBanked = members.reduce((sum, m) => sum + m.minutesBanked, 0);
-    // The nearest member sets the clock: the day is what is oversubscribed, and the day
-    // arrives when its earliest piece does.
-    const daysAway = Math.min(...members.map((m) => m.daysAway));
-    const distanceDays = Math.min(...members.map((m) => m.distanceDays));
+    // The earliest member sets the clock. The stretch arrives when its first piece does,
+    // and everything in it has to be paid for by then.
     const shares = members.map((m) => m.gradeShare);
     const gradeShare = shares.every((s) => s !== null)
       ? clamp01((shares as number[]).reduce((sum, s) => sum + s, 0))
@@ -399,16 +452,22 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
 
     encounters.push(
       measure({
-        id: `boss:${date}`,
+        id: `boss:${first.dueDate}`,
         boss: true,
+        bossKind: spanDays === 0 ? "same_day" : "consecutive",
+        bossSpanDays: spanDays,
+        lastDueAt: last.dueAt,
         memberIds: members.map((m) => m.item.id),
         courseIds: members.map((m) => m.item.courseId),
-        title: `${members.length}-front encounter: ${members.map((m) => m.item.title).join(" / ")}`,
+        title:
+          spanDays === 0
+            ? `${members.length} on one day: ${members.map((m) => m.item.title).join(" / ")}`
+            : `${members.length} back to back: ${members.map((m) => m.item.title).join(" / ")}`,
         workType: workTypes.size === 1 ? [...workTypes][0]! : "mixed",
-        dueAt: members.reduce((earliest, m) => (m.dueAt < earliest ? m.dueAt : earliest), members[0]!.dueAt),
-        dueDate: date,
-        daysAway,
-        distanceDays,
+        dueAt: first.dueAt,
+        dueDate: first.dueDate,
+        daysAway: first.daysAway,
+        distanceDays: first.distanceDays,
         minutesNeeded,
         minutesBanked,
         tier: 5,
@@ -443,7 +502,7 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
 
   const termWeeks = buildTermWeeks({
     workItems: open,
-    bossDates: new Set([...heavyByDate].filter(([, g]) => g.length >= 2).map(([date]) => date)),
+    bossDates,
     today: epochMinutesToDate(startOfToday),
     ...(input.termStartDate ? { termStartDate: input.termStartDate } : {}),
     ...(input.termEndDate ? { termEndDate: input.termEndDate } : {}),
@@ -465,6 +524,9 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
   function measure(base: {
     id: string;
     boss: boolean;
+    bossKind?: "same_day" | "consecutive";
+    bossSpanDays?: number;
+    lastDueAt?: string;
     memberIds: string[];
     courseIds: string[];
     title: string;
@@ -489,6 +551,9 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
     return {
       id: base.id,
       boss: base.boss,
+      bossKind: base.bossKind ?? null,
+      bossSpanDays: base.bossSpanDays ?? 0,
+      lastDueAt: base.lastDueAt ?? base.dueAt,
       memberIds: base.memberIds,
       courseIds: base.courseIds,
       title: base.title,
@@ -511,7 +576,13 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
       health,
       overdue,
       shortfallHours: roundTo(Math.max(0, hoursExpected - hoursBanked), 2),
-      advice: adviceFor({ health, boss: base.boss, overdue, hoursExpected }),
+      advice: adviceFor({
+        health,
+        boss: base.boss,
+        bossKind: base.bossKind ?? null,
+        overdue,
+        hoursExpected,
+      }),
     };
   }
 }

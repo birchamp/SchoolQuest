@@ -110,6 +110,23 @@ async function redeemLinkInUrl(): Promise<boolean> {
   }
 }
 
+/**
+ * A moment to read and plan the term from, other than now.
+ *
+ * **Development only, twice over**: the server ignores it outright once a mail provider is
+ * configured, so a stray key in a real browser does nothing at all. It exists so the
+ * screenshot and simulation tools can look at a term from week nine — every derived view is
+ * "as of now", and without it they stayed pinned to the wall clock however far the plan
+ * underneath them had been walked.
+ */
+function devNow(): string | null {
+  try {
+    return localStorage.getItem("sq_dev_now");
+  } catch {
+    return null;
+  }
+}
+
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [term, setTerm] = useState<Term | null>(null);
@@ -236,19 +253,9 @@ export function App() {
 
   const loadPlan = useCallback(async (termId: string) => {
     try {
-      /**
-       * Read the plan as of another moment. **Development only, twice over**: the server
-       * ignores the parameter outright once a mail provider is configured, so a stray key in
-       * a real browser does nothing at all.
-       *
-       * It exists so the screenshot and simulation tools can look at a term from week nine.
-       * Every derived view on this page — the radar, health, the recommendation list — is
-       * "as of now", and without this they were all pinned to the wall clock however far the
-       * plan underneath them had been walked.
-       */
-      const devNow = localStorage.getItem("sq_dev_now");
+      const when = devNow();
       const current = await api.get<PlanResponse>(
-        `/api/terms/${termId}/plans/current${devNow ? `?now=${encodeURIComponent(devNow)}` : ""}`,
+        `/api/terms/${termId}/plans/current${when ? `?now=${encodeURIComponent(when)}` : ""}`,
       );
       // No plan yet (fresh account, or the horizon has rolled over): generate the first one.
       if (!current.planVersion) {
@@ -334,8 +341,15 @@ export function App() {
    */
   const regenerate = useCallback(async () => {
     if (!term) return;
+    // The simulated clock has to reach the *write* side too, or a replan issued while
+    // looking at week nine plans week one: the horizon lands seven weeks behind everything
+    // on screen, every due date falls outside it, and the plan comes back empty. That is
+    // not a subtle failure and it made an end-to-end check of the radar's own action
+    // measure nothing at all. Ignored by the server in production, exactly as on the read.
+    const when = devNow();
     await api.post<PlanResponse>(`/api/terms/${term.id}/plans/generate`, {
       reason: "manual_refresh",
+      ...(when ? { now: when, horizonStart: when.slice(0, 10) } : {}),
     });
     await loadPlan(term.id);
   }, [term, loadPlan]);

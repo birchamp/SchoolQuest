@@ -318,6 +318,104 @@ describe("buildCampaignRadar", () => {
       });
       expect(radar.encounters.filter((e) => e.boss)).toHaveLength(0);
     });
+
+    describe("back to back", () => {
+      it("merges heavy work on consecutive days, not only on one day", () => {
+        // An exam Thursday and a paper Friday share one run-up: clearing the exam spends
+        // the evening the paper needed. Left separate, each looks survivable on its own.
+        const radar = run({
+          workItems: [
+            item({ id: "exam", workType: "exam", estimatedMinutes: 480, dueAt: dueIn(9) }),
+            item({ id: "paper", workType: "paper", estimatedMinutes: 600, dueAt: dueIn(10) }),
+          ],
+        });
+        const boss = radar.encounters.find((e) => e.boss)!;
+        expect(boss.memberIds).toEqual(["exam", "paper"]);
+        expect(boss.bossKind).toBe("consecutive");
+        expect(boss.bossSpanDays).toBe(1);
+        expect(boss.hoursNeeded).toBe(18);
+      });
+
+      it("sets the clock by the first piece, not the last", () => {
+        // The whole shortfall has to be paid before the run starts, so the marker sits on
+        // the day the run begins. Placing it on the last date buys a day nobody has.
+        const radar = run({
+          workItems: [
+            item({ id: "exam", workType: "exam", dueAt: dueIn(9) }),
+            item({ id: "paper", workType: "paper", dueAt: dueIn(10) }),
+          ],
+        });
+        const boss = radar.encounters.find((e) => e.boss)!;
+        expect(boss.daysAway).toBe(9);
+        expect(boss.lastDueAt).toBe(dueIn(10));
+      });
+
+      it("chains a three-day run into one fight", () => {
+        const radar = run({
+          workItems: [
+            item({ id: "a", workType: "exam", dueAt: dueIn(9) }),
+            item({ id: "b", workType: "paper", dueAt: dueIn(10) }),
+            item({ id: "c", workType: "presentation", dueAt: dueIn(11) }),
+          ],
+        });
+        const boss = radar.encounters.find((e) => e.boss)!;
+        expect(boss.memberIds).toHaveLength(3);
+        expect(boss.bossSpanDays).toBe(2);
+        expect(radar.encounters).toHaveLength(1);
+      });
+
+      it("leaves a two-day gap alone: that is a run-up, not a collision", () => {
+        const radar = run({
+          workItems: [
+            item({ id: "a", workType: "exam", dueAt: dueIn(9) }),
+            item({ id: "b", workType: "paper", dueAt: dueIn(11) }),
+          ],
+        });
+        expect(radar.encounters.filter((e) => e.boss)).toHaveLength(0);
+      });
+
+      it("tells the two shapes of pile-up apart in the advice", () => {
+        const sameDay = run({
+          workItems: [
+            item({ id: "a", workType: "exam", estimatedMinutes: 480, dueAt: dueIn(9) }),
+            item({ id: "b", workType: "paper", estimatedMinutes: 600, dueAt: dueIn(9, 20) }),
+          ],
+        }).encounters.find((e) => e.boss)!;
+        const run2 = run({
+          workItems: [
+            item({ id: "a", workType: "exam", estimatedMinutes: 480, dueAt: dueIn(9) }),
+            item({ id: "b", workType: "paper", estimatedMinutes: 600, dueAt: dueIn(10) }),
+          ],
+        }).encounters.find((e) => e.boss)!;
+        expect(sameDay.bossKind).toBe("same_day");
+        expect(sameDay.advice).toBe("SPLIT_THE_BOSS");
+        expect(run2.advice).toBe("STAGGER_THE_RUN");
+      });
+
+      it("flags every week a run touches, not just the week it starts in", () => {
+        // A Sunday-into-Monday run crosses a week boundary. Flagging only the first week
+        // tells a student the second week is clear when it is carrying half the fight.
+        const radar = run({
+          termStartDate: "2026-08-31",
+          termEndDate: "2026-12-11",
+          workItems: [
+            // Term weeks run Monday to Sunday from 2026-08-31, so this run is the Sunday
+            // ending week 3 and the Monday opening week 4.
+            item({ id: "a", workType: "exam", dueAt: dueIn(6) }),
+            item({ id: "b", workType: "paper", dueAt: dueIn(7) }),
+          ],
+        });
+        const flagged = radar.termWeeks.filter((w) => w.hasBoss).map((w) => w.weekNumber);
+        expect(flagged).toEqual([3, 4]);
+      });
+    });
+
+    it("leaves an unmerged encounter with no pile-up shape at all", () => {
+      const radar = run({ workItems: [item({ id: "a" })] });
+      expect(radar.encounters[0]!.bossKind).toBeNull();
+      expect(radar.encounters[0]!.bossSpanDays).toBe(0);
+      expect(radar.encounters[0]!.lastDueAt).toBe(radar.encounters[0]!.dueAt);
+    });
   });
 
   describe("the term map", () => {

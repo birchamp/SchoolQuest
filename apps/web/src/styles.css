@@ -2669,7 +2669,7 @@ body[data-theme="mission"] .data-table tbody th {
 .radar-swatch.is-crit { background: var(--at-risk); }
 .radar-swatch.is-boss {
   border-radius: 0;
-  background: var(--at-risk);
+  background: var(--text);
   transform: rotate(45deg);
 }
 
@@ -2825,15 +2825,26 @@ body[data-theme="mission"] .data-table tbody th {
 }
 
 .radar-marker.is-warn { color: var(--watch); }
-.radar-marker.is-crit { color: var(--at-risk); animation: radar-pulse 1.8s ease-in-out infinite; }
+.radar-marker.is-crit { color: var(--at-risk); }
 
+/* The pulse lives on the ring, never on the marker.
+ *
+ * Animating the marker's own transform made the click target physically move: it scaled
+ * between 1 and 1.22 forever, so hitting the thing that most needs hitting meant chasing
+ * it. Pseudo-elements do not take pointer events, so the same signal costs nothing to aim
+ * at -- which matters most for exactly the readers this app is for. */
+.radar-marker.is-crit::after { animation: radar-pulse 1.8s ease-in-out infinite; }
+
+/* A boss is a shape, not a colour.
+ *
+ * The prototype drew every merged encounter in the critical red, which was true of its
+ * fixtures and is not true in general -- a pile-up you have booked the hours for is
+ * provisioned, and painting it red says the one thing colour is not allowed to say here.
+ * The diamond and its shockwave carry "these arrived together"; the health class carries
+ * whether you are ready, exactly as it does for every other marker. */
 .radar-marker.is-boss {
   border-radius: 0;
   transform: translate(-50%, -50%) rotate(45deg);
-  background: var(--at-risk);
-  color: var(--at-risk);
-  box-shadow: 0 0 26px var(--glow-risk);
-  animation: radar-throb 1.4s ease-in-out infinite;
 }
 
 .radar-marker.is-boss::before {
@@ -2854,13 +2865,8 @@ body[data-theme="mission"] .data-table tbody th {
 }
 
 @keyframes radar-pulse {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); }
-  50% { transform: translate(-50%, -50%) scale(1.22); }
-}
-
-@keyframes radar-throb {
-  0%, 100% { transform: translate(-50%, -50%) rotate(45deg) scale(1); }
-  50% { transform: translate(-50%, -50%) rotate(45deg) scale(1.16); }
+  0%, 100% { transform: scale(1); opacity: 0.45; }
+  50% { transform: scale(1.35); opacity: 0.9; }
 }
 
 @keyframes radar-shockwave {
@@ -2872,7 +2878,8 @@ body[data-theme="mission"] .data-table tbody th {
    states stay legible without it: the rings carry them. */
 @media (prefers-reduced-motion: reduce) {
   .radar-marker,
-  .radar-marker::before {
+  .radar-marker::before,
+  .radar-marker::after {
     animation: none !important;
   }
 }
@@ -2886,8 +2893,50 @@ body[data-theme="mission"] .data-table tbody th {
   background: var(--surface-2);
   border: 1px solid var(--border);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  /* Inert while it is following the pointer. A card that appears under the cursor cannot
+     hold a button: setting off toward the button leaves the marker, and the card goes with
+     it. Clicking the marker pins the card, and only then does it accept the pointer. */
   pointer-events: none;
   z-index: 3;
+}
+
+.radar-tip.is-pinned {
+  pointer-events: auto;
+  border-width: 2px;
+  border-color: var(--accent);
+  z-index: 5;
+}
+
+.radar-tip-hint {
+  margin: 0.4rem 0 0 !important;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.radar-tip-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.radar-tip-actions .action {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.6rem;
+}
+
+.radar-tip-close {
+  margin-left: auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .radar-tip p { margin: 0 0 0.35rem; }

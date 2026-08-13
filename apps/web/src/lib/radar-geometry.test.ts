@@ -18,6 +18,9 @@ import type { RadarEncounterView } from "./types.js";
 
 const encounter = (over: Partial<RadarEncounterView> & { id: string }): RadarEncounterView => ({
   boss: false,
+  bossKind: null,
+  bossSpanDays: 0,
+  lastDueAt: "2026-09-17T12:00:00.000Z",
   memberIds: [over.id],
   courseIds: ["crs_1"],
   title: "Problem set",
@@ -289,5 +292,16 @@ describe("tooltipPosition", () => {
 
   it("never lets the card's own top edge be cut off", () => {
     expect(tooltipPosition({ x: 100, y: 0 }).y).toBeGreaterThanOrEqual(6);
+  });
+
+  it("keeps the card beside its marker, all the way down the overdue band", () => {
+    // The ceiling was a bare 300, from when the frame was 520 tall. Once the overdue band
+    // took it to 668, a card for a late marker parked halfway up the board pointing at
+    // nothing. It has to track the marker until the frame genuinely runs out.
+    for (const y of [200, 400, 500, 600]) {
+      const card = tooltipPosition({ x: 300, y });
+      expect(card.y).toBeLessThan(RADAR_VIEWBOX.height);
+      expect(Math.abs(card.y - y)).toBeLessThan(180);
+    }
   });
 });

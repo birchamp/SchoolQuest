@@ -279,6 +279,14 @@ export function tooltipPosition(projection: { x: number; y: number }): { x: numb
   const flip = projection.x > 660;
   return {
     x: Math.round(flip ? projection.x - 276 : projection.x + 22),
-    y: Math.round(Math.max(6, Math.min(projection.y - 18, 300))),
+    // Clamped against the frame it is actually drawn in. The ceiling used to be a bare 300,
+    // written when the box was 520 tall; once the overdue band made it 668, a card for a
+    // late marker was parked halfway up the board, no longer pointing at anything.
+    y: Math.round(
+      Math.max(6, Math.min(projection.y - 18, RADAR_VIEWBOX.height - TOOLTIP_HEIGHT)),
+    ),
   };
 }
+
+/** Enough room for the pinned card, which is the taller of the two states. */
+const TOOLTIP_HEIGHT = 200;
