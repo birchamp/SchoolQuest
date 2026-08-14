@@ -1,9 +1,10 @@
 import { Hono } from "hono";
-import { and, eq, gt, ne } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { newId, outcomeCode } from "@schoolquest/domain";
 import { auditEvents, courses, terms, workItems, workSessions } from "../db/schema.js";
 import { getDb, type Db } from "../db/repo.js";
+import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
 import type { AppBindings } from "../env.js";
 
 export const sessionsRoute = new Hono<AppBindings>();
@@ -90,8 +91,13 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
     remaining = 0;
   } else if (parsed.data.outcome === "did_not_start") {
     remaining = item.remainingMinutes; // Nothing happened; effort is unchanged.
-  } else if (remaining !== null) {
-    remaining = Math.max(0, remaining - actualMinutes);
+  } else {
+    // Seeded from the estimate when no remaining figure exists yet. Most items never have
+    // one until they are touched, and the old guard skipped them entirely -- so a partial
+    // session's minutes counted for nothing and the item still demanded its full estimate,
+    // which is the opposite of the learning signal this route exists to record (docs/04 §9).
+    const base = item.remainingMinutes ?? item.estimatedMinutes;
+    if (base !== null) remaining = Math.max(0, base - actualMinutes);
   }
 
   const itemStatus =
@@ -109,20 +115,8 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
   // Finishing the last stage finishes the project. Without this a decomposed paper would
   // sit at "5 of 5 stages cleared" and still report itself unfinished forever — the parent
   // has no blocks of its own to complete, because the scheduler plans through the stages.
-  if (itemStatus === "completed" && item.parentWorkItemId) {
-    const siblings = await db
-      .select({ id: workItems.id, status: workItems.status })
-      .from(workItems)
-      .where(eq(workItems.parentWorkItemId, item.parentWorkItemId));
-    const allDone = siblings.every(
-      (s) => s.id === item.id || s.status === "completed" || s.status === "submitted",
-    );
-    if (allDone) {
-      await db
-        .update(workItems)
-        .set({ status: "completed", remainingMinutes: 0 })
-        .where(eq(workItems.id, item.parentWorkItemId));
-    }
+  if (itemStatus === "completed") {
+    await completeParentIfDone(db, item);
   }
 
   // Finishing the work frees every block still held for it. Without this the interface
@@ -131,25 +125,7 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
   // that the week redraws itself around what is left was visibly false.
   let releasedSessions = 0;
   if (itemStatus === "completed") {
-    const released = await db
-      .update(workSessions)
-      .set({ status: "released" })
-      .where(
-        and(
-          eq(workSessions.workItemId, item.id),
-          eq(workSessions.status, "planned"),
-          ne(workSessions.id, id),
-          // Only time that is still ahead. Releasing means "this time is yours again", which
-          // is a statement about the future — yesterday cannot be given back. Without the
-          // bound, finishing a paper today rewrote every block the plan had held for it in
-          // weeks gone by, and the record of what those hours actually did was gone. The
-          // weekly review reads exactly that record, and a Tuesday afternoon that had plainly
-          // not been used disappeared out of it the moment an unrelated item was ticked off.
-          gt(workSessions.startAt, new Date().toISOString()),
-        ),
-      )
-      .returning({ id: workSessions.id });
-    releasedSessions = released.length;
+    releasedSessions = await releaseFutureSessions(db, item.id, { excludeSessionId: id });
   }
 
   await db.insert(auditEvents).values({
@@ -187,7 +163,9 @@ sessionsRoute.post("/work-sessions/:id/move", async (c) => {
   const db = getDb(c.env.DB);
   const parsed = moveBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-  if (parsed.data.endAt <= parsed.data.startAt) {
+  // Parsed, not compared as strings: both fields accept an offset, and "10:00+02:00"
+  // sorts after "09:00Z" lexicographically while being an hour before it.
+  if (Date.parse(parsed.data.endAt) <= Date.parse(parsed.data.startAt)) {
     return c.json({ error: "A session must end after it starts." }, 400);
   }
   if (!(await loadOwnedSession(db, c.req.param("id"), c.get("userId")))) {

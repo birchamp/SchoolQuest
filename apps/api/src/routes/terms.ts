@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, gt, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   COURSE_COLOR_TOKENS,
@@ -41,7 +41,6 @@ import {
   sourceDocuments,
   terms,
   workItems,
-  workSessions,
 } from "../db/schema.js";
 import {
   assertTermOwner,
@@ -50,6 +49,7 @@ import {
   loadTermSnapshot,
   serializeDays,
 } from "../db/repo.js";
+import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import type { AppBindings } from "../env.js";
 
@@ -1001,18 +1001,7 @@ termsRoute.patch("/work-items/:id", async (c) => {
   let releasedSessions = 0;
   if (finished && existing.item.status !== parsed.data.status) {
     patch["remainingMinutes"] = 0;
-    const released = await db
-      .update(workSessions)
-      .set({ status: "released" })
-      .where(
-        and(
-          eq(workSessions.workItemId, id),
-          eq(workSessions.status, "planned"),
-          gt(workSessions.startAt, new Date().toISOString()),
-        ),
-      )
-      .returning({ id: workSessions.id });
-    releasedSessions = released.length;
+    releasedSessions = await releaseFutureSessions(db, id);
   }
 
   // Drizzle throws on an empty SET, so a body of only unrecognised keys — which Zod strips
@@ -1022,6 +1011,13 @@ termsRoute.patch("/work-items/:id", async (c) => {
   }
 
   const [updated] = await db.update(workItems).set(patch).where(eq(workItems.id, id)).returning();
+
+  // Handing in the last live stage finishes the project, through this door exactly as
+  // through the session door. Only one of the two did this, so a paper handed in stage by
+  // stage from the table sat at "5 of 5 stages cleared" and still called itself unfinished.
+  if (finished) {
+    await completeParentIfDone(db, existing.item);
+  }
   return c.json({ workItem: updated, releasedSessions });
 });
 
