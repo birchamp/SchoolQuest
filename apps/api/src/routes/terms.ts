@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   COURSE_COLOR_TOKENS,
@@ -41,6 +41,7 @@ import {
   sourceDocuments,
   terms,
   workItems,
+  workSessions,
 } from "../db/schema.js";
 import {
   assertTermOwner,
@@ -973,6 +974,38 @@ termsRoute.patch("/work-items/:id", async (c) => {
   // A user edit is always confirmed, overriding whatever the extractor inferred.
   if (parsed.data.dueAt !== undefined) patch["sourceConfidence"] = "confirmed";
 
+  /**
+   * Finishing work here frees the blocks still held for it, exactly as finishing a session
+   * does.
+   *
+   * Saying "I handed this in" and completing a study block are two doors onto the same
+   * fact, and only one of them used to close. Through this one the item went quiet while
+   * the week went on holding three more sessions of it: the plan announced the assignment
+   * done and the forecast below it went on booking time, which is the same contradiction
+   * `POST /work-sessions/:id/complete` already carries a paragraph about.
+   *
+   * Only time still ahead. Releasing means "this time is yours again", which is a claim
+   * about the future -- yesterday cannot be given back, and the weekly review reads those
+   * past blocks as the record of what the hours actually did.
+   */
+  const finished = parsed.data.status === "completed" || parsed.data.status === "submitted";
+  let releasedSessions = 0;
+  if (finished && existing.item.status !== parsed.data.status) {
+    patch["remainingMinutes"] = 0;
+    const released = await db
+      .update(workSessions)
+      .set({ status: "released" })
+      .where(
+        and(
+          eq(workSessions.workItemId, id),
+          eq(workSessions.status, "planned"),
+          gt(workSessions.startAt, new Date().toISOString()),
+        ),
+      )
+      .returning({ id: workSessions.id });
+    releasedSessions = released.length;
+  }
+
   // Drizzle throws on an empty SET, so a body of only unrecognised keys — which Zod strips
   // rather than rejecting — came back as a 500 rather than as the no-op it is.
   if (Object.keys(patch).length === 0) {
@@ -980,7 +1013,7 @@ termsRoute.patch("/work-items/:id", async (c) => {
   }
 
   const [updated] = await db.update(workItems).set(patch).where(eq(workItems.id, id)).returning();
-  return c.json({ workItem: updated });
+  return c.json({ workItem: updated, releasedSessions });
 });
 
 const dependencyBody = z.object({

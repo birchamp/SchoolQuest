@@ -2,6 +2,7 @@ import type {
   AvailabilityRule,
   Commitment,
   Course,
+  GradeResult,
   MeetingPattern,
   ThemeName,
   WorkItem,
@@ -359,6 +360,8 @@ export interface PlanResponse {
   courses: Course[];
   workItems: WorkItem[];
   standings: Record<string, CourseStandingView>;
+  /** Results already recorded. Absent from the "no plan yet" response. */
+  grades?: GradeResult[];
   /** Absent only from the "no plan yet" response, which carries no courses either. */
   progress?: TermProgressView;
   /** Present on saved-plan reads; the generate response does not build one. */

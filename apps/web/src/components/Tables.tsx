@@ -49,6 +49,17 @@ function courseLabel(course: Course | undefined): string {
     : course.name;
 }
 
+/**
+ * The course code alone, where a column has to stay narrow.
+ *
+ * Spelled out in the assignments table, "United States History to 1877 (HIS 210)" wrapped
+ * over five lines in every row and pushed that row's own controls off the right of the
+ * table. The full name is still there, on the cell's title.
+ */
+function shortCourse(course: Course | undefined): string {
+  return course?.code ?? course?.name ?? "—";
+}
+
 /** A column header that sorts, and says which way it is sorting. */
 function SortHeader<K extends string>({
   column,
@@ -109,11 +120,19 @@ function compare(a: unknown, b: unknown): number {
 type AssignmentKey = "title" | "course" | "type" | "due" | "effort" | "status";
 
 /**
- * Every piece of work in the term, and the only place a date can be put right.
+ * Every piece of work in the term: the only place a date can be put right, the only place
+ * to say a thing is handed in, and where its score is written down whenever it comes back.
  *
- * Extraction reads dates out of a syllabus and is sometimes wrong; until now nothing in the
- * interface could change one. A plan built on a wrong date is wrong in a way the student
+ * Extraction reads dates out of a syllabus and is sometimes wrong; nothing else in the
+ * interface can change one. A plan built on a wrong date is wrong in a way the student
  * cannot see — the block simply sits in the wrong week — so this is not a convenience.
+ *
+ * The other two belong here for the same reason. Finishing work could only be said by
+ * completing a *study block*, which is a different claim: work gets handed in during a
+ * lecture, on a phone, in a session nobody booked, or after an evening that was never on
+ * the plan. And the result usually lands weeks after the hand-in, by which time the student
+ * is not looking at anything to do with that assignment — so the row that knows about it
+ * has to be the row that accepts it.
  */
 export function AssignmentsTable({
   plan,
@@ -130,17 +149,43 @@ export function AssignmentsTable({
   const [error, setError] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [titles, setTitles] = useState<Record<string, string>>({});
+  const [scores, setScores] = useState<Record<string, { earned: string; outOf: string }>>({});
   const [showDone, setShowDone] = useState(false);
   const [adding, setAdding] = useState(false);
+
+  /**
+   * Which items already carry a result, and what it was.
+   *
+   * A grade is its own record, not a field on the item: work can sit handed in for weeks
+   * with nothing against it, which is the whole gap the score box fills. Without this the
+   * row would go on asking for a number the student had already given it.
+   */
+  const gradedIds = useMemo(
+    () => new Set((plan.grades ?? []).map((g) => g.workItemId)),
+    [plan.grades],
+  );
+  const gradesByItem = useMemo(
+    () => new Map((plan.grades ?? []).map((g) => [g.workItemId, g])),
+    [plan.grades],
+  );
 
   const rows = useMemo(() => {
     const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
     const list = plan.workItems
-      .filter((w) => showDone || (w.status !== "completed" && w.status !== "canceled"))
+      // Handed-in work stays on the list by default: it is the one finished state with
+      // something still owed on it -- a result -- and hiding it is how a score never gets
+      // written down. It drops off once the grade is in.
+      .filter(
+        (w) =>
+          showDone ||
+          (w.status === "submitted" && !gradedIds.has(w.id)) ||
+          (w.status !== "completed" && w.status !== "submitted" && w.status !== "canceled"),
+      )
       .map((item) => ({
         item,
         title: item.title,
         course: courseLabel(coursesById.get(item.courseId)),
+        code: shortCourse(coursesById.get(item.courseId)),
         type: item.workType.replace(/_/g, " "),
         due: item.dueAt,
         effort: item.remainingMinutes ?? item.estimatedMinutes,
@@ -152,7 +197,33 @@ export function AssignmentsTable({
       return sort.desc ? -r : r;
     });
     return list;
-  }, [plan.workItems, plan.courses, sort, showDone]);
+  }, [plan.workItems, plan.courses, sort, showDone, gradedIds]);
+
+  async function saveScore(item: WorkItem) {
+    const entry = scores[item.id];
+    const earned = Number(entry?.earned);
+    // Falls back to whatever the syllabus said the thing was out of, which is usually right
+    // and always editable -- an instructor who marks a 20-point quiz out of 25 is ordinary.
+    const outOf = Number(entry?.outOf || item.pointsPossible || NaN);
+    if (!Number.isFinite(earned) || !Number.isFinite(outOf) || outOf <= 0) {
+      setError("A score needs a number, and a total to be out of.");
+      return;
+    }
+    setBusy(item.id);
+    setError(null);
+    try {
+      await api.put(`/api/work-items/${item.id}/grade`, {
+        pointsEarned: earned,
+        pointsPossible: outOf,
+      });
+      setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function saveDate(item: WorkItem, value: string) {
     setBusy(item.id);
@@ -187,14 +258,18 @@ export function AssignmentsTable({
   }
 
   /**
-   * Skipping is a status, never a delete.
+   * Skipping is a status, never a delete. So is handing something in.
    *
    * "We are not doing chapter 7" is a fact about this term that can be reversed next week, and a
    * row that vanishes takes its history with it -- what it was worth, what was already done
    * against it, whether it was ever graded. `canceled` keeps the record and takes it out of the
    * plan, and "Show finished too" is how it is found again.
+   *
+   * `submitted` is the same move for the opposite reason: the work is gone from the student's
+   * hands but not from the term, because a result is still owed on it. The API releases the
+   * blocks still held for it, the same way finishing a study session does.
    */
-  async function setStatus(item: WorkItem, status: "canceled" | "not_started") {
+  async function setStatus(item: WorkItem, status: "canceled" | "not_started" | "submitted") {
     setBusy(item.id);
     setError(null);
     try {
@@ -208,7 +283,7 @@ export function AssignmentsTable({
   }
 
   return (
-    <section className="card" aria-labelledby="assignments-table-heading">
+    <section className="card wide-card" aria-labelledby="assignments-table-heading">
       <h2 id="assignments-table-heading">
         <span aria-hidden="true">{quest ? "Every task on the books" : "All assignments"}</span>
         <span className="sr-only">All assignments</span>
@@ -255,7 +330,7 @@ export function AssignmentsTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ item, course, type, effort, status }) => (
+            {rows.map(({ item, course, code, type, effort, status }) => (
               // Anchored so the radar can send the reader straight to the row it is talking
               // about rather than to the top of a table of forty.
               <tr key={item.id} id={`work-item-${item.id}`}>
@@ -283,7 +358,9 @@ export function AssignmentsTable({
                     </span>
                   )}
                 </th>
-                <td>{course}</td>
+                <td style={{ whiteSpace: "nowrap" }} title={course}>
+                  {code}
+                </td>
                 <td style={{ textTransform: "capitalize" }}>{type}</td>
                 <td>
                   <label>
@@ -306,9 +383,80 @@ export function AssignmentsTable({
                 <td style={{ textAlign: "right" }}>
                   {effort === null ? <span className="muted">—</span> : formatMinutes(effort)}
                 </td>
-                <td style={{ textTransform: "capitalize" }}>{status}</td>
-                <td style={{ textAlign: "right" }}>
-                  {item.status === "canceled" ? (
+                <td style={{ textTransform: "capitalize" }}>
+                  {status}
+                  {/* The result, once it exists. Shown rather than re-asked: a row that goes
+                      on offering an empty score box after the number is in reads as though
+                      nothing was saved. */}
+                  {gradesByItem.get(item.id)?.pointsEarned != null && (
+                    <span className="muted" style={{ display: "block", fontSize: "0.74rem" }}>
+                      scored {gradesByItem.get(item.id)!.pointsEarned} /{" "}
+                      {gradesByItem.get(item.id)!.pointsPossible}
+                    </span>
+                  )}
+                </td>
+                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                  {/* Handed in and still waiting on a result: the only thing left to do with
+                      this row is write the number down, so that is the only control it
+                      offers. Weeks can pass here, which is why it stays on the list. */}
+                  {item.status === "submitted" && !gradedIds.has(item.id) ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void saveScore(item);
+                      }}
+                      style={{ display: "inline-flex", gap: "0.25rem", alignItems: "center" }}
+                    >
+                      <label>
+                        <span className="sr-only">Points earned on {item.title}</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          inputMode="decimal"
+                          placeholder="score"
+                          style={{ width: "4.5rem" }}
+                          disabled={busy === item.id}
+                          value={scores[item.id]?.earned ?? ""}
+                          onChange={(e) =>
+                            setScores((prev) => ({
+                              ...prev,
+                              [item.id]: {
+                                earned: e.target.value,
+                                outOf: prev[item.id]?.outOf ?? "",
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <span aria-hidden="true">/</span>
+                      <label>
+                        <span className="sr-only">Out of, for {item.title}</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          inputMode="decimal"
+                          placeholder={item.pointsPossible ? String(item.pointsPossible) : "total"}
+                          style={{ width: "4.5rem" }}
+                          disabled={busy === item.id}
+                          value={scores[item.id]?.outOf ?? ""}
+                          onChange={(e) =>
+                            setScores((prev) => ({
+                              ...prev,
+                              [item.id]: {
+                                earned: prev[item.id]?.earned ?? "",
+                                outOf: e.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <button className="action" type="submit" disabled={busy === item.id}>
+                        Save
+                      </button>
+                    </form>
+                  ) : item.status === "canceled" ? (
                     <button
                       className="action"
                       disabled={busy === item.id}
@@ -316,15 +464,27 @@ export function AssignmentsTable({
                     >
                       Put back
                     </button>
+                  ) : item.status === "completed" ? (
+                    <span className="muted">done</span>
                   ) : (
-                    <button
-                      className="action"
-                      disabled={busy === item.id}
-                      onClick={() => void setStatus(item, "canceled")}
-                      title="Takes it out of the plan and keeps the record"
-                    >
-                      Skip
-                    </button>
+                    <>
+                      <button
+                        className="action"
+                        disabled={busy === item.id}
+                        onClick={() => void setStatus(item, "submitted")}
+                        title="Frees the study time still booked for it; the score can wait"
+                      >
+                        Handed in
+                      </button>{" "}
+                      <button
+                        className="action"
+                        disabled={busy === item.id}
+                        onClick={() => void setStatus(item, "canceled")}
+                        title="Takes it out of the plan and keeps the record"
+                      >
+                        Skip
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>

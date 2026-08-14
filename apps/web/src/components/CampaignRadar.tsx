@@ -68,6 +68,8 @@ interface Props {
   onOpenWork: (workItemId: string) => void;
   /** Put these items at the front of the queue and replan. */
   onPrioritize: (workItemIds: string[]) => Promise<void>;
+  /** Say these are handed in. The score can be written down whenever it comes back. */
+  onHandIn: (workItemIds: string[]) => Promise<void>;
 }
 
 const HORIZONS = [1, 2, 3, 4] as const;
@@ -115,6 +117,7 @@ export function CampaignRadar({
   termName,
   onOpenWork,
   onPrioritize,
+  onHandIn,
 }: Props) {
   const [weeks, setWeeks] = useState(4);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -234,6 +237,18 @@ export function CampaignRadar({
     setBusy(true);
     try {
       await onPrioritize(encounter.memberIds);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handIn = async (encounter: RadarEncounter) => {
+    setBusy(true);
+    try {
+      await onHandIn(encounter.memberIds);
+      // The marker is about to leave the board, so nothing should still be pinned to it.
+      setPinnedId(null);
+      setActiveId(null);
     } finally {
       setBusy(false);
     }
@@ -595,6 +610,17 @@ export function CampaignRadar({
                   onClick={() => onOpenWork(selected.memberIds[0]!)}
                 >
                   Open {label("assignment", theme).toLowerCase()}
+                </button>
+                {/* The other way an encounter leaves the board, and the commoner one: it is
+                    done. Saying so here frees the study time still booked for it, and the
+                    result -- which can be weeks behind -- is written down in the table. */}
+                <button
+                  type="button"
+                  className="action"
+                  disabled={busy}
+                  onClick={() => void handIn(selected)}
+                >
+                  {selected.boss ? "Both handed in" : "Handed in"}
                 </button>
               </div>
 

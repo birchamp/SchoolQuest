@@ -374,6 +374,24 @@ export function App() {
     [term, regenerate],
   );
 
+  /**
+   * "I handed this in", said from wherever the student happens to be looking.
+   *
+   * A separate call per item rather than one bulk route: a merged encounter is a display
+   * grouping, not an entity, and the two assignments behind it are handed in independently
+   * even when they were drawn as one diamond.
+   */
+  const handIn = useCallback(
+    async (workItemIds: string[]) => {
+      if (!term) return;
+      for (const id of workItemIds) {
+        await api.patch(`/api/work-items/${id}`, { status: "submitted" });
+      }
+      await regenerate();
+    },
+    [term, regenerate],
+  );
+
   const openWorkItem = useCallback(
     (workItemId: string) => goTo("work", `work-item-${workItemId}`),
     [goTo],
@@ -497,6 +515,7 @@ export function App() {
                 termName={term.name}
                 onOpenWork={openWorkItem}
                 onPrioritize={prioritize}
+                onHandIn={handIn}
               />
             ) : (
               // The radar is built on saved-plan reads. A plan generated a moment ago in this

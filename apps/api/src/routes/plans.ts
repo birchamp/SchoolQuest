@@ -382,6 +382,10 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     courses: snapshot.courses,
     workItems: snapshot.workItems,
     standings: snapshot.standings,
+    // Which work already carries a result. The standings summarise them, but a screen that
+    // offers to record a score has to know which rows already have one, or it invites the
+    // student to enter the same grade twice and shows them nothing they already told it.
+    grades: snapshot.grades,
     // The rest of the week: classes, shifts, and the hours the student said they are free.
     // Study blocks alone cannot answer "where does my time actually go" — a calendar showing
     // only what the planner booked leaves the other five-sixths of the week blank, which
