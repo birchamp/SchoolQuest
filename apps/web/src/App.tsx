@@ -366,10 +366,17 @@ export function App() {
   const prioritize = useCallback(
     async (workItemIds: string[]) => {
       if (!term) return;
-      for (const id of workItemIds) {
-        await api.patch(`/api/work-items/${id}`, { userPriority: 2 });
+      // Surfaced through the shell's own error line: these are fired from buttons whose
+      // component resets its busy state in a `finally`, so a rejection that escapes here
+      // would reach nothing but the console and the button would simply appear not to work.
+      try {
+        for (const id of workItemIds) {
+          await api.patch(`/api/work-items/${id}`, { userPriority: 2 });
+        }
+        await regenerate();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "That did not save.");
       }
-      await regenerate();
     },
     [term, regenerate],
   );
@@ -384,10 +391,14 @@ export function App() {
   const handIn = useCallback(
     async (workItemIds: string[]) => {
       if (!term) return;
-      for (const id of workItemIds) {
-        await api.patch(`/api/work-items/${id}`, { status: "submitted" });
+      try {
+        for (const id of workItemIds) {
+          await api.patch(`/api/work-items/${id}`, { status: "submitted" });
+        }
+        await regenerate();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "That did not save.");
       }
-      await regenerate();
     },
     [term, regenerate],
   );

@@ -202,9 +202,11 @@ export function AssignmentsTable({
   async function saveScore(item: WorkItem) {
     const entry = scores[item.id];
     const earned = Number(entry?.earned);
-    // Falls back to whatever the syllabus said the thing was out of, which is usually right
-    // and always editable -- an instructor who marks a 20-point quiz out of 25 is ordinary.
-    const outOf = Number(entry?.outOf || item.pointsPossible || NaN);
+    // An *empty* total falls back to what the syllabus said the thing was out of, which is
+    // usually right and always editable. Only empty: `||` would also swallow a typed "0",
+    // and silently grading 42/100 when the student wrote 42/0 is worse than the error.
+    const outOfTyped = (entry?.outOf ?? "").trim();
+    const outOf = outOfTyped === "" ? (item.pointsPossible ?? NaN) : Number(outOfTyped);
     if (!Number.isFinite(earned) || !Number.isFinite(outOf) || outOf <= 0) {
       setError("A score needs a number, and a total to be out of.");
       return;
@@ -454,6 +456,15 @@ export function AssignmentsTable({
                       </label>
                       <button className="action" type="submit" disabled={busy === item.id}>
                         Save
+                      </button>
+                      <button
+                        className="action"
+                        type="button"
+                        disabled={busy === item.id}
+                        onClick={() => void setStatus(item, "not_started")}
+                        title="Not handed in after all; puts its study time back on the plan"
+                      >
+                        Not yet
                       </button>
                     </form>
                   ) : item.status === "canceled" ? (

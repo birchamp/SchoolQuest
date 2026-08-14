@@ -135,6 +135,11 @@ export function CampaignRadar({
   const preview = (id: string) => {
     if (pinnedId === null) setActiveId(id);
   };
+  /** An explicit choice: moves the selection, and carries any pin along with it. */
+  const select = (id: string) => {
+    setActiveId(id);
+    if (pinnedId !== null) setPinnedId(id);
+  };
   const pin = (id: string) => {
     setActiveId(id);
     setPinnedId((current) => (current === id ? null : id));
@@ -651,7 +656,8 @@ export function CampaignRadar({
                     encounter={encounter}
                     day={`${Math.abs(encounter.daysAway)}d`}
                     courseName={courseName}
-                    onPick={setActiveId}
+                    onPick={preview}
+                    onCommit={select}
                   />
                 ))}
               </ul>
@@ -666,7 +672,8 @@ export function CampaignRadar({
                 encounter={encounter}
                 day={encounter.daysAway === 0 ? "Today" : weekdayName(encounter.dayOfWeek)}
                 courseName={courseName}
-                onPick={setActiveId}
+                onPick={preview}
+                onCommit={select}
               />
             ))}
             {upcoming.length === 0 && (
@@ -725,11 +732,16 @@ function ForecastRow({
   day,
   courseName,
   onPick,
+  onCommit,
 }: {
   encounter: RadarEncounter;
   day: string;
   courseName: (id: string) => string;
+  /** Hover and focus: a glance. Deferential — never disturbs a pinned card. */
   onPick: (id: string) => void;
+  /** Click: a choice. Moves the selection, and the pin with it, exactly as the arrow-key
+   *  walk does — a pinned card that ignores an explicit click reads as a frozen screen. */
+  onCommit: (id: string) => void;
 }) {
   return (
     <li>
@@ -737,7 +749,7 @@ function ForecastRow({
         type="button"
         onMouseEnter={() => onPick(encounter.id)}
         onFocus={() => onPick(encounter.id)}
-        onClick={() => onPick(encounter.id)}
+        onClick={() => onCommit(encounter.id)}
       >
         <span className="radar-forecast-day">{day}</span>
         <span className="radar-forecast-title">

@@ -989,6 +989,15 @@ termsRoute.patch("/work-items/:id", async (c) => {
    * past blocks as the record of what the hours actually did.
    */
   const finished = parsed.data.status === "completed" || parsed.data.status === "submitted";
+  const wasFinished =
+    existing.item.status === "completed" || existing.item.status === "submitted";
+  // Reopening restores the effort estimate. Handing in zeroes remainingMinutes, and a
+  // status change alone must not leave that zero behind: an item put back with zero
+  // remaining looks finished to the scheduler forever, so a mis-click on "Handed in"
+  // would be a one-way door. Null hands the estimate back to `estimatedMinutes`.
+  if (!finished && wasFinished && parsed.data.status !== undefined) {
+    patch["remainingMinutes"] = null;
+  }
   let releasedSessions = 0;
   if (finished && existing.item.status !== parsed.data.status) {
     patch["remainingMinutes"] = 0;
