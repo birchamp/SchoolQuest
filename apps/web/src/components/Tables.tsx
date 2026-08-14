@@ -117,7 +117,7 @@ function compare(a: unknown, b: unknown): number {
 
 /* ------------------------------------------------------------------ assignments */
 
-type AssignmentKey = "title" | "course" | "type" | "due" | "effort" | "status";
+type AssignmentKey = "title" | "course" | "type" | "due" | "effort" | "worth" | "status";
 
 /**
  * Every piece of work in the term: the only place a date can be put right, the only place
@@ -150,6 +150,8 @@ export function AssignmentsTable({
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [titles, setTitles] = useState<Record<string, string>>({});
   const [scores, setScores] = useState<Record<string, { earned: string; outOf: string }>>({});
+  const [efforts, setEfforts] = useState<Record<string, string>>({});
+  const [worths, setWorths] = useState<Record<string, string>>({});
   const [showDone, setShowDone] = useState(false);
   const [adding, setAdding] = useState(false);
 
@@ -189,6 +191,7 @@ export function AssignmentsTable({
         type: item.workType.replace(/_/g, " "),
         due: item.dueAt,
         effort: item.remainingMinutes ?? item.estimatedMinutes,
+        worth: item.pointsPossible,
         status: item.status.replace(/_/g, " "),
       }));
     const key = sort.key;
@@ -198,6 +201,47 @@ export function AssignmentsTable({
     });
     return list;
   }, [plan.workItems, plan.courses, sort, showDone, gradedIds]);
+
+  async function saveEffort(item: WorkItem, value: string) {
+    const trimmed = value.trim();
+    const minutes = trimmed === "" ? null : Number(trimmed);
+    if (minutes !== null && (!Number.isInteger(minutes) || minutes <= 0)) {
+      setError("Effort is whole minutes, or empty for unknown.");
+      return;
+    }
+    const current = item.remainingMinutes ?? item.estimatedMinutes;
+    if (minutes === current) return;
+    setBusy(item.id);
+    setError(null);
+    try {
+      await api.patch(`/api/work-items/${item.id}`, { estimatedMinutes: minutes });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveWorth(item: WorkItem, value: string) {
+    const trimmed = value.trim();
+    const points = trimmed === "" ? null : Number(trimmed);
+    if (points !== null && (!Number.isFinite(points) || points < 0)) {
+      setError("Worth is points, or empty for unknown.");
+      return;
+    }
+    if (points === item.pointsPossible) return;
+    setBusy(item.id);
+    setError(null);
+    try {
+      await api.patch(`/api/work-items/${item.id}`, { pointsPossible: points });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function saveScore(item: WorkItem) {
     const entry = scores[item.id];
@@ -325,6 +369,7 @@ export function AssignmentsTable({
               <SortHeader column="type" label="Type" sort={sort} onSort={onSort} />
               <SortHeader column="due" label="Due" sort={sort} onSort={onSort} />
               <SortHeader column="effort" label="Effort" sort={sort} onSort={onSort} numeric />
+              <SortHeader column="worth" label="Worth" sort={sort} onSort={onSort} numeric />
               <SortHeader column="status" label="Status" sort={sort} onSort={onSort} />
               <th scope="col" style={{ textAlign: "right" }}>
                 <span className="sr-only">Actions</span>
@@ -382,8 +427,45 @@ export function AssignmentsTable({
                     />
                   </label>
                 </td>
+                {/* Both editable, because both are instructor announcements. "The quiz is
+                    now worth 50" moves this assignment's size on the radar and its pull on
+                    the grade; "plan two hours, not one" is the student correcting the one
+                    number the whole schedule is built from. The effort survey only ever
+                    asks about work with no estimate at all, so without this cell a wrong
+                    estimate could never be corrected. */}
                 <td style={{ textAlign: "right" }}>
-                  {effort === null ? <span className="muted">—</span> : formatMinutes(effort)}
+                  <label>
+                    <span className="sr-only">Effort in minutes for {item.title}</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputMode="numeric"
+                      placeholder="?"
+                      style={{ width: "4.5rem", textAlign: "right" }}
+                      disabled={busy === item.id || item.status === "completed" || item.status === "submitted"}
+                      value={efforts[item.id] ?? (effort === null ? "" : String(effort))}
+                      onChange={(e) => setEfforts((s) => ({ ...s, [item.id]: e.target.value }))}
+                      onBlur={(e) => void saveEffort(item, e.target.value)}
+                    />
+                  </label>
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  <label>
+                    <span className="sr-only">Points {item.title} is worth</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      inputMode="decimal"
+                      placeholder="?"
+                      style={{ width: "4.5rem", textAlign: "right" }}
+                      disabled={busy === item.id}
+                      value={worths[item.id] ?? (item.pointsPossible === null ? "" : String(item.pointsPossible))}
+                      onChange={(e) => setWorths((s) => ({ ...s, [item.id]: e.target.value }))}
+                      onBlur={(e) => void saveWorth(item, e.target.value)}
+                    />
+                  </label>
                 </td>
                 <td style={{ textTransform: "capitalize" }}>
                   {status}
@@ -901,6 +983,7 @@ function AddAssignmentForm({
   const [workType, setWorkType] = useState("assignment");
   const [due, setDue] = useState("");
   const [minutes, setMinutes] = useState("");
+  const [points, setPoints] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function add() {
@@ -916,10 +999,13 @@ function AddAssignmentForm({
         // means, and it matches what extraction writes.
         dueAt: due ? `${due}T23:59:00.000Z` : null,
         estimatedMinutes: minutes ? Number(minutes) : null,
+        // "A new quiz, worth 20" is one announcement; the weight arrives with the work.
+        pointsPossible: points ? Number(points) : null,
       });
       setTitle("");
       setDue("");
       setMinutes("");
+      setPoints("");
       onAdded();
     } catch (e) {
       onError(e instanceof Error ? e.message : "That did not save.");
@@ -979,6 +1065,19 @@ function AddAssignmentForm({
       <label style={{ display: "grid", gap: "0.2rem" }}>
         <span className="muted" style={{ fontSize: "0.78rem" }}>Due</span>
         <input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+      </label>
+
+      <label style={{ display: "grid", gap: "0.2rem" }}>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>Worth (pts)</span>
+        <input
+          type="number"
+          min={0}
+          step="any"
+          value={points}
+          onChange={(e) => setPoints(e.target.value)}
+          placeholder="?"
+          style={{ width: "5.5rem" }}
+        />
       </label>
 
       <label style={{ display: "grid", gap: "0.2rem" }}>

@@ -264,6 +264,9 @@ const TABS = [
   ["radar", null],
   ["today", /^today$/i],
   ["week", /week|map|board/i],
+  // The assignments table moved to its own tab, and a walk that skips a tab is how a
+  // theme ships an unreadable screen -- the exact failure this script exists to prevent.
+  ["work", /assignment|task/i],
   ["stats", /progress|chronicle|readiness/i],
   ["coach", /coach|guide|handler/i],
   ["setup", /setup/i],

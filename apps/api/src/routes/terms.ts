@@ -989,6 +989,23 @@ termsRoute.patch("/work-items/:id", async (c) => {
    * past blocks as the record of what the hours actually did.
    */
   const finished = parsed.data.status === "completed" || parsed.data.status === "submitted";
+  // A corrected estimate governs again. `requiredMinutes` prefers remainingMinutes, so on
+  // any item the survey or a session has touched, editing the estimate would otherwise
+  // change a number nobody reads and the plan would not move -- an edit that saves and does
+  // nothing. Clearing remaining hands control back to the figure the student just gave;
+  // partial sessions after this decrement from it as usual. Finished work is left alone.
+  const wasOpen =
+    existing.item.status !== "completed" &&
+    existing.item.status !== "submitted" &&
+    existing.item.status !== "canceled";
+  if (
+    parsed.data.estimatedMinutes !== undefined &&
+    parsed.data.estimatedMinutes !== existing.item.estimatedMinutes &&
+    wasOpen &&
+    !finished
+  ) {
+    patch["remainingMinutes"] = null;
+  }
   const wasFinished =
     existing.item.status === "completed" || existing.item.status === "submitted";
   // Reopening restores the effort estimate. Handing in zeroes remainingMinutes, and a
