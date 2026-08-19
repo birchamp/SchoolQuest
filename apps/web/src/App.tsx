@@ -131,6 +131,8 @@ function devNow(): string | null {
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [term, setTerm] = useState<Term | null>(null);
+  /** Whether the "start a new semester" confirmation is showing. */
+  const [confirmNewTerm, setConfirmNewTerm] = useState(false);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   /**
    * The radar opens the app.
@@ -283,7 +285,13 @@ export function App() {
       setMe(user);
 
       const { terms } = await api.get<{ terms: Term[] }>("/api/terms");
-      const active = terms.find((t) => t.status === "active") ?? terms[0] ?? null;
+      // Prefer the active term; fall back to any that is not archived; otherwise none, which
+      // sends the student to onboarding -- the path "start a new semester" relies on, since it
+      // archives the current term and expects a clean slate rather than the archived one back.
+      const active =
+        terms.find((t) => t.status === "active") ??
+        terms.find((t) => t.status !== "archived") ??
+        null;
       setTerm(active);
       if (active) await loadPlan(active.id);
     } catch (e) {
@@ -423,6 +431,23 @@ export function App() {
     setMe(null);
     setPlan(null);
     setTerm(null);
+  }
+
+  /**
+   * Start over with a fresh semester. The current term is archived rather than deleted -- its
+   * record survives, it just stops being the active one -- and with no active term the app drops
+   * back into onboarding to set up the new one. Courses, syllabi and assignments belong to the
+   * old term and stay with it; the new term begins empty.
+   */
+  async function startNewSemester() {
+    if (!term) return;
+    setConfirmNewTerm(false);
+    await api.post(`/api/terms/${term.id}/archive`).catch((e) => {
+      setError(e instanceof Error ? e.message : "Could not start a new semester.");
+    });
+    setPlan(null);
+    setTerm(null);
+    await bootstrap();
   }
 
   // The roster row highlight and the class switches are one state, not two: a class is
@@ -819,10 +844,38 @@ export function App() {
                   <button className="action" onClick={regenerate}>
                     Rebuild this week&apos;s plan
                   </button>
+                  <button className="action" onClick={() => setConfirmNewTerm((v) => !v)}>
+                    Start a new semester
+                  </button>
                   <button className="action" onClick={signOut}>
                     Sign out
                   </button>
                 </div>
+                {confirmNewTerm && (
+                  <div
+                    className="replace-confirm"
+                    role="alertdialog"
+                    aria-label="Confirm starting a new semester"
+                    style={{ marginTop: "0.7rem" }}
+                  >
+                    <p style={{ margin: "0 0 0.5rem" }}>
+                      Start a new semester and set it up from scratch?
+                    </p>
+                    <p className="muted" style={{ margin: "0 0 0.7rem", fontSize: "0.9rem" }}>
+                      This archives <strong>{term.name}</strong> -- its courses, syllabi and
+                      assignments stay with it as a record -- and takes you back to the start to
+                      build the new one. You will pick a term, add courses, and upload syllabi again.
+                    </p>
+                    <div className="button-row">
+                      <button className="action primary" onClick={() => void startNewSemester()}>
+                        Archive {term.name} and start fresh
+                      </button>
+                      <button className="action" onClick={() => setConfirmNewTerm(false)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </section>
             </>
           )}

@@ -262,6 +262,36 @@ export function AssignmentsTable({
     }
   }
 
+  /** A graded item whose score is open for correction, or null. */
+  const [editingGrade, setEditingGrade] = useState<string | null>(null);
+
+  /** Opens the score box on a graded row, prefilled with the number already recorded. */
+  function startEditGrade(item: WorkItem) {
+    const grade = gradesByItem.get(item.id);
+    setScores((s) => ({
+      ...s,
+      [item.id]: {
+        earned: grade?.pointsEarned != null ? String(grade.pointsEarned) : "",
+        outOf: grade?.pointsPossible != null ? String(grade.pointsPossible) : "",
+      },
+    }));
+    setEditingGrade(item.id);
+  }
+
+  async function clearGrade(item: WorkItem) {
+    setBusy(item.id);
+    setError(null);
+    try {
+      await api.del(`/api/work-items/${item.id}/grade`);
+      setEditingGrade(null);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function saveScore(item: WorkItem) {
     const entry = scores[item.id];
     const earned = Number(entry?.earned);
@@ -282,6 +312,7 @@ export function AssignmentsTable({
         pointsPossible: outOf,
       });
       setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
+      setEditingGrade(null);
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not save.");
@@ -517,10 +548,11 @@ export function AssignmentsTable({
                   )}
                 </td>
                 <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                  {/* Handed in and still waiting on a result: the only thing left to do with
-                      this row is write the number down, so that is the only control it
-                      offers. Weeks can pass here, which is why it stays on the list. */}
-                  {item.status === "submitted" && !gradedIds.has(item.id) ? (
+                  {/* Handed in and still waiting on a result -- or a recorded score reopened to
+                      correct it. Either way the only thing to do is write the number down.
+                      Weeks can pass in the waiting case, which is why it stays on the list. */}
+                  {(item.status === "submitted" && !gradedIds.has(item.id)) ||
+                  editingGrade === item.id ? (
                     <form
                       onSubmit={(e) => {
                         e.preventDefault();
@@ -576,16 +608,46 @@ export function AssignmentsTable({
                       <button className="action" type="submit" disabled={busy === item.id}>
                         Save
                       </button>
+                      {editingGrade === item.id ? (
+                        <button
+                          className="action"
+                          type="button"
+                          disabled={busy === item.id}
+                          onClick={() => setEditingGrade(null)}
+                        >
+                          Cancel
+                        </button>
+                      ) : (
+                        <button
+                          className="action"
+                          type="button"
+                          disabled={busy === item.id}
+                          onClick={() => void setStatus(item, "not_started")}
+                          title="Not handed in after all; puts its study time back on the plan"
+                        >
+                          Not yet
+                        </button>
+                      )}
+                    </form>
+                  ) : gradedIds.has(item.id) ? (
+                    <>
                       <button
                         className="action"
-                        type="button"
                         disabled={busy === item.id}
-                        onClick={() => void setStatus(item, "not_started")}
-                        title="Not handed in after all; puts its study time back on the plan"
+                        onClick={() => startEditGrade(item)}
+                        title="Correct the recorded score"
                       >
-                        Not yet
+                        Edit grade
+                      </button>{" "}
+                      <button
+                        className="action"
+                        disabled={busy === item.id}
+                        onClick={() => void clearGrade(item)}
+                        title="Remove the recorded score; the row waits on a result again"
+                      >
+                        Clear grade
                       </button>
-                    </form>
+                    </>
                   ) : item.status === "canceled" ? (
                     <button
                       className="action"

@@ -1273,6 +1273,30 @@ termsRoute.put("/work-items/:id/grade", async (c) => {
 });
 
 /**
+ * Clears a recorded result -- for a grade entered on the wrong item, or one the student wants to
+ * take back until the real number arrives. The item drops from "done" to "handed in", so the
+ * score box comes back and the row is waiting on a result again rather than claiming to have one.
+ */
+termsRoute.delete("/work-items/:id/grade", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+
+  const [existing] = await db
+    .select({ item: workItems })
+    .from(workItems)
+    .innerJoin(courses, eq(courses.id, workItems.courseId))
+    .innerJoin(terms, eq(terms.id, courses.termId))
+    .where(and(eq(workItems.id, id), eq(terms.userId, c.get("userId"))));
+  if (!existing) return c.json({ error: "Work item not found" }, 404);
+
+  await db.delete(gradeResults).where(eq(gradeResults.workItemId, id));
+  if (existing.item.status === "completed") {
+    await db.update(workItems).set({ status: "submitted" }).where(eq(workItems.id, id));
+  }
+  return c.json({ ok: true });
+});
+
+/**
  * Changing or removing a standing commitment.
  *
  * Commitments could be created and never touched again. A shift that moves to a different
