@@ -7,6 +7,7 @@ import type {
   SessionBriefView,
 } from "../lib/types";
 import { courseLabelInk } from "../lib/course-colour";
+import { CalendarLegend } from "./CalendarLegend";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -167,6 +168,11 @@ export function WeekMap({
         </p>
       )}
 
+      {/* The colour key. This board draws study beats and held meal time -- classes and other
+          commitments live on the hour-by-hour grid, not here -- so it names only the two it
+          paints rather than claiming a colour it never shows. */}
+      <CalendarLegend kinds={["study", "meal"]} />
+
       <div className="week">
         {days.map((day) => {
           const dayBeats = (encountersByDate.get(day.date) ?? []).sort((a, b) =>
@@ -269,7 +275,13 @@ export function WeekMap({
                   if (entry.type === "meal") {
                     const meal = entry.meal;
                     return (
-                      <div className="block rest" key={`meal-${meal.date}-${meal.key}`}>
+                      // The meal colour on the dashed spine, so held time reads as the same
+                      // kind here as it does on the hour-by-hour grid.
+                      <div
+                        className="block rest"
+                        key={`meal-${meal.date}-${meal.key}`}
+                        style={{ borderLeftColor: "var(--cal-meal)" }}
+                      >
                         <span aria-hidden="true">
                           {meal.label}
                           {meal.status === "squeezed" ? " (short)" : ""}
@@ -310,6 +322,9 @@ export function WeekMap({
                     <div
                       className="block"
                       key={`${beat.workItemId}-${beat.date}`}
+                      // Every beat on this board is study time, so its spine takes the study
+                      // colour -- the same green the study bands wear on the hour-by-hour grid.
+                      // A switched-off class still recedes to a neutral edge instead.
                       style={
                         recede
                           ? {
@@ -318,7 +333,7 @@ export function WeekMap({
                                 ? "rgba(138, 111, 31, 0.4)"
                                 : "var(--border)",
                             }
-                          : undefined
+                          : { borderLeftColor: "var(--cal-study)" }
                       }
                     >
                       {/* `sustained` is the default — ordinary work. Labelling it made

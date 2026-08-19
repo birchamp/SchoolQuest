@@ -20,6 +20,15 @@
   --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
   color-scheme: dark;
+
+  /* One colour per kind of hour on the week calendars (class, study, meal, other commitment).
+   * Self-contained bands -- a saturated ground with white ink -- so the same four read on the
+   * dark themes and the parchment one alike, each measured at or above 5.4:1 for its text. Free
+   * and off time stay uncoloured; they are not one of the four things being told apart. */
+  --cal-class: #3a54a8;      --cal-class-ink: #ffffff;      --cal-class-edge: #6f86d8;
+  --cal-study: #227048;      --cal-study-ink: #ffffff;      --cal-study-edge: #4fb37e;
+  --cal-meal: #9a5a12;       --cal-meal-ink: #ffffff;       --cal-meal-edge: #d69a4e;
+  --cal-commitment: #6a4187; --cal-commitment-ink: #ffffff; --cal-commitment-edge: #a583c4;
 }
 
 @media (prefers-color-scheme: light) {
@@ -3339,4 +3348,29 @@ body[data-theme="quest"] .card .gauge-row {
 .gauge-target:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+
+/* The key for the calendar colours, shared by the hour-by-hour grid and the operations board. */
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin: 0 0 0.7rem;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+}
+
+.cal-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.cal-legend .cal-swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 3px;
+  flex: none;
 }

@@ -2,6 +2,7 @@ import type { Course, ThemeName } from "@schoolquest/domain";
 import { buildWeekCalendar, type CalendarSlot, type SlotKind } from "@schoolquest/planning-engine";
 import { courseTincture } from "../lib/course-colour";
 import type { PlanResponse } from "../lib/types";
+import { CalendarLegend } from "./CalendarLegend";
 
 /**
  * Where the hours actually go.
@@ -34,32 +35,37 @@ const PIXELS_PER_MINUTE = 0.9;
  * the calendar's job is to show the *shape* of the week, and five commitment types in five
  * hues would compete with the one distinction that matters.
  */
-function bandStyle(kind: SlotKind, quest: boolean): { background: string; color: string; border: string } {
-  if (quest) {
-    switch (kind) {
-      case "class":
-        return { background: "#d9c69c", color: "#2a1f14", border: "#a8895a" };
-      case "commitment":
-        return { background: "#c9b48a", color: "#2a1f14", border: "#a8895a" };
-      case "meal":
-        return { background: "transparent", color: "#5b4930", border: "#a8895a" };
-      case "free":
-        return { background: "transparent", color: "#5b4930", border: "transparent" };
-      default:
-        return { background: "#efe3c8", color: "#2a1f14", border: "#8a6f1f" };
-    }
-  }
+/**
+ * One colour per kind of hour, so the week reads as classes-versus-study-versus-the-rest at a
+ * glance rather than as one grey field.
+ *
+ * The colours are self-contained bands -- a saturated ground with its own ink -- so the same
+ * four work on the dark themes and the parchment one alike: the band supplies its own contrast,
+ * independent of the page under it. Kept as CSS variables (`kindColors` in styles.css) so a
+ * theme can retune them and the contrast checker can measure them. Free and off stay
+ * uncoloured on purpose: empty time is not one of the four things being distinguished, and
+ * washing it in a fifth hue would drown the distinction the colour is for.
+ *
+ * Colour is never the only signal here -- every band still carries its kind word and the plain
+ * list underneath states the same facts -- so this reads for a colour-blind student too.
+ */
+function bandStyle(kind: SlotKind): { background: string; color: string; border: string } {
   switch (kind) {
     case "class":
-      return { background: "var(--surface-2)", color: "var(--text)", border: "var(--border)" };
+      return { background: "var(--cal-class)", color: "var(--cal-class-ink)", border: "var(--cal-class-edge)" };
     case "commitment":
-      return { background: "var(--surface-2)", color: "var(--text)", border: "var(--border)" };
+      return {
+        background: "var(--cal-commitment)",
+        color: "var(--cal-commitment-ink)",
+        border: "var(--cal-commitment-edge)",
+      };
     case "meal":
-      return { background: "transparent", color: "var(--text-dim)", border: "var(--border)" };
-    case "free":
-      return { background: "transparent", color: "var(--text-dim)", border: "transparent" };
+      return { background: "var(--cal-meal)", color: "var(--cal-meal-ink)", border: "var(--cal-meal-edge)" };
+    case "study":
+      return { background: "var(--cal-study)", color: "var(--cal-study-ink)", border: "var(--cal-study-edge)" };
     default:
-      return { background: "var(--surface)", color: "var(--text)", border: "var(--accent-dim)" };
+      // Free and off: uncoloured, so the four kinds that matter stand out against them.
+      return { background: "transparent", color: "var(--text-dim)", border: "transparent" };
   }
 }
 
@@ -156,6 +162,11 @@ export function WeekCalendar({
           .map((kind) => `${KIND_WORD[kind].toLowerCase()} ${formatMinutes(calendar.totals[kind])}`)
           .join(" · ")}
       </p>
+
+      {/* The key for the four band colours. The grid paints all four kinds, so it names all
+          four -- classes, study, meals and other commitments -- and the free/off time it
+          leaves uncoloured is not one of them. */}
+      <CalendarLegend kinds={["class", "study", "meal", "commitment"]} />
 
       <div style={{ overflowX: "auto" }}>
         <div
@@ -268,19 +279,17 @@ function Band({
 }) {
   const top = (slot.start - base - windowStart) * PIXELS_PER_MINUTE;
   const height = slot.minutes * PIXELS_PER_MINUTE;
-  const own = bandStyle(slot.kind, quest);
+  const own = bandStyle(slot.kind);
   /**
-   * A receded band keeps its size, its position and its ink; it gives up its fill.
-   *
-   * Losing only the three-pixel edge — which is all receding used to do here — was invisible at
-   * this scale, so a switched-off class looked exactly like a switched-on one and the control
-   * appeared broken. The fill borrowed is the one already used for committed time, so the ink on
-   * it is a pair this file already carries and no new colour has to be argued about.
-   *
-   * What it must never do is shrink or vanish. This grid is a picture of time already spoken
-   * for, and a band that disappeared would hand back an hour the student does not have.
+   * A switched-off class recedes to the neutral "off" look — a muted surface with dim ink —
+   * rather than borrowing another kind's colour, which would make it read as a commitment now
+   * that each kind has its own hue. It keeps its size and position: this grid is a picture of
+   * time already spoken for, and a band that shrank or vanished would hand back an hour the
+   * student does not have.
    */
-  const style = receded ? { ...bandStyle("commitment", quest), color: own.color } : own;
+  const style = receded
+    ? { background: "var(--surface-2)", color: "var(--text-dim)", border: "var(--border)" }
+    : own;
 
   // Study blocks carry the course's colour as an edge rather than a fill, so the text on
   // them keeps the card's measured ink instead of needing a per-course contrast check.

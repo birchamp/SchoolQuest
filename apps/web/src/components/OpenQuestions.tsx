@@ -131,6 +131,7 @@ export function OpenQuestions({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [openCourseId, setOpenCourseId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -156,6 +157,36 @@ export function OpenQuestions({
       setError("Copying was blocked, so the message is shown below — select it and copy.");
     }
   }
+
+  /**
+   * Mark policies read, so they stop crowding the list.
+   *
+   * A policy is not a question with an answer — it is a thing the syllabus said that the
+   * student should have seen, and once seen it is done. Every class has several, so without a
+   * way to clear them they pile up and bury the questions that do need an answer. "Accepted"
+   * is the settled state the open-questions builder already excludes, so acknowledging is one
+   * PATCH to the claim the policy came from; the id is carried on the question as `policy:<id>`.
+   */
+  async function acknowledge(claimIds: string[]) {
+    setBusy(true);
+    setError(null);
+    try {
+      await Promise.all(
+        claimIds.map((id) =>
+          api.patch(`/api/extraction-claims/${id}`, { reviewStatus: "accepted" }),
+        ),
+      );
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** A policy question carries its claim id as `policy:<id>`; nothing else does. */
+  const policyClaimId = (q: OpenQuestion): string | null =>
+    q.kind === "unread_policy" ? q.id.replace(/^policy:/, "") : null;
 
   if (error && !result) {
     return (
@@ -207,7 +238,26 @@ export function OpenQuestions({
 
       {result.courses.map((course) => (
         <div key={course.courseId} className="question-course">
-          <h3>{course.courseLabel}</h3>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "0.75rem", flexWrap: "wrap" }}>
+            <h3 style={{ margin: 0 }}>{course.courseLabel}</h3>
+            {/* Every class ships several policies, and reading each is the same one decision.
+                Clearing them together is the difference between the list showing the questions
+                that need an answer and the list being a wall of policies to scroll past. */}
+            {(() => {
+              const policyIds = course.questions
+                .map(policyClaimId)
+                .filter((id): id is string => id !== null);
+              return policyIds.length >= 2 ? (
+                <button
+                  className="action"
+                  disabled={busy}
+                  onClick={() => void acknowledge(policyIds)}
+                >
+                  I understand all {policyIds.length} policies
+                </button>
+              ) : null;
+            })()}
+          </div>
           <ul className="question-list">
             {course.questions.map((question) => (
               <li key={question.id}>
@@ -220,18 +270,33 @@ export function OpenQuestions({
                 {/* Why it matters, in what it costs — never "for accuracy", which is a reason
                     for the app rather than a reason for the student. */}
                 {question.stakes && <span className="question-stakes muted">{question.stakes}</span>}
-                {onAnswer && answerRoute(question) && (
+                {/* A policy is acknowledged in place -- read it, agree, done -- rather than
+                    sent anywhere. Everything else keeps the door to where its answer is typed. */}
+                {policyClaimId(question) ? (
                   <span style={{ display: "block", marginTop: "0.35rem" }}>
                     <button
                       className="action"
-                      onClick={() => {
-                        const r = answerRoute(question)!;
-                        onAnswer(r.tab, r.elementId);
-                      }}
+                      disabled={busy}
+                      onClick={() => void acknowledge([policyClaimId(question)!])}
                     >
-                      {answerRoute(question)!.label}
+                      I understand
                     </button>
                   </span>
+                ) : (
+                  onAnswer &&
+                  answerRoute(question) && (
+                    <span style={{ display: "block", marginTop: "0.35rem" }}>
+                      <button
+                        className="action"
+                        onClick={() => {
+                          const r = answerRoute(question)!;
+                          onAnswer(r.tab, r.elementId);
+                        }}
+                      >
+                        {answerRoute(question)!.label}
+                      </button>
+                    </span>
+                  )
                 )}
                 {question.evidence?.length ? (
                   /* The line the question came from. Without it the student is asked to confirm
