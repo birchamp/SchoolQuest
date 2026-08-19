@@ -35,10 +35,18 @@ interface SnapshotCommitment {
   endTime: string;
 }
 
+interface SnapshotGrading {
+  id: string;
+  courseId: string;
+  name: string;
+  weightPercent: number | null;
+}
+
 interface Snapshot {
   courses: SnapshotCourse[];
   meetingPatterns: SnapshotMeeting[];
   commitments: SnapshotCommitment[];
+  gradingCategories: SnapshotGrading[];
 }
 
 
@@ -223,6 +231,7 @@ export function CourseManager({
   const [error, setError] = useState<string | null>(null);
   /** Course whose class times are open for editing, or null. */
   const [editingMeetings, setEditingMeetings] = useState<string | null>(null);
+  const [editingGrading, setEditingGrading] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -235,6 +244,15 @@ export function CourseManager({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  function gradingSummary(courseId: string): string | null {
+    const cats = snapshot?.gradingCategories.filter((g) => g.courseId === courseId) ?? [];
+    if (cats.length === 0) return null;
+    const stated = cats.filter((g) => g.weightPercent !== null);
+    const total = stated.reduce((sum, g) => sum + (g.weightPercent ?? 0), 0);
+    if (stated.length === 0) return `${cats.length} categories, no weights`;
+    return `${cats.length} categories · ${Math.round(total)}% weighted`;
+  }
 
   function meetingSummary(courseId: string): string | null {
     const meetings = snapshot?.meetingPatterns.filter((m) => m.courseId === courseId) ?? [];
@@ -286,7 +304,31 @@ export function CourseManager({
                   <button className="action" onClick={() => setEditingMeetings(course.id)}>
                     Class times
                   </button>
+                  <button className="action" onClick={() => setEditingGrading(course.id)}>
+                    Grading
+                  </button>
                 </span>
+                <span className="muted" style={{ fontSize: "0.82rem" }}>
+                  {gradingSummary(course.id) ?? (
+                    <Themed
+                      visible={quest ? "no scheme of marks yet" : "no grading set"}
+                      plain="no grading set"
+                    />
+                  )}
+                </span>
+                {editingGrading === course.id && (
+                  <GradingForm
+                    courseId={course.id}
+                    categories={snapshot?.gradingCategories.filter((g) => g.courseId === course.id) ?? []}
+                    onDone={() => {
+                      setEditingGrading(null);
+                      void refresh();
+                      onChanged();
+                    }}
+                    onCancel={() => setEditingGrading(null)}
+                    onError={setError}
+                  />
+                )}
               </li>
             ))}
           </ul>
@@ -941,6 +983,154 @@ function MeetingTimesForm({
             Clear all
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Editing a course's grading scheme after the syllabus is in.
+ *
+ * The one place a category weight can be set outside course creation, so the answer to
+ * "what are exams worth?" -- once the instructor gives it -- has somewhere to land. A whole
+ * scheme at once, not a field at a time: the student is looking at all the categories and
+ * reconciling them against what was said, and the running total tells them when it adds up.
+ */
+function GradingForm({
+  courseId,
+  categories,
+  onDone,
+  onCancel,
+  onError,
+}: {
+  courseId: string;
+  categories: SnapshotGrading[];
+  onDone: () => void;
+  onCancel: () => void;
+  onError: (message: string | null) => void;
+}) {
+  const [rows, setRows] = useState(
+    categories.length > 0
+      ? categories.map((cat, i) => ({
+          key: `${cat.id ?? i}`,
+          name: cat.name,
+          weight: cat.weightPercent === null ? "" : String(cat.weightPercent),
+        }))
+      : [{ key: "new", name: "", weight: "" }],
+  );
+  const [busy, setBusy] = useState(false);
+
+  const total = rows.reduce((sum, r) => sum + (r.weight.trim() === "" ? 0 : Number(r.weight) || 0), 0);
+
+  async function save() {
+    const named = rows.filter((r) => r.name.trim().length > 0);
+    const bad = named.find((r) => r.weight.trim() !== "" && (!Number.isFinite(Number(r.weight)) || Number(r.weight) < 0));
+    if (bad) {
+      onError("A weight is a percentage, or left blank if you do not know it yet.");
+      return;
+    }
+    if (total > 100.5) {
+      onError(`The weights add up to ${Math.round(total)}%, which is over 100%.`);
+      return;
+    }
+    setBusy(true);
+    onError(null);
+    try {
+      await api.put(`/api/courses/${courseId}/grading`, {
+        categories: named.map((r) => ({
+          name: r.name.trim(),
+          weightPercent: r.weight.trim() === "" ? null : Number(r.weight),
+        })),
+      });
+      onDone();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        marginTop: "0.75rem",
+        paddingTop: "0.75rem",
+        borderTop: "1px solid var(--border)",
+        width: "100%",
+      }}
+    >
+      <p className="muted" style={{ margin: "0 0 0.5rem" }}>
+        How this course is graded. A category with no weight yet is fine — leave it blank and
+        the planner treats its work by type until the instructor says otherwise.
+      </p>
+      {rows.map((row, i) => (
+        <div
+          key={row.key}
+          style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.45rem" }}
+        >
+          <label style={{ flex: "1 1 12rem" }}>
+            <span className="sr-only">Category name</span>
+            <input
+              type="text"
+              value={row.name}
+              placeholder="Exams"
+              style={{ width: "100%" }}
+              onChange={(e) =>
+                setRows((rs) => rs.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)))
+              }
+            />
+          </label>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+            <span className="sr-only">Percent of grade for {row.name || "this category"}</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="any"
+              inputMode="decimal"
+              value={row.weight}
+              placeholder="?"
+              style={{ width: "4.5rem", textAlign: "right" }}
+              onChange={(e) =>
+                setRows((rs) => rs.map((r, j) => (j === i ? { ...r, weight: e.target.value } : r)))
+              }
+            />
+            <span aria-hidden="true">%</span>
+          </label>
+          <button
+            type="button"
+            className="action"
+            aria-label={`Remove ${row.name || "category"}`}
+            onClick={() => setRows((rs) => (rs.length === 1 ? rs : rs.filter((_, j) => j !== i)))}
+          >
+            &times;
+          </button>
+        </div>
+      ))}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.3rem" }}>
+        <button
+          type="button"
+          className="action"
+          onClick={() => setRows((rs) => [...rs, { key: `new-${rs.length}`, name: "", weight: "" }])}
+        >
+          Add a category
+        </button>
+        <span
+          className="muted"
+          style={{ fontSize: "0.85rem", color: total > 100.5 ? "var(--at-risk)" : undefined }}
+        >
+          {Math.round(total)}% of 100
+        </span>
+      </div>
+
+      <div className="button-row" style={{ marginTop: "0.7rem" }}>
+        <button className="action primary" disabled={busy} onClick={() => void save()}>
+          {busy ? "Saving…" : "Save grading"}
+        </button>
+        <button className="action" disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
       </div>
     </div>
   );

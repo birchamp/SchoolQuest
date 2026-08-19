@@ -754,7 +754,7 @@ export function App() {
                 this says what nobody knows yet and hands them the message that gets it answered,
                 which is the step that has to happen before an answer can exist.
               */}
-              <OpenQuestions termId={term.id} />
+              <OpenQuestions termId={term.id} onAnswer={(tab, elementId) => goTo(tab as Tab, elementId)} />
               <EffortSurvey termId={term.id} onChanged={regenerate} />
               <StudyHours termId={term.id} onChanged={regenerate} />
               <MealWindows term={term} onChanged={regenerate} />

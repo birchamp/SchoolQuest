@@ -87,7 +87,43 @@ const KIND_LABEL: Record<OpenQuestion["kind"], string> = {
   unread_policy: "Policy",
 };
 
-export function OpenQuestions({ termId }: { termId: string }) {
+/**
+ * Where the answer to each kind of question is typed in. Every question the list raises has
+ * a place its answer lands -- the whole point of listing it was to get it answered -- so the
+ * list stops at the door rather than at the diagnosis, the same lesson the readiness board
+ * had to learn.
+ */
+type AnswerRoute = { tab: string; elementId?: string; label: string };
+
+function answerRoute(q: OpenQuestion): AnswerRoute | null {
+  switch (q.kind) {
+    case "missing_due_date":
+      // Straight to the row whose date is missing, where the date input sits.
+      return q.workItemIds[0]
+        ? { tab: "work", elementId: `work-item-${q.workItemIds[0]}`, label: "Enter the date" }
+        : { tab: "work", label: "Open the assignments" };
+    case "unknown_weight":
+    case "weights_incomplete":
+      // Category weights live in the course manager's grading editor.
+      return { tab: "setup", elementId: "course-manager", label: "Enter the weights" };
+    case "unread_policy":
+      return { tab: "setup", elementId: "course-manager", label: "Confirm it on the class" };
+    case "unanswered_clarification":
+      // Answered inside the document's review flow, reached from the syllabus card.
+      return { tab: "setup", elementId: "syllabus-upload", label: "Answer in review" };
+    default:
+      return null;
+  }
+}
+
+export function OpenQuestions({
+  termId,
+  onAnswer,
+}: {
+  termId: string;
+  /** Take the student to where a question's answer is typed in. */
+  onAnswer?: (tab: string, elementId?: string) => void;
+}) {
   const theme = useBodyTheme();
   const quest = theme === "quest";
 
@@ -184,6 +220,19 @@ export function OpenQuestions({ termId }: { termId: string }) {
                 {/* Why it matters, in what it costs — never "for accuracy", which is a reason
                     for the app rather than a reason for the student. */}
                 {question.stakes && <span className="question-stakes muted">{question.stakes}</span>}
+                {onAnswer && answerRoute(question) && (
+                  <span style={{ display: "block", marginTop: "0.35rem" }}>
+                    <button
+                      className="action"
+                      onClick={() => {
+                        const r = answerRoute(question)!;
+                        onAnswer(r.tab, r.elementId);
+                      }}
+                    >
+                      {answerRoute(question)!.label}
+                    </button>
+                  </span>
+                )}
                 {question.evidence?.length ? (
                   /* The line the question came from. Without it the student is asked to confirm
                      something they have no way to look up short of reopening the PDF -- and has

@@ -1357,6 +1357,70 @@ const meetingsBody = z.object({
   ),
 });
 
+const gradingBody = z.object({
+  categories: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(80),
+        /** Null is a real answer: "this category exists but I do not know its weight yet." */
+        weightPercent: z.number().min(0).max(100).nullable(),
+      }),
+    )
+    .max(24),
+});
+
+/**
+ * Replaces a course's grading scheme.
+ *
+ * The weights could be set once, at course creation, and never again -- so when a syllabus
+ * left a category unweighted and the student later asked the instructor "what are exams
+ * worth", the answer had nowhere to land. This is that landing place. Replace-whole rather
+ * than patch-one, matching meeting-patterns: the student is looking at the whole scheme and
+ * correcting it, and a set that no longer sums oddly is the honest record.
+ *
+ * `gradingConfidence` flips to "confirmed" once any weight is stated, because a student who
+ * has typed a number has told us more than the extractor ever knew.
+ */
+termsRoute.put("/courses/:courseId/grading", async (c) => {
+  const db = getDb(c.env.DB);
+  const courseId = c.req.param("courseId");
+  if (!(await assertCourseOwner(db, courseId, c.get("userId")))) {
+    return c.json({ error: "Course not found" }, 404);
+  }
+
+  const parsed = gradingBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const stated = parsed.data.categories.filter((cat) => cat.weightPercent !== null);
+  const total = stated.reduce((sum, cat) => sum + (cat.weightPercent ?? 0), 0);
+  // A whole scheme that overshoots 100 is a typo, not a plan; reject rather than store a
+  // grade basis that can never be right. Under 100 is allowed -- a category may be unstated.
+  if (total > 100.5) {
+    return c.json({ error: `The weights add up to ${Math.round(total)}%, which is over 100%.` }, 400);
+  }
+
+  await db.delete(gradingCategories).where(eq(gradingCategories.courseId, courseId));
+  if (parsed.data.categories.length > 0) {
+    await db.insert(gradingCategories).values(
+      parsed.data.categories.map((cat) => ({
+        id: newId("gradingCategory"),
+        courseId,
+        name: cat.name.trim(),
+        weightPercent: cat.weightPercent,
+        dropRuleJson: null,
+        confidenceStatus: "confirmed",
+      })),
+    );
+  }
+
+  await db
+    .update(courses)
+    .set({ gradingConfidence: parsed.data.categories.length > 0 ? "confirmed" : "unknown" })
+    .where(eq(courses.id, courseId));
+
+  return c.json({ ok: true, categories: parsed.data.categories.length });
+});
+
 termsRoute.put("/courses/:courseId/meeting-patterns", async (c) => {
   const db = getDb(c.env.DB);
   const courseId = c.req.param("courseId");
