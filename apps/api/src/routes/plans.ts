@@ -382,6 +382,9 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     courses: snapshot.courses,
     workItems: snapshot.workItems,
     standings: snapshot.standings,
+    // The grading scheme, so a screen can show what an item is worth by its category weight when
+    // the syllabus never gave it per-item points -- which is the common case.
+    gradingCategories: snapshot.gradingCategories,
     // Which work already carries a result. The standings summarise them, but a screen that
     // offers to record a score has to know which rows already have one, or it invites the
     // student to enter the same grade twice and shows them nothing they already told it.
@@ -459,6 +462,7 @@ function serializePlan(
     courses: snapshot.courses,
     workItems: snapshot.workItems,
     standings: snapshot.standings,
+    gradingCategories: snapshot.gradingCategories,
     // Progress is derived, never stored: it is recomputed from work-item status on every
     // read so it can never drift from the truth the student sees elsewhere. Effort comes
     // from the sessions table rather than the engine, which is only ever handed the

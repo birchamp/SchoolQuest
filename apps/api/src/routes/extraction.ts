@@ -800,7 +800,25 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
       locationRequirement: "anywhere",
       // A confirmed item with no resolved date is still unconfirmed for planning purposes.
       status: dueAt === null ? "unconfirmed" : "not_started",
-      sourceConfidence: dueAt === null ? "unknown" : "high_inference",
+      /**
+       * Accepting an item in review is the human confirmation the whole screen exists to get.
+       *
+       * The student is shown each date beside the exact line it was read from and asked to
+       * uncheck anything wrong; clicking through is affirming what is left. So a solid date --
+       * one the validator read straight off the page with no doubt about it (`high_inference`)
+       * -- becomes `confirmed` here, and stops being flagged "date unconfirmed" on every screen.
+       * A genuinely doubtful date (`low_inference`: read from a stale year, resolved outside the
+       * term, or not found in the source) keeps its flag even when accepted, because accepting
+       * that the assignment exists is not the same as vouching for a date the document itself
+       * casts doubt on -- that is what its clarification question is for. No resolved date at all
+       * stays `unknown`.
+       */
+      sourceConfidence:
+        dueAt === null
+          ? "unknown"
+          : payload.confidenceStatus === "low_inference"
+            ? "low_inference"
+            : "confirmed",
       userPriority: 0,
     });
     created.workItems++;

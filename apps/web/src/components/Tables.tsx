@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
-import { buildWeekCalendar, type SlotKind } from "@schoolquest/planning-engine";
+import { buildWeekCalendar, DEFAULT_EFFORT_MINUTES, type SlotKind } from "@schoolquest/planning-engine";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import type { PlanResponse } from "../lib/types";
@@ -134,6 +134,15 @@ type AssignmentKey = "title" | "course" | "type" | "due" | "effort" | "worth" | 
  * is not looking at anything to do with that assignment — so the row that knows about it
  * has to be the row that accepts it.
  */
+/** The per-type effort the planner falls back to when nobody has said, formatted for a cell. */
+function assumedEffortLabel(workType: string): string {
+  const mins = DEFAULT_EFFORT_MINUTES[workType] ?? 60;
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const rest = mins % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+}
+
 export function AssignmentsTable({
   plan,
   theme,
@@ -169,6 +178,16 @@ export function AssignmentsTable({
   const gradesByItem = useMemo(
     () => new Map((plan.grades ?? []).map((g) => [g.workItemId, g])),
     [plan.grades],
+  );
+
+  /**
+   * The grading category behind each item, so a blank Worth cell can still say what the item is
+   * worth by its category weight -- "35% - Research Paper" -- which is what most syllabi actually
+   * state instead of per-item points.
+   */
+  const categoryById = useMemo(
+    () => new Map((plan.gradingCategories ?? []).map((c) => [c.id, c])),
+    [plan.gradingCategories],
   );
 
   const rows = useMemo(() => {
@@ -449,6 +468,13 @@ export function AssignmentsTable({
                       onBlur={(e) => void saveEffort(item, e.target.value)}
                     />
                   </label>
+                  {/* Blank does not mean zero: the planner is already using a per-type assumption.
+                      Showing it makes the "?" a number to confirm rather than a hole to fill. */}
+                  {effort === null && item.status !== "completed" && item.status !== "submitted" && (
+                    <span className="muted" style={{ fontSize: "0.72rem", display: "block" }}>
+                      ~{assumedEffortLabel(item.workType)} assumed
+                    </span>
+                  )}
                 </td>
                 <td style={{ textAlign: "right" }}>
                   <label>
@@ -466,6 +492,17 @@ export function AssignmentsTable({
                       onBlur={(e) => void saveWorth(item, e.target.value)}
                     />
                   </label>
+                  {/* No per-item points is the common case: most syllabi weight by category. Show
+                      that weight so the cell says what the item is worth rather than nothing. */}
+                  {item.pointsPossible === null &&
+                    (() => {
+                      const cat = item.gradingCategoryId ? categoryById.get(item.gradingCategoryId) : null;
+                      return cat && cat.weightPercent !== null ? (
+                        <span className="muted" style={{ fontSize: "0.72rem", display: "block" }}>
+                          {cat.weightPercent}% &middot; {cat.name}
+                        </span>
+                      ) : null;
+                    })()}
                 </td>
                 <td style={{ textTransform: "capitalize" }}>
                   {status}

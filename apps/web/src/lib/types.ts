@@ -3,6 +3,7 @@ import type {
   Commitment,
   Course,
   GradeResult,
+  GradingCategory,
   MeetingPattern,
   ThemeName,
   WorkItem,
@@ -359,6 +360,9 @@ export interface PlanResponse {
   unscheduledWorkItemIds: string[];
   courses: Course[];
   workItems: WorkItem[];
+  /** The grading scheme per course, so an item's worth can be shown by category weight when the
+   *  syllabus gave no per-item points. Absent from the "no plan yet" response. */
+  gradingCategories?: GradingCategory[];
   standings: Record<string, CourseStandingView>;
   /** Results already recorded. Absent from the "no plan yet" response. */
   grades?: GradeResult[];
