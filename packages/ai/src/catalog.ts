@@ -34,6 +34,12 @@ export interface CatalogModel {
   context_length?: number;
   /** Unix seconds the model was released, from OpenRouter's `created`. Absent on the fallback. */
   created?: number;
+  /**
+   * What the model emits, from OpenRouter's `architecture.output_modalities` -- e.g. `["text"]`,
+   * `["text","image"]`, `["audio"]`. The authoritative signal for "is this a text model", far
+   * better than guessing from the name. Absent on the fallback and on older payloads.
+   */
+  outputModalities?: string[];
 }
 
 /** A model the student could pick, priced the way this app measures cost. */
@@ -90,6 +96,7 @@ function providerOf(id: string): ProviderKey | null {
  */
 const EXCLUDED_VARIANT_MARKERS = [
   "audio",
+  "video",
   "realtime",
   "search",
   "tts",
@@ -99,6 +106,20 @@ const EXCLUDED_VARIANT_MARKERS = [
   "moderation",
   "computer-use",
 ] as const;
+
+/**
+ * Whether a model emits something other than text.
+ *
+ * The reader turns a syllabus into JSON, so it must produce text. OpenRouter states this in
+ * `architecture.output_modalities`; when it is present it is the last word -- a model that outputs
+ * only images or audio is disqualified however plainly its name reads. Absent (the fallback, or an
+ * older payload), we defer to the name markers instead of guessing here.
+ */
+function emitsOnlyNonText(model: CatalogModel): boolean {
+  const out = model.outputModalities;
+  if (!out || out.length === 0) return false;
+  return !out.includes("text");
+}
 
 /** A dated snapshot suffix: `-2024-08-06` or `-20240806`. The undated alias is kept instead. */
 const DATED_SNAPSHOT = /-\d{4}-?\d{2}-?\d{2}$/;
@@ -199,8 +220,10 @@ export function readerChoices(catalog: readonly CatalogModel[], filter: CatalogF
     const provider = providerOf(model.id);
     if (!provider) continue;
     // Trusted family is necessary but not sufficient: drop the side-car and snapshot variants
-    // that make the list unreadable without removing any real reader.
+    // that make the list unreadable without removing any real reader, and anything OpenRouter
+    // says emits only non-text (image/audio/video) -- it cannot return the extraction JSON.
     if (!isSelectableReader(model.id)) continue;
+    if (emitsOnlyNonText(model)) continue;
     const inputPerMillion = perMillion(model.pricing?.prompt);
     const outputPerMillion = perMillion(model.pricing?.completion);
     // A free model (price 0) is real, but a $0 model on this list is almost always a

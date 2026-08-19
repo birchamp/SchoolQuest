@@ -66,6 +66,8 @@ interface OpenRouterModel {
   context_length?: unknown;
   /** Unix seconds the model was released. Present on the live payload; drives recency. */
   created?: unknown;
+  /** `{ output_modalities: ["text", ...] }` on the live payload; drives the text-only filter. */
+  architecture?: { output_modalities?: unknown };
 }
 
 function normalize(raw: unknown): CatalogModel[] {
@@ -83,6 +85,9 @@ function normalize(raw: unknown): CatalogModel[] {
       },
       context_length: typeof row.context_length === "number" ? row.context_length : undefined,
       created: typeof row.created === "number" ? row.created : undefined,
+      outputModalities: Array.isArray(row.architecture?.output_modalities)
+        ? row.architecture.output_modalities.filter((m): m is string => typeof m === "string")
+        : undefined,
     });
   }
   return out;

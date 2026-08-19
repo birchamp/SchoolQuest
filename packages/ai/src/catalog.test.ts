@@ -72,6 +72,11 @@ describe("isSelectableReader", () => {
     expect(isSelectableReader("google/gemini-2.0-flash-exp:free")).toBe(false);
   });
 
+  it("drops audio and video variants by name", () => {
+    expect(isSelectableReader("openai/gpt-4o-video-preview")).toBe(false);
+    expect(isSelectableReader("google/gemini-2.5-flash-audio")).toBe(false);
+  });
+
   it("never trips on the provider name itself", () => {
     // "openai" contains no marker; a rule that matched the whole id rather than the tail could
     // wrongly drop a whole family. The tail is what is tested.
@@ -126,6 +131,23 @@ describe("readerChoices", () => {
     expect(ids).not.toContain("openai/gpt-broken");
     // Opus is over $15 out but under $100, so a high ceiling admits it.
     expect(ids).toContain("anthropic/claude-opus");
+  });
+
+  it("drops a model that OpenRouter says outputs only non-text, whatever its name", () => {
+    const catalog: CatalogModel[] = [
+      {
+        id: "openai/gpt-image",
+        pricing: { prompt: "0.000001", completion: "0.000002" },
+        outputModalities: ["image"],
+      },
+      {
+        id: "openai/gpt-normal",
+        pricing: { prompt: "0.000001", completion: "0.000002" },
+        outputModalities: ["text"],
+      },
+    ];
+    const ids = readerChoices(catalog, { maxOutputPerMillion: 100 }).map((m) => m.id);
+    expect(ids).toEqual(["openai/gpt-normal"]);
   });
 
   it("excludes a model whose output price is over the ceiling", () => {
