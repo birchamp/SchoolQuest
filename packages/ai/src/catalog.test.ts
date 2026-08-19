@@ -5,7 +5,9 @@ import {
   coachModelId,
   defaultReaderId,
   guardModelId,
+  isSelectableReader,
   readerChoices,
+  recentModels,
   semesterReadingCents,
   type CatalogModel,
 } from "./catalog.js";
@@ -30,6 +32,80 @@ const CATALOG: CatalogModel[] = [
   // Malformed price: excluded rather than treated as free.
   { id: "openai/gpt-broken", name: "GPT Broken", pricing: { prompt: undefined, completion: "oops" }, context_length: 100_000 },
 ];
+
+describe("isSelectableReader", () => {
+  it("keeps the plain flagships", () => {
+    for (const id of [
+      "openai/gpt-4o",
+      "openai/gpt-4.1-mini",
+      "anthropic/claude-3.5-sonnet",
+      "google/gemini-2.5-pro",
+      "x-ai/grok-4",
+    ]) {
+      expect(isSelectableReader(id)).toBe(true);
+    }
+  });
+
+  it("drops modality side-cars and utility endpoints", () => {
+    for (const id of [
+      "openai/gpt-4o-audio-preview",
+      "openai/gpt-4o-realtime-preview",
+      "openai/gpt-4o-search-preview",
+      "openai/gpt-4o-mini-tts",
+      "openai/text-embedding-3-large",
+      "openai/omni-moderation-latest",
+      "anthropic/claude-3.5-sonnet-computer-use",
+      "x-ai/grok-vision-beta",
+      "google/imagen-3",
+    ]) {
+      expect(isSelectableReader(id)).toBe(false);
+    }
+  });
+
+  it("drops dated snapshots but keeps the undated alias", () => {
+    expect(isSelectableReader("openai/gpt-4o-2024-08-06")).toBe(false);
+    expect(isSelectableReader("anthropic/claude-3-5-sonnet-20241022")).toBe(false);
+    expect(isSelectableReader("openai/gpt-4o")).toBe(true);
+  });
+
+  it("drops the free tier", () => {
+    expect(isSelectableReader("google/gemini-2.0-flash-exp:free")).toBe(false);
+  });
+
+  it("never trips on the provider name itself", () => {
+    // "openai" contains no marker; a rule that matched the whole id rather than the tail could
+    // wrongly drop a whole family. The tail is what is tested.
+    expect(isSelectableReader("openai/gpt-4o")).toBe(true);
+  });
+});
+
+describe("recentModels", () => {
+  const NOW = Date.UTC(2026, 7, 19) / 1000; // seconds; matches OpenRouter's `created` unit
+  const nowMs = NOW * 1000;
+  const months = (n: number) => NOW - n * 30 * 24 * 60 * 60;
+
+  it("drops models older than the window but keeps recent ones", () => {
+    const catalog: CatalogModel[] = [
+      { id: "openai/gpt-old", created: months(30) },
+      { id: "openai/gpt-new", created: months(2) },
+    ];
+    expect(recentModels(catalog, nowMs).map((m) => m.id)).toEqual(["openai/gpt-new"]);
+  });
+
+  it("keeps undated models, since the fallback catalogue carries no dates", () => {
+    const catalog: CatalogModel[] = [{ id: "x-ai/grok-undated" }, { id: "openai/gpt-old", created: months(40) }];
+    expect(recentModels(catalog, nowMs).map((m) => m.id)).toContain("x-ai/grok-undated");
+  });
+
+  it("falls back to the whole list rather than empty when everything is old", () => {
+    const catalog: CatalogModel[] = [
+      { id: "openai/gpt-old", created: months(40) },
+      { id: "x-ai/grok-old", created: months(50) },
+    ];
+    // A stale recommendation still reads a syllabus; an empty picker does nothing.
+    expect(recentModels(catalog, nowMs)).toHaveLength(2);
+  });
+});
 
 describe("readerChoices", () => {
   it("keeps only trusted providers under the ceiling, cheapest first", () => {

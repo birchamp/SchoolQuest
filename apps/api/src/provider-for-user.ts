@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { coachModelId, defaultReaderId, guardModelId, MODELS, readerChoices, CEILINGS } from "@schoolquest/ai";
 import { users } from "./db/schema.js";
 import { decryptSecret } from "./secrets.js";
-import { getCatalog } from "./model-catalog.js";
+import { getReaderCatalog } from "./model-catalog.js";
 import type { Db } from "./db/repo.js";
 import type { Env } from "./env.js";
 
@@ -43,7 +43,7 @@ export async function providerForUser(
   // being the fallback: the coach and guard follow whatever OpenRouter currently lists. The
   // hardcoded MODELS constants are the last resort under `getCatalog`'s own fallback, reached
   // only when even the fallback catalogue is empty.
-  const catalog = await getCatalog(env);
+  const catalog = await getReaderCatalog(env);
   const strongestUnderReaderCeiling =
     defaultReaderId(readerChoices(catalog, { maxOutputPerMillion: CEILINGS.reader })) ?? MODELS.EXTRACTION;
 

@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { detailMode, themeName } from "@schoolquest/domain";
 import { CEILINGS, coachModelId, defaultReaderId, MODELS } from "@schoolquest/ai";
-import { getCatalog, readerListFor } from "./model-catalog.js";
+import { getReaderCatalog, readerListFor } from "./model-catalog.js";
 import { decryptSecret, encryptSecret, keyHint } from "./secrets.js";
 import { redeemLoginToken, requestLoginLink, requireAuth, SESSION_COOKIE, setSessionCookie, signOut } from "./auth.js";
 import { getDb } from "./db/repo.js";
@@ -99,8 +99,9 @@ app.get("/api/me", async (c) => {
     ? await decryptSecret(openrouterKeyEncrypted, c.env.AUTH_SECRET)
     : null;
 
-  // Live from OpenRouter (cached), so the picker never shows a model that has been retired.
-  const catalog = await getCatalog(c.env);
+  // Live from OpenRouter (cached) and pruned to recent models, so the picker never shows a model
+  // that has been retired or a generation nobody should still be choosing.
+  const catalog = await getReaderCatalog(c.env);
   const readerList = await readerListFor(c.env, CEILINGS.reader);
 
   return c.json({

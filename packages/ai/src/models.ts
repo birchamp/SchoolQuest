@@ -52,20 +52,12 @@ export interface ModelChoice {
  */
 export const MODEL_CHOICES: readonly ModelChoice[] = [
   {
-    id: "x-ai/grok-4.1-fast",
-    label: "Grok 4.1 Fast",
-    inputPerMillion: 0.2,
-    outputPerMillion: 0.5,
-    context: 2_000_000,
-    note: "The cheapest that does everything this app needs. Pennies for a whole degree.",
-  },
-  {
     id: "x-ai/grok-4.3",
     label: "Grok 4.3",
     inputPerMillion: 1.25,
     outputPerMillion: 2.5,
     context: 256_000,
-    note: "Middle tier. Cheaper than 4.5 and usually as good on a plainly-written syllabus.",
+    note: "The cheap, fast tier. Fine on a plainly-written syllabus.",
   },
   {
     id: "x-ai/grok-4.5",

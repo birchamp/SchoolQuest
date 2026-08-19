@@ -66,9 +66,9 @@ export class AiProviderError extends Error {
  */
 export const MODELS = {
   /** Coach chat and disruption parsing. */
-  COACH: "x-ai/grok-4.1-fast",
+  COACH: "x-ai/grok-4.3",
   /** Topic guardrail — smallest, cheapest classification call. */
-  GUARD: "x-ai/grok-4.1-fast",
+  GUARD: "x-ai/grok-4.3",
   /**
    * Syllabus and screenshot extraction. Deliberately the strong model, and the cost of that
    * choice is measured: a five-course semester read three times comes to about 33 cents, against

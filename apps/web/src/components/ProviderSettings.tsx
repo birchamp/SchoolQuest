@@ -45,6 +45,17 @@ interface ModelOption {
   context: number;
   centsPerSemester: number;
   centsPerSemesterThreePasses: number;
+  /** Unix seconds the model was released, or null when OpenRouter did not date it. */
+  releasedAt: number | null;
+}
+
+/** "Mar 2025" from OpenRouter's release timestamp, or null when it did not give one. */
+function releaseText(releasedAt: number | null): string | null {
+  if (!releasedAt) return null;
+  return new Date(releasedAt * 1000).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+  });
 }
 
 interface MeResponse {
@@ -70,6 +81,9 @@ export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Whether the model chooser is open. Closed by default: the picker is a short line, not a wall. */
+  const [choosing, setChoosing] = useState(false);
+  const [query, setQuery] = useState("");
 
   async function load() {
     try {
@@ -102,6 +116,12 @@ export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
   if (!me) return null;
   const { user, models } = me;
   const chosen = user.extractionModel ?? me.defaultExtractionModel;
+  const chosenModel = models.find((m) => m.id === chosen) ?? null;
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? models.filter((m) => `${m.label} ${m.provider} ${m.id}`.toLowerCase().includes(q))
+    : models;
 
   return (
     <section className="card" id="provider-settings" aria-labelledby="provider-heading">
@@ -166,46 +186,113 @@ export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
       </div>
 
       <h3 style={{ marginTop: "1.1rem" }}>Which model reads your syllabi</h3>
-      <p className="muted" style={{ margin: "0 0 0.6rem", fontSize: "0.85rem" }}>
-        Live from OpenRouter, cheapest first. The strongest is the default, because a misread
-        date costs a deadline and reading is pennies a semester at any of these.
-      </p>
-      <ul className="model-list">
-        {models.map((model) => (
-          <li key={model.id}>
-            <label>
-              <input
-                type="radio"
-                name="extraction-model"
-                checked={chosen === model.id}
-                disabled={busy}
-                onChange={() =>
-                  void save(
-                    { extractionModel: model.id },
-                    `Syllabi will be read by ${model.label} from now on.`,
-                  )
-                }
-              />
-              <span className="model-name">
-                {model.label}
-                <span className="muted" style={{ fontWeight: 400 }}> · {model.provider}</span>
-              </span>
-              {/* The cost first, because it is the part that decides the answer. */}
-              {/* Per semester, not per syllabus: it is the unit a student decides against, and
-                  the only one that survives rounding — the cheap model is under a cent a
-                  document, which would render as "0¢" and tell nobody anything. */}
-              <span className="model-price">
-                ~{model.centsPerSemester}¢ a semester
-                <span className="muted">
-                  {" "}
-                  · {model.centsPerSemesterThreePasses}¢ if each syllabus is read three times ·
-                  ${model.inputPerMillion}/M in, ${model.outputPerMillion}/M out
-                </span>
-              </span>
-            </label>
-          </li>
-        ))}
-      </ul>
+
+      {/* Closed by default: one line naming the current reader and its cost, not the whole
+          catalogue. OpenRouter lists dozens of models even after filtering to recent, trusted
+          ones, and a wall of radios is the thing this screen was becoming. */}
+      {!choosing ? (
+        <div className="model-current">
+          <div>
+            <span className="model-name">
+              {chosenModel?.label ?? chosen}
+              {chosenModel && (
+                <span className="muted" style={{ fontWeight: 400 }}> · {chosenModel.provider}</span>
+              )}
+            </span>
+            <span className="model-price muted" style={{ display: "block" }}>
+              {chosenModel ? (
+                <>
+                  ~{chosenModel.centsPerSemester}¢ a semester
+                  {releaseText(chosenModel.releasedAt) && <> · released {releaseText(chosenModel.releasedAt)}</>}
+                </>
+              ) : (
+                "This model is no longer on OpenRouter's current list — pick another."
+              )}
+            </span>
+          </div>
+          <button className="action" disabled={busy} onClick={() => setChoosing(true)}>
+            Change model
+          </button>
+        </div>
+      ) : (
+        <div className="model-picker">
+          <p className="muted" style={{ margin: "0 0 0.5rem", fontSize: "0.85rem" }}>
+            Live from OpenRouter, current models only, cheapest first. The strongest is the
+            default, because a misread date costs a deadline and reading is pennies a semester at
+            any of these.
+          </p>
+          <label className="sr-only" htmlFor="model-search">
+            Search models by name or provider
+          </label>
+          <input
+            id="model-search"
+            type="search"
+            className="model-search"
+            value={query}
+            placeholder="Search by name or provider…"
+            autoComplete="off"
+            autoFocus
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <p className="muted" style={{ margin: "0.45rem 0", fontSize: "0.8rem" }}>
+            Showing {filtered.length} of {models.length} {models.length === 1 ? "model" : "models"}.
+          </p>
+          <ul className="model-list model-scroll">
+            {filtered.map((model) => (
+              <li key={model.id}>
+                <label>
+                  <input
+                    type="radio"
+                    name="extraction-model"
+                    checked={chosen === model.id}
+                    disabled={busy}
+                    onChange={() => {
+                      setChoosing(false);
+                      setQuery("");
+                      void save(
+                        { extractionModel: model.id },
+                        `Syllabi will be read by ${model.label} from now on.`,
+                      );
+                    }}
+                  />
+                  <span className="model-name">
+                    {model.label}
+                    <span className="muted" style={{ fontWeight: 400 }}> · {model.provider}</span>
+                  </span>
+                  {/* Cost first — it decides the answer — then how current the model is. */}
+                  <span className="model-price">
+                    ~{model.centsPerSemester}¢ a semester
+                    <span className="muted">
+                      {" "}
+                      · {model.centsPerSemesterThreePasses}¢ at three passes · $
+                      {model.inputPerMillion}/M in, ${model.outputPerMillion}/M out
+                    </span>
+                  </span>
+                  {releaseText(model.releasedAt) && (
+                    <span className="model-note muted">Released {releaseText(model.releasedAt)}</span>
+                  )}
+                </label>
+              </li>
+            ))}
+            {filtered.length === 0 && (
+              <li className="muted" style={{ padding: "0.6rem 0.2rem" }}>
+                No model matches “{query}”.
+              </li>
+            )}
+          </ul>
+          <div className="button-row" style={{ marginTop: "0.6rem" }}>
+            <button
+              className="action"
+              onClick={() => {
+                setChoosing(false);
+                setQuery("");
+              }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
 
       {me.coachModel && (
         <p className="muted" style={{ marginTop: "0.8rem", fontSize: "0.86rem" }}>

@@ -1,6 +1,7 @@
 import {
   MODEL_CHOICES,
   readerChoices,
+  recentModels,
   type CatalogModel,
   type PricedModel,
 } from "@schoolquest/ai";
@@ -63,6 +64,8 @@ interface OpenRouterModel {
   name?: unknown;
   pricing?: { prompt?: unknown; completion?: unknown };
   context_length?: unknown;
+  /** Unix seconds the model was released. Present on the live payload; drives recency. */
+  created?: unknown;
 }
 
 function normalize(raw: unknown): CatalogModel[] {
@@ -79,6 +82,7 @@ function normalize(raw: unknown): CatalogModel[] {
         completion: typeof row.pricing?.completion === "string" ? row.pricing.completion : undefined,
       },
       context_length: typeof row.context_length === "number" ? row.context_length : undefined,
+      created: typeof row.created === "number" ? row.created : undefined,
     });
   }
   return out;
@@ -123,9 +127,19 @@ export async function getCatalog(env: Env): Promise<CatalogModel[]> {
   return fallback;
 }
 
+/**
+ * The catalogue used for every recommendation -- the picker list and the auto-chosen coach and
+ * guard -- with models too old to recommend pruned out. Recency is applied here, at the one place
+ * the wall clock is available, so the pure catalog functions never have to read it. A failed live
+ * fetch still yields the (undated) fallback, which `recentModels` keeps whole.
+ */
+export async function getReaderCatalog(env: Env): Promise<CatalogModel[]> {
+  return recentModels(await getCatalog(env), Date.now());
+}
+
 /** The reader list the settings screen shows, priced, under the reader ceiling. */
 export async function readerListFor(env: Env, maxOutputPerMillion: number): Promise<PricedModel[]> {
-  return readerChoices(await getCatalog(env), { maxOutputPerMillion });
+  return readerChoices(await getReaderCatalog(env), { maxOutputPerMillion });
 }
 
 /** Test seam: drop the cache so a test can control what the next call returns. */

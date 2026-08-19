@@ -32,6 +32,8 @@ export interface CatalogModel {
   /** USD per *token*, as decimal strings — OpenRouter's format. "0" for the free tier. */
   pricing?: { prompt?: string; completion?: string };
   context_length?: number;
+  /** Unix seconds the model was released, from OpenRouter's `created`. Absent on the fallback. */
+  created?: number;
 }
 
 /** A model the student could pick, priced the way this app measures cost. */
@@ -45,6 +47,8 @@ export interface PricedModel {
   /** What a whole semester of reading costs on this model — the number the choice is made against. */
   centsPerSemester: number;
   centsPerSemesterThreePasses: number;
+  /** Unix seconds the model was released, or null when the catalogue did not date it. */
+  releasedAt: number | null;
 }
 
 /**
@@ -68,6 +72,46 @@ function providerOf(id: string): ProviderKey | null {
     if (id.startsWith(prefix)) return name as ProviderKey;
   }
   return null;
+}
+
+/**
+ * Variants that a trusted provider ships but that are never the right syllabus reader.
+ *
+ * Even confined to four providers under the price ceiling, OpenRouter's catalogue lists dozens
+ * of rows per family: modality side-cars (audio, realtime, image, tts), retrieval and utility
+ * endpoints (search, embedding, moderation, computer-use), and dated snapshots that only
+ * duplicate the undated alias the provider keeps current. None of them is a better reader than
+ * the plain flagship, and together they turn a choosable list into an unreadable one. Dropping
+ * them is the difference between a picker a person scans and a wall they give up on.
+ *
+ * Matched on the part after the "provider/" prefix so a provider name can never trip a rule.
+ * Substrings, not exact ids, because the variants are spelled a dozen ways -- "gpt-4o-audio-
+ * preview", "gpt-4o-realtime-preview-2024-10-01" -- and every one carries its tell in the name.
+ */
+const EXCLUDED_VARIANT_MARKERS = [
+  "audio",
+  "realtime",
+  "search",
+  "tts",
+  "image",
+  "vision",
+  "embedding",
+  "moderation",
+  "computer-use",
+] as const;
+
+/** A dated snapshot suffix: `-2024-08-06` or `-20240806`. The undated alias is kept instead. */
+const DATED_SNAPSHOT = /-\d{4}-?\d{2}-?\d{2}$/;
+
+/**
+ * Whether a model id is a syllabus reader a student should ever be offered, as opposed to a
+ * side-car variant, a utility endpoint, a rate-limited free tier, or a dated snapshot.
+ */
+export function isSelectableReader(id: string): boolean {
+  if (id.includes(":free")) return false;
+  const tail = id.slice(id.indexOf("/") + 1);
+  if (DATED_SNAPSHOT.test(tail)) return false;
+  return !EXCLUDED_VARIANT_MARKERS.some((marker) => tail.includes(marker));
 }
 
 /**
@@ -108,6 +152,40 @@ export interface CatalogFilter {
 }
 
 /**
+ * How old a released model may be and still be recommended.
+ *
+ * Price is a poor proxy for capability across generations: OpenRouter lists gpt-3.5-turbo years
+ * after it was superseded, and the "strongest under the ceiling" auto-pick -- which really means
+ * "priciest under the ceiling" -- happily chose it, because it is dearer than the current fast
+ * tier while being far worse. Recency is the honest signal. Anything a provider shipped in the
+ * last year or so is current enough to recommend; older than that, a better model in the same
+ * price band almost always exists.
+ */
+export const MAX_RELEASE_AGE_MONTHS = 15;
+
+/** Days per month, for turning a month window into a millisecond cutoff. Approximate on purpose. */
+const DAYS_PER_MONTH = 30;
+
+/**
+ * The models recent enough to recommend, given the current time.
+ *
+ * A model is kept when it was released within the window, or when the catalogue did not date it
+ * at all -- the offline fallback carries no dates, and a model we cannot date must not be dropped
+ * on a guess. And if the window would empty the list (a catalogue entirely of older models, or a
+ * clock skew), it is ignored: a stale recommendation still reads a syllabus, an empty picker does
+ * nothing. Pure -- the caller supplies `now`, because this package never reads the wall clock.
+ */
+export function recentModels(
+  catalog: readonly CatalogModel[],
+  nowMs: number,
+  months: number = MAX_RELEASE_AGE_MONTHS,
+): CatalogModel[] {
+  const cutoffSeconds = (nowMs - months * DAYS_PER_MONTH * 24 * 60 * 60 * 1000) / 1000;
+  const kept = catalog.filter((m) => typeof m.created !== "number" || m.created >= cutoffSeconds);
+  return kept.length > 0 ? kept : [...catalog];
+}
+
+/**
  * The reader's list: trusted providers, under the price ceiling, cheapest first.
  *
  * Cheapest first is also least-capable first as a rule, but the *default* the caller applies is
@@ -120,6 +198,9 @@ export function readerChoices(catalog: readonly CatalogModel[], filter: CatalogF
   for (const model of catalog) {
     const provider = providerOf(model.id);
     if (!provider) continue;
+    // Trusted family is necessary but not sufficient: drop the side-car and snapshot variants
+    // that make the list unreadable without removing any real reader.
+    if (!isSelectableReader(model.id)) continue;
     const inputPerMillion = perMillion(model.pricing?.prompt);
     const outputPerMillion = perMillion(model.pricing?.completion);
     // A free model (price 0) is real, but a $0 model on this list is almost always a
@@ -137,6 +218,7 @@ export function readerChoices(catalog: readonly CatalogModel[], filter: CatalogF
       context: model.context_length ?? 0,
       centsPerSemester: semesterReadingCents(inputPerMillion, outputPerMillion, 1, courses),
       centsPerSemesterThreePasses: semesterReadingCents(inputPerMillion, outputPerMillion, 3, courses),
+      releasedAt: typeof model.created === "number" ? model.created : null,
     });
   }
   // Cheapest first, by the blended per-syllabus cost so a model that is cheap in but dear out
