@@ -545,6 +545,7 @@ export function App() {
               theme={theme}
               onChanged={refreshPlan}
               onGoToSetup={goToEffortSurvey}
+              onOpenWork={openWorkItem}
             />
           )}
           {/* The week tab reads as one zoom-out: the seven days as beats, then the term's

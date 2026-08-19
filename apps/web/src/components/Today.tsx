@@ -33,12 +33,20 @@ export function Today({
   theme,
   onChanged,
   onGoToSetup,
+  onOpenWork,
 }: {
   plan: PlanResponse;
   theme: ThemeName;
   onChanged: () => void;
   /** Takes the student to Setup, where the effort survey lives. */
   onGoToSetup: () => void;
+  /**
+   * Opens an assignment's full record -- the Assignments table row it lives in, which carries
+   * its course, type, due date, effort, worth and status, and is where those are edited. Every
+   * assignment this view names becomes a way in, so a title that meant nothing on its own
+   * ("Reading quiz #1") is one click from everything the app knows about it.
+   */
+  onOpenWork: (workItemId: string) => void;
 }) {
   const progress = plan.progress;
   const [busy, setBusy] = useState<string | null>(null);
@@ -53,6 +61,35 @@ export function Today({
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
   const today = new Date().toISOString().slice(0, 10);
+
+  /**
+   * "Revelation (REL 101)" -- the class an assignment belongs to, with its code when the
+   * syllabus gave one. The plain answer to "which course is this for?", which the alternatives
+   * and the forecast never used to state at all.
+   */
+  function courseLabel(courseId: string): string {
+    const course = coursesById.get(courseId);
+    if (!course) return "";
+    return course.code ? `${course.name} (${course.code})` : course.name;
+  }
+
+  /**
+   * An assignment title rendered as the way into its full record. Looks like the text around
+   * it and reveals itself as a control on hover and focus, so the affordance is there without
+   * turning the card into a field of links.
+   */
+  function titleLink(workItemId: string, title: string, className?: string) {
+    return (
+      <button
+        type="button"
+        className={`link-button${className ? ` ${className}` : ""}`}
+        onClick={() => onOpenWork(workItemId)}
+        aria-label={`Open details for ${title}`}
+      >
+        {title}
+      </button>
+    );
+  }
 
   // Quest-theme presentation only. Domain data and Plain/Mission rendering are untouched.
   const quest = theme === "quest";
@@ -183,7 +220,7 @@ export function Today({
   const protectedLater = (() => {
     const groups = new Map<
       string,
-      { id: string; title: string; when: string; minutes: number; blocks: number }
+      { id: string; courseId: string; title: string; when: string; minutes: number; blocks: number }
     >();
     for (const s of plan.sessions.filter((s) => s.startAt.slice(0, 10) > today)) {
       const existing = groups.get(s.workItemId);
@@ -194,6 +231,7 @@ export function Today({
       }
       groups.set(s.workItemId, {
         id: s.workItemId,
+        courseId: s.courseId,
         title: itemsById.get(s.workItemId)?.title ?? "Session",
         // The first block's day: when this work starts, not when it ends.
         when: new Date(s.startAt).toLocaleDateString(undefined, { weekday: "short" }),
@@ -443,9 +481,9 @@ export function Today({
               {questlineStanding(primary.courseId)}
             </p>
           )}
-          <p className="title">{primary.title}</p>
+          <p className="title">{titleLink(primary.workItemId, primary.title, "title-link")}</p>
           <p className="meta">
-            {coursesById.get(primary.courseId)?.name} &middot; {primary.durationMinutes} minutes
+            {courseLabel(primary.courseId)} &middot; {primary.durationMinutes} minutes
             &middot;{" "}
             {new Date(primary.startAt).toLocaleTimeString(undefined, {
               hour: "numeric",
@@ -538,14 +576,17 @@ export function Today({
           <ul className="alternatives">
             {alternatives.slice(0, 2).map((alt) => (
               <li key={alt.sessionId}>
-                <span>
-                  {quest && (
-                    <span aria-hidden="true" style={{ color: questGold }}>
-                      {"◆ "}
-                    </span>
-                  )}
-                  {alt.title}
-                  <span className="muted"> &middot; {alt.durationMinutes} min</span>
+                <span className="mention">
+                  <span>
+                    {quest && (
+                      <span aria-hidden="true" style={{ color: questGold }}>
+                        {"◆ "}
+                      </span>
+                    )}
+                    {titleLink(alt.workItemId, alt.title)}
+                    <span className="muted"> &middot; {alt.durationMinutes} min</span>
+                  </span>
+                  <span className="course-line muted">{courseLabel(alt.courseId)}</span>
                 </span>
                 <button
                   className="action"
@@ -568,9 +609,12 @@ export function Today({
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {protectedLater.map((s) => (
               <li key={s.id}>
-                <span>
-                  {quest && <span aria-hidden="true" style={{ color: "#8a6f1f" }}>{"◈ "}</span>}
-                  {s.title}
+                <span className="mention">
+                  <span>
+                    {quest && <span aria-hidden="true" style={{ color: "#8a6f1f" }}>{"◈ "}</span>}
+                    {titleLink(s.id, s.title)}
+                  </span>
+                  <span className="course-line muted">{courseLabel(s.courseId)}</span>
                 </span>
                 <span>
                   {s.when} &middot; {formatEffort(s.minutes)}
