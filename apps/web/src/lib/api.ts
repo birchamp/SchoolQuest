@@ -84,4 +84,19 @@ export const api = {
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   upload: <T>(path: string, form: FormData) =>
     request<T>(path, { method: "POST", body: form }),
+  /**
+   * Fetches a stored file back as bytes. Used to re-read a syllabus that is already uploaded:
+   * extraction runs on page text parsed in the browser, and that text is never stored server-side,
+   * so re-processing means fetching the original file and parsing it again here. Same auth as the
+   * JSON calls; no Content-Type, because there is no body.
+   */
+  blob: async (path: string): Promise<Blob> => {
+    const token = storedToken();
+    const response = await fetch(`${API_BASE}${path}`, {
+      credentials: "include",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new ApiError(`Request failed (${response.status})`, response.status);
+    return response.blob();
+  },
 };

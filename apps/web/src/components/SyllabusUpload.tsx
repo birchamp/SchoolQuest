@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Course, ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { extractDocxText } from "../lib/docx-text";
-import { extractPdfText } from "../lib/pdf-text";
+import { extractPdfText, type DocumentPage } from "../lib/pdf-text";
 import type { ExtractionResponse } from "../lib/extraction-types";
 import { ExtractionReview } from "./ExtractionReview";
 import { useBodyTheme } from "../lib/use-body-theme";
@@ -34,6 +34,29 @@ type Phase =
       name: "done";
       created: { workItems: number; categories: number; meetingPatterns: number };
     };
+
+/** A syllabus already uploaded for the selected course, as the documents list returns it. */
+interface UploadedDoc {
+  id: string;
+  filename: string;
+  type: string;
+  mimeType: string;
+  processingStatus: string;
+}
+
+/** Plain, honest words for a stored document's processing state. */
+function statusWord(status: string): string {
+  switch (status) {
+    case "extracted":
+      return "read";
+    case "processing":
+      return "reading...";
+    case "failed":
+      return "last read failed";
+    default:
+      return "not read yet";
+  }
+}
 
 
 /** Themed wording on screen, plain wording for assistive technology. */
@@ -120,6 +143,7 @@ export function SyllabusUpload({
   const [courseId, setCourseId] = useState(courses[0]?.id ?? "");
   const [phase, setPhase] = useState<Phase>({ name: "idle" });
   const [error, setError] = useState<string | null>(null);
+  const [docs, setDocs] = useState<UploadedDoc[]>([]);
 
   // Courses can be created after this mounts (the add-course form sits right above).
   // Without this sync, the picker stays empty and upload reports "Add a course first"
@@ -127,6 +151,92 @@ export function SyllabusUpload({
   useEffect(() => {
     if (!courses.some((c) => c.id === courseId)) setCourseId(courses[0]?.id ?? "");
   }, [courses, courseId]);
+
+  /**
+   * The syllabi already on the selected course, so a class with no work can be re-read without
+   * uploading the same file a second time. Follows the picker: switch course, see its documents.
+   */
+  const loadDocs = useCallback(async () => {
+    if (!courseId) {
+      setDocs([]);
+      return;
+    }
+    try {
+      const { documents } = await api.get<{ documents: UploadedDoc[] }>(
+        `/api/courses/${courseId}/documents`,
+      );
+      setDocs(documents.filter((d) => d.type === "syllabus"));
+    } catch {
+      // A list that cannot load is just an absent list, not an error on the upload card.
+      setDocs([]);
+    }
+  }, [courseId]);
+
+  useEffect(() => {
+    void loadDocs();
+  }, [loadDocs]);
+
+  /**
+   * Reads a document to page text in the browser, or returns null after explaining why it could
+   * not. `.docx` is decided by extension or the stored MIME type, since a freshly picked file
+   * reports its type inconsistently.
+   */
+  async function readToPages(
+    file: File,
+    filename: string,
+    mimeType?: string,
+  ): Promise<DocumentPage[] | null> {
+    setPhase({ name: "reading", progress: "Reading the document…" });
+    const isDocx = /\.docx$/i.test(filename) || mimeType === DOCX_MIME;
+    const parsed = isDocx
+      ? await extractDocxText(file)
+      : await extractPdfText(file, (done, total) =>
+          setPhase({ name: "reading", progress: `Reading page ${done} of ${total}…` }),
+        );
+
+    if (parsed.likelyScanned) {
+      setPhase({ name: "idle" });
+      setError(
+        "This PDF appears to be a scan with no selectable text. Extraction needs real text, " +
+          "and OCR is not supported yet — you can still add the assignments by hand.",
+      );
+      return null;
+    }
+    return parsed.pages;
+  }
+
+  /**
+   * Extracts against an already-stored document and enters review. Re-running replaces the
+   * previous batch of claims rather than stacking duplicates (the server deletes the old ones),
+   * and nothing reaches the plan until the student confirms.
+   */
+  async function extractAndReview(documentId: string, filename: string, pages: DocumentPage[]) {
+    setPhase({ name: "extracting" });
+    const result = await api.post<ExtractionResponse>(`/api/documents/${documentId}/extract`, {
+      pages,
+    });
+    setPhase({ name: "review", documentId, filename, result });
+  }
+
+  /**
+   * Re-reads a syllabus that is already uploaded, in place. The parsed page text is never stored
+   * server-side, so this fetches the original file back and parses it again here before handing
+   * the same document id to extraction. The old claims are replaced, no duplicate document is
+   * made, and the student lands on the review screen exactly as a first upload would.
+   */
+  async function reprocess(doc: UploadedDoc) {
+    setError(null);
+    try {
+      const blob = await api.blob(`/api/documents/${doc.id}/file`);
+      const file = new File([blob], doc.filename, { type: doc.mimeType });
+      const pages = await readToPages(file, doc.filename, doc.mimeType);
+      if (pages === null) return;
+      await extractAndReview(doc.id, doc.filename, pages);
+    } catch (e) {
+      setPhase({ name: "idle" });
+      setError(e instanceof Error ? e.message : "That did not work.");
+    }
+  }
 
   async function handleFile(file: File) {
     if (!courseId) {
@@ -137,27 +247,8 @@ export function SyllabusUpload({
     setError(null);
     try {
       // --- 1. Read the document locally.
-      //
-      // Which reader depends on the file, because real students have a mix: one instructor
-      // posts a PDF and the next posts the Word file. Chosen by extension rather than by MIME
-      // type, since the browser reports .docx inconsistently and an empty `file.type` is common
-      // enough that trusting it would reject valid files.
-      setPhase({ name: "reading", progress: "Reading the document…" });
-      const isDocx = /\.docx$/i.test(file.name);
-      const parsed = isDocx
-        ? await extractDocxText(file)
-        : await extractPdfText(file, (done, total) =>
-            setPhase({ name: "reading", progress: `Reading page ${done} of ${total}…` }),
-          );
-
-      if (parsed.likelyScanned) {
-        setPhase({ name: "idle" });
-        setError(
-          "This PDF appears to be a scan with no selectable text. Extraction needs real text, " +
-            "and OCR is not supported yet \u2014 you can still add the assignments by hand.",
-        );
-        return;
-      }
+      const pages = await readToPages(file, file.name, file.type);
+      if (pages === null) return;
 
       // --- 2. Store the original. It stays viewable next to the extracted data (FR-3).
       //
@@ -165,6 +256,7 @@ export function SyllabusUpload({
       // empty string or application/octet-stream, depending on what the OS has registered. By
       // this point the file has been parsed as a .docx successfully, so re-declaring it is a
       // statement of fact rather than a guess, and it keeps the server's check strict.
+      const isDocx = /\.docx$/i.test(file.name);
       const form = new FormData();
       form.append("file", isDocx && file.type !== DOCX_MIME ? new File([file], file.name, { type: DOCX_MIME }) : file);
       form.append("type", "syllabus");
@@ -174,17 +266,7 @@ export function SyllabusUpload({
       );
 
       // --- 3. Extract from the page text, not the bytes.
-      setPhase({ name: "extracting" });
-      const result = await api.post<ExtractionResponse>(`/api/documents/${document.id}/extract`, {
-        pages: parsed.pages,
-      });
-
-      setPhase({
-        name: "review",
-        documentId: document.id,
-        filename: document.filename,
-        result,
-      });
+      await extractAndReview(document.id, document.filename, pages);
     } catch (e) {
       setPhase({ name: "idle" });
       setError(e instanceof Error ? e.message : "That did not work.");
@@ -203,6 +285,7 @@ export function SyllabusUpload({
         onConfirmed={(created) => {
           setPhase({ name: "done", created });
           onPlanChanged();
+          void loadDocs();
         }}
       />
     );
@@ -338,6 +421,45 @@ export function SyllabusUpload({
           }}
         />
       </label>
+
+      {/* Already-uploaded syllabi for this course, each re-readable in place. This is the
+          answer to a class that shows a syllabus but no work: the read can be run again --
+          because it was never confirmed, or because the first pass found nothing -- without
+          uploading the same file a second time and leaving a duplicate behind. */}
+      {docs.length > 0 && (
+        <div className="uploaded-syllabi">
+          <p className="uploaded-syllabi-head">
+            <Themed
+              visible={quest ? "Maps already charted" : "Already uploaded"}
+              plain="Already uploaded"
+            />
+          </p>
+          <ul>
+            {docs.map((doc) => (
+              <li key={doc.id}>
+                <span className="uploaded-syllabi-name">
+                  {doc.filename}
+                  <span className="muted"> &middot; {statusWord(doc.processingStatus)}</span>
+                </span>
+                <button
+                  className="action"
+                  disabled={working}
+                  onClick={() => void reprocess(doc)}
+                >
+                  <Themed
+                    visible={quest ? "Read it again" : "Review again"}
+                    plain="Review again"
+                  />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="muted" style={{ fontSize: "0.8rem", margin: "0.4rem 0 0" }}>
+            Reads the syllabus again and opens the review. Use this if a class has no work yet.
+            Nothing changes until you confirm.
+          </p>
+        </div>
+      )}
 
       {phase.name === "reading" && (
         <p className="muted" aria-live="polite">
