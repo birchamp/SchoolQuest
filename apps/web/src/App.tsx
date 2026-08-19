@@ -20,6 +20,7 @@ import { EffortSurvey } from "./components/EffortSurvey";
 import { OpenQuestions } from "./components/OpenQuestions";
 import { ProviderSettings } from "./components/ProviderSettings";
 import { TermCalendar } from "./components/TermCalendar";
+import { TermSettings } from "./components/TermSettings";
 import { StudyHours } from "./components/StudyHours";
 import { Stats } from "./components/Stats";
 import { Dashboard } from "./components/Dashboard";
@@ -727,6 +728,14 @@ export function App() {
               */}
               <SetupStatus termId={term.id} refreshKey={setupSaves} />
               <ProviderSettings onChanged={refreshPlan} />
+              <TermSettings
+                term={term}
+                onChanged={async () => {
+                  await refreshTerm();
+                  await regenerate();
+                  noteSetupChange();
+                }}
+              />
               {/*
                 The term is re-read, not only the plan: what the calendar changes lives on the
                 term, and the syllabus upload below gates on it.

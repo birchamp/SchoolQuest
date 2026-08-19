@@ -1468,20 +1468,25 @@ termsRoute.put("/courses/:courseId/meeting-patterns", async (c) => {
  * Ordered children-first so nothing is ever orphaned even if a later delete fails. Ids are
  * chunked because a course with many items would otherwise overflow the SQL variable limit.
  */
-termsRoute.post("/courses/:courseId/reset-academics", async (c) => {
-  const db = getDb(c.env.DB);
-  const courseId = c.req.param("courseId");
-  if (!(await assertCourseOwner(db, courseId, c.get("userId")))) {
-    return c.json({ error: "Course not found" }, 404);
-  }
-
+/**
+ * Deletes a course's academic data -- every work item with its sessions, grades and
+ * dependencies, then the grading scheme and class times. Not the course row itself.
+ *
+ * Children are deleted explicitly rather than by cascade: D1 does not enforce foreign-key
+ * cascades unless every connection opts in, and `dependencies` carries no foreign key at all.
+ * Children-first so nothing is orphaned if a later delete fails; ids are chunked to stay under
+ * the SQL variable limit. Shared by "reset this course" and "delete this course".
+ */
+async function deleteCourseAcademics(
+  db: ReturnType<typeof getDb>,
+  courseId: string,
+): Promise<number> {
   const items = await db
     .select({ id: workItems.id })
     .from(workItems)
     .where(eq(workItems.courseId, courseId));
   const itemIds = items.map((i) => i.id);
 
-  // SQLite/D1 caps bound variables per statement; 100 ids per delete stays well under it.
   const CHUNK = 100;
   for (let i = 0; i < itemIds.length; i += CHUNK) {
     const batch = itemIds.slice(i, i + CHUNK);
@@ -1500,9 +1505,75 @@ termsRoute.post("/courses/:courseId/reset-academics", async (c) => {
   await db.delete(workItems).where(eq(workItems.courseId, courseId));
   await db.delete(gradingCategories).where(eq(gradingCategories.courseId, courseId));
   await db.delete(meetingPatterns).where(eq(meetingPatterns.courseId, courseId));
+  return itemIds.length;
+}
 
+termsRoute.post("/courses/:courseId/reset-academics", async (c) => {
+  const db = getDb(c.env.DB);
+  const courseId = c.req.param("courseId");
+  if (!(await assertCourseOwner(db, courseId, c.get("userId")))) {
+    return c.json({ error: "Course not found" }, 404);
+  }
+
+  const workItemsDeleted = await deleteCourseAcademics(db, courseId);
   // The grading scheme is gone, so the course no longer claims to know its weights.
   await db.update(courses).set({ gradingConfidence: "unknown" }).where(eq(courses.id, courseId));
 
-  return c.json({ ok: true, workItemsDeleted: itemIds.length });
+  return c.json({ ok: true, workItemsDeleted });
+});
+
+/** Rename a course or fix its code. The one thing a student who typed it wrong needs. */
+const courseEditBody = z.object({
+  name: z.string().min(1).max(120).optional(),
+  code: z.string().max(40).nullable().optional(),
+});
+termsRoute.patch("/courses/:courseId", async (c) => {
+  const db = getDb(c.env.DB);
+  const courseId = c.req.param("courseId");
+  if (!(await assertCourseOwner(db, courseId, c.get("userId")))) {
+    return c.json({ error: "Course not found" }, 404);
+  }
+  const parsed = courseEditBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const patch: Record<string, unknown> = {};
+  if (parsed.data.name !== undefined) patch["name"] = parsed.data.name.trim();
+  if (parsed.data.code !== undefined) {
+    // An empty string means "clear the code", which is a legitimate state, not the string "".
+    patch["code"] = parsed.data.code === null ? null : parsed.data.code.trim() || null;
+  }
+  if (Object.keys(patch).length > 0) {
+    await db.update(courses).set(patch).where(eq(courses.id, courseId));
+  }
+  return c.json({ ok: true });
+});
+
+/**
+ * Delete a course and everything under it: its assignments and their history, its grading
+ * scheme and class times, and the syllabi uploaded for it -- stored bytes, extraction claims
+ * and rows. Destructive and irreversible, so the UI confirms first. The term, and every other
+ * course, are untouched.
+ */
+termsRoute.delete("/courses/:courseId", async (c) => {
+  const db = getDb(c.env.DB);
+  const courseId = c.req.param("courseId");
+  if (!(await assertCourseOwner(db, courseId, c.get("userId")))) {
+    return c.json({ error: "Course not found" }, 404);
+  }
+
+  await deleteCourseAcademics(db, courseId);
+
+  const docs = await db
+    .select()
+    .from(sourceDocuments)
+    .where(eq(sourceDocuments.courseId, courseId));
+  for (const doc of docs) {
+    // Best effort on the bytes: a missing R2 object must not strand the row deletion.
+    await c.env.DOCUMENTS.delete(doc.storageKey).catch(() => {});
+    await db.delete(extractionClaims).where(eq(extractionClaims.sourceDocumentId, doc.id));
+  }
+  await db.delete(sourceDocuments).where(eq(sourceDocuments.courseId, courseId));
+
+  await db.delete(courses).where(eq(courses.id, courseId));
+  return c.json({ ok: true });
 });

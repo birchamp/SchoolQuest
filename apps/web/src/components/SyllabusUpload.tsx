@@ -148,6 +148,8 @@ export function SyllabusUpload({
   const [error, setError] = useState<string | null>(null);
   const [docs, setDocs] = useState<UploadedDoc[]>([]);
   /** A chosen replacement awaiting confirmation, because replacing wipes the class first. */
+  /** A syllabus staged for removal, awaiting confirmation. */
+  const [pendingRemove, setPendingRemove] = useState<UploadedDoc | null>(null);
   const [pendingReplace, setPendingReplace] = useState<{ doc: UploadedDoc; file: File } | null>(
     null,
   );
@@ -312,6 +314,23 @@ export function SyllabusUpload({
       await extractAndReview(document.id, document.filename, pages);
     } catch (e) {
       setPhase({ name: "idle" });
+      setError(e instanceof Error ? e.message : "That did not work.");
+    }
+  }
+
+  /**
+   * Removes an uploaded syllabus: its stored file and its extraction claims. Any assignments a
+   * confirmed review already created stay -- those are the student's records, not the file's, and
+   * are edited or skipped on the Assignments screen. This is just for getting a wrong or stray
+   * document off the class.
+   */
+  async function removeDoc(doc: UploadedDoc) {
+    setError(null);
+    try {
+      await api.del(`/api/documents/${doc.id}`);
+      setPendingRemove(null);
+      await loadDocs();
+    } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
     }
   }
@@ -562,7 +581,39 @@ export function SyllabusUpload({
                       }}
                     />
                   </label>
+                  {/* Take a wrong or stray syllabus off the class. Assignments already added stay. */}
+                  <button
+                    className="action"
+                    disabled={working}
+                    onClick={() => setPendingRemove(pendingRemove?.id === doc.id ? null : doc)}
+                  >
+                    Remove
+                  </button>
                 </span>
+                {pendingRemove?.id === doc.id && (
+                  <div
+                    className="replace-confirm"
+                    role="alertdialog"
+                    aria-label="Confirm removing the syllabus"
+                    style={{ marginTop: "0.5rem" }}
+                  >
+                    <p style={{ margin: "0 0 0.5rem" }}>
+                      Remove <strong>{doc.filename}</strong> from this {courseNoun.toLowerCase()}?
+                    </p>
+                    <p className="muted" style={{ margin: "0 0 0.6rem", fontSize: "0.85rem" }}>
+                      This deletes the uploaded file. Any assignments already added from it stay --
+                      edit or skip those on the {label("assignment", theme).toLowerCase()}s screen.
+                    </p>
+                    <div className="button-row">
+                      <button className="action primary" disabled={working} onClick={() => void removeDoc(doc)}>
+                        Remove
+                      </button>
+                      <button className="action" disabled={working} onClick={() => setPendingRemove(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

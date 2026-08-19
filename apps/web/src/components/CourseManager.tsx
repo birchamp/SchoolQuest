@@ -232,6 +232,10 @@ export function CourseManager({
   /** Course whose class times are open for editing, or null. */
   const [editingMeetings, setEditingMeetings] = useState<string | null>(null);
   const [editingGrading, setEditingGrading] = useState<string | null>(null);
+  /** Course whose name/code is being edited, and the two-step delete confirmation. */
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [busyCourse, setBusyCourse] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -240,6 +244,40 @@ export function CourseManager({
       setSnapshot(null);
     }
   }, [termId]);
+
+  async function saveCourse(courseId: string, name: string, code: string) {
+    if (name.trim().length === 0) {
+      setError(`A ${courseNoun.toLowerCase()} needs a name.`);
+      return;
+    }
+    setBusyCourse(courseId);
+    setError(null);
+    try {
+      await api.patch(`/api/courses/${courseId}`, { name: name.trim(), code: code.trim() });
+      setEditingName(null);
+      await refresh();
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusyCourse(null);
+    }
+  }
+
+  async function deleteCourse(courseId: string) {
+    setBusyCourse(courseId);
+    setError(null);
+    try {
+      await api.del(`/api/courses/${courseId}`);
+      setDeleting(null);
+      await refresh();
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not delete.");
+    } finally {
+      setBusyCourse(null);
+    }
+  }
 
   useEffect(() => {
     void refresh();
@@ -307,6 +345,18 @@ export function CourseManager({
                   <button className="action" onClick={() => setEditingGrading(course.id)}>
                     Grading
                   </button>
+                  <button
+                    className="action"
+                    onClick={() => setEditingName(editingName === course.id ? null : course.id)}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    className="action"
+                    onClick={() => setDeleting(deleting === course.id ? null : course.id)}
+                  >
+                    Delete
+                  </button>
                 </span>
                 <span className="muted" style={{ fontSize: "0.82rem" }}>
                   {gradingSummary(course.id) ?? (
@@ -328,6 +378,49 @@ export function CourseManager({
                     onCancel={() => setEditingGrading(null)}
                     onError={setError}
                   />
+                )}
+                {editingName === course.id && (
+                  <CourseNameForm
+                    initialName={course.name}
+                    initialCode={course.code ?? ""}
+                    busy={busyCourse === course.id}
+                    onSave={(name, code) => void saveCourse(course.id, name, code)}
+                    onCancel={() => setEditingName(null)}
+                  />
+                )}
+                {deleting === course.id && (
+                  <div
+                    className="replace-confirm"
+                    role="alertdialog"
+                    aria-label={`Confirm deleting ${course.name}`}
+                    style={{ width: "100%" }}
+                  >
+                    <p style={{ margin: "0 0 0.6rem" }}>
+                      Delete <strong>{course.name}</strong>?
+                    </p>
+                    <p className="muted" style={{ margin: "0 0 0.7rem" }}>
+                      This removes the {courseNoun.toLowerCase()} and everything under it -- its
+                      assignments and their history, its grading scheme and class times, and any
+                      syllabus uploaded for it. It cannot be undone. Your other{" "}
+                      {courseNoun.toLowerCase()}s are untouched.
+                    </p>
+                    <div className="button-row">
+                      <button
+                        className="action primary"
+                        disabled={busyCourse === course.id}
+                        onClick={() => void deleteCourse(course.id)}
+                      >
+                        Delete {courseNoun.toLowerCase()}
+                      </button>
+                      <button
+                        className="action"
+                        disabled={busyCourse === course.id}
+                        onClick={() => setDeleting(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 )}
               </li>
             ))}
@@ -541,6 +634,59 @@ function AddCourseForm({
           )}
         </button>
         <button className="action" type="button" onClick={() => setOpen(false)} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** Rename a course or fix its code after the fact -- a typo, or a name the syllabus got wrong. */
+function CourseNameForm({
+  initialName,
+  initialCode,
+  busy,
+  onSave,
+  onCancel,
+}: {
+  initialName: string;
+  initialCode: string;
+  busy: boolean;
+  onSave: (name: string, code: string) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [code, setCode] = useState(initialCode);
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave(name, code);
+      }}
+      style={{ marginTop: "0.6rem", width: "100%" }}
+    >
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.6rem" }}>
+        <input
+          aria-label="Course name"
+          required
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Course name"
+          style={{ ...fieldStyle, flex: 2, minWidth: "12rem" }}
+        />
+        <input
+          aria-label="Course code"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="Code (optional)"
+          style={{ ...fieldStyle, flex: 1, minWidth: "7rem" }}
+        />
+      </div>
+      <div className="button-row">
+        <button className="action primary" type="submit" disabled={busy || name.trim().length === 0}>
+          Save
+        </button>
+        <button className="action" type="button" disabled={busy} onClick={onCancel}>
           Cancel
         </button>
       </div>
