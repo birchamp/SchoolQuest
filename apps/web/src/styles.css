@@ -661,6 +661,11 @@ button.action:disabled {
  * ========================================================================== */
 
 body[data-theme="quest"] {
+  /* Inputs live on parchment here, so their native widgets must render dark ink whatever
+     the OS is set to -- otherwise a dark-mode machine turns the calendar glyph white and it
+     disappears into the page. See the mission block for the mechanism. */
+  color-scheme: light;
+
   --q-ink: #2a1f14;
   --q-parchment: #efe3c8;
   --q-parchment-deep: #e4d4b0;
@@ -1825,6 +1830,13 @@ body[data-theme="quest"] .model-list label {
  * ========================================================================== */
 
 body[data-theme="mission"] {
+  /* Native form controls -- the date/time edit text, the calendar glyph, the number
+     spinners -- take their light-or-dark rendering from color-scheme, not from `color`.
+     Left to the OS, a mission user on a light-mode machine got black date text painted on
+     the theme's dark input background: 08/11/2026 in near-black on #0c141c, invisible. The
+     theme is unconditionally dark, so its color-scheme is too. */
+  color-scheme: dark;
+
   --m-ink: #04140c;
   --m-void: #080d13;
   --m-steel: #111a24;
