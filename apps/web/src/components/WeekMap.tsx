@@ -284,6 +284,11 @@ export function WeekMap({
                           {new Date(meal.start! * 60_000).toLocaleTimeString(undefined, {
                             hour: "numeric",
                             minute: "2-digit",
+                            // The engine stores wall-clock times as UTC by convention, and
+                            // every other view reads them back the same way. Omit this and a
+                            // student two zones off sees 8am breakfast rendered as 4am here
+                            // while the hour-by-hour calendar, which pins UTC, still says 8.
+                            timeZone: "UTC",
                           })}
                           {" · "}
                           {formatMinutes(meal.minutes)} held
@@ -338,6 +343,7 @@ export function WeekMap({
                         {new Date(beat.startAt).toLocaleTimeString(undefined, {
                           hour: "numeric",
                           minute: "2-digit",
+                          timeZone: "UTC",
                         })}
                         {" · "}
                         {formatMinutes(beat.minutes)}

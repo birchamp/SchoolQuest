@@ -450,6 +450,8 @@ export function Today({
             {new Date(primary.startAt).toLocaleTimeString(undefined, {
               hour: "numeric",
               minute: "2-digit",
+              // UTC, like every other clock in the app: stored wall-clock times are UTC.
+              timeZone: "UTC",
             })}
           </p>
           <p className="rationale">{primary.explanation}</p>
