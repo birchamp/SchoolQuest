@@ -25,6 +25,9 @@ import { useBodyTheme } from "../lib/use-body-theme";
 /** Word's own MIME type, spelled once. */
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
+/** What the file pickers accept -- PDF or Word, spelled once for the upload and replace inputs. */
+const ACCEPT = `.pdf,.docx,application/pdf,${DOCX_MIME}`;
+
 type Phase =
   | { name: "idle" }
   | { name: "reading"; progress: string }
@@ -238,6 +241,27 @@ export function SyllabusUpload({
     }
   }
 
+  /**
+   * Stores the original bytes against the selected course and returns the new document.
+   *
+   * The server checks the declared type, and browsers report .docx inconsistently -- an empty
+   * string or application/octet-stream, depending on what the OS has registered. By the time this
+   * runs the file has already been parsed as a .docx successfully, so re-declaring it is a
+   * statement of fact rather than a guess, and it keeps the server's check strict. Shared by a
+   * first upload and by replacing an existing syllabus.
+   */
+  async function storeFile(file: File): Promise<{ id: string; filename: string }> {
+    const isDocx = /\.docx$/i.test(file.name);
+    const form = new FormData();
+    form.append("file", isDocx && file.type !== DOCX_MIME ? new File([file], file.name, { type: DOCX_MIME }) : file);
+    form.append("type", "syllabus");
+    const { document } = await api.upload<{ document: { id: string; filename: string } }>(
+      `/api/courses/${courseId}/documents`,
+      form,
+    );
+    return document;
+  }
+
   async function handleFile(file: File) {
     if (!courseId) {
       setError(`Add a ${courseNoun.toLowerCase()} first.`);
@@ -246,26 +270,36 @@ export function SyllabusUpload({
 
     setError(null);
     try {
-      // --- 1. Read the document locally.
+      // Read locally (FR-3: the original stays viewable), store it, then extract from the page
+      // text rather than the bytes.
       const pages = await readToPages(file, file.name, file.type);
       if (pages === null) return;
+      const document = await storeFile(file);
+      await extractAndReview(document.id, document.filename, pages);
+    } catch (e) {
+      setPhase({ name: "idle" });
+      setError(e instanceof Error ? e.message : "That did not work.");
+    }
+  }
 
-      // --- 2. Store the original. It stays viewable next to the extracted data (FR-3).
-      //
-      // The server checks the declared type, and browsers report .docx inconsistently -- an
-      // empty string or application/octet-stream, depending on what the OS has registered. By
-      // this point the file has been parsed as a .docx successfully, so re-declaring it is a
-      // statement of fact rather than a guess, and it keeps the server's check strict.
-      const isDocx = /\.docx$/i.test(file.name);
-      const form = new FormData();
-      form.append("file", isDocx && file.type !== DOCX_MIME ? new File([file], file.name, { type: DOCX_MIME }) : file);
-      form.append("type", "syllabus");
-      const { document } = await api.upload<{ document: { id: string; filename: string } }>(
-        `/api/courses/${courseId}/documents`,
-        form,
-      );
-
-      // --- 3. Extract from the page text, not the bytes.
+  /**
+   * Re-upload and start over: swap a new file in for an existing syllabus. The new file is stored
+   * first, so a failed upload never loses the old one, and only then is the previous document
+   * removed -- deleting it cascades away its old extraction claims but never the work items a
+   * confirmed review already created (those are the student's records, not the document's). Lands
+   * on the review screen for the new file; nothing changes in the plan until it is confirmed.
+   */
+  async function replaceFile(doc: UploadedDoc, file: File) {
+    if (!courseId) return;
+    setError(null);
+    try {
+      const pages = await readToPages(file, file.name, file.type);
+      if (pages === null) return;
+      const document = await storeFile(file);
+      await api.del(`/api/documents/${doc.id}`).catch(() => {
+        // Best effort: the new syllabus is already in and about to be read. A stale old row is
+        // visible in this same list and can be removed by hand rather than blocking the re-read.
+      });
       await extractAndReview(document.id, document.filename, pages);
     } catch (e) {
       setPhase({ name: "idle" });
@@ -411,7 +445,7 @@ export function SyllabusUpload({
         />
         <input
           type="file"
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          accept={ACCEPT}
           className="sr-only"
           disabled={working || courses.length === 0 || !hasCalendar}
           onChange={(e) => {
@@ -441,22 +475,47 @@ export function SyllabusUpload({
                   {doc.filename}
                   <span className="muted"> &middot; {statusWord(doc.processingStatus)}</span>
                 </span>
-                <button
-                  className="action"
-                  disabled={working}
-                  onClick={() => void reprocess(doc)}
-                >
-                  <Themed
-                    visible={quest ? "Read it again" : "Review again"}
-                    plain="Review again"
-                  />
-                </button>
+                <span className="uploaded-syllabi-actions">
+                  {/* Continue: re-read the same file and open the review again. */}
+                  <button
+                    className="action"
+                    disabled={working}
+                    onClick={() => void reprocess(doc)}
+                  >
+                    <Themed
+                      visible={quest ? "Read it again" : "Review again"}
+                      plain="Review again"
+                    />
+                  </button>
+                  {/* Start over: swap in a different file in place of this one. */}
+                  <label
+                    className="action"
+                    style={{
+                      cursor: working ? "default" : "pointer",
+                      opacity: working ? 0.5 : 1,
+                    }}
+                  >
+                    <Themed visible={quest ? "Chart anew…" : "Replace…"} plain="Replace…" />
+                    <input
+                      type="file"
+                      accept={ACCEPT}
+                      className="sr-only"
+                      disabled={working}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void replaceFile(doc, file);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </span>
               </li>
             ))}
           </ul>
           <p className="muted" style={{ fontSize: "0.8rem", margin: "0.4rem 0 0" }}>
-            Reads the syllabus again and opens the review. Use this if a class has no work yet.
-            Nothing changes until you confirm.
+            <strong>Review again</strong> re-reads this file and opens the review -- use it if a
+            class has no work yet. <strong>Replace</strong> swaps in a different file and starts
+            over. Either way, nothing changes until you confirm.
           </p>
         </div>
       )}

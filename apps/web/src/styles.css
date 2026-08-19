@@ -315,6 +315,13 @@ button.action:disabled {
   overflow-wrap: anywhere;
 }
 
+.uploaded-syllabi-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
 .alternatives {
   list-style: none;
   margin: 0;
