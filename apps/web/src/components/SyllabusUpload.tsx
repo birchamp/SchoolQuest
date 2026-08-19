@@ -147,6 +147,10 @@ export function SyllabusUpload({
   const [phase, setPhase] = useState<Phase>({ name: "idle" });
   const [error, setError] = useState<string | null>(null);
   const [docs, setDocs] = useState<UploadedDoc[]>([]);
+  /** A chosen replacement awaiting confirmation, because replacing wipes the class first. */
+  const [pendingReplace, setPendingReplace] = useState<{ doc: UploadedDoc; file: File } | null>(
+    null,
+  );
 
   // Courses can be created after this mounts (the add-course form sits right above).
   // Without this sync, the picker stays empty and upload reports "Add a course first"
@@ -283,19 +287,24 @@ export function SyllabusUpload({
   }
 
   /**
-   * Re-upload and start over: swap a new file in for an existing syllabus. The new file is stored
-   * first, so a failed upload never loses the old one, and only then is the previous document
-   * removed -- deleting it cascades away its old extraction claims but never the work items a
-   * confirmed review already created (those are the student's records, not the document's). Lands
-   * on the review screen for the new file; nothing changes in the plan until it is confirmed.
+   * Re-upload and start the class over: swap a new file in for an existing syllabus, and wipe
+   * everything the old one produced. Runs only after the student confirms, because it is
+   * destructive.
+   *
+   * Order matters. The new file is parsed and stored first, so a file that turns out to be a scan
+   * -- or an upload that fails -- stops here and nothing is lost. Only then is the class reset
+   * (its assignments, grades, grading scheme and class times deleted) and the old document
+   * removed. Finally the new syllabus is read into the now-empty course. The course itself, and
+   * the calendar, survive; nothing reaches the plan until the new read is confirmed.
    */
-  async function replaceFile(doc: UploadedDoc, file: File) {
+  async function doReplace(doc: UploadedDoc, file: File) {
     if (!courseId) return;
     setError(null);
     try {
       const pages = await readToPages(file, file.name, file.type);
       if (pages === null) return;
       const document = await storeFile(file);
+      await api.post(`/api/courses/${courseId}/reset-academics`);
       await api.del(`/api/documents/${doc.id}`).catch(() => {
         // Best effort: the new syllabus is already in and about to be read. A stale old row is
         // visible in this same list and can be removed by hand rather than blocking the re-read.
@@ -313,7 +322,12 @@ export function SyllabusUpload({
         documentId={phase.documentId}
         filename={phase.filename}
         initial={phase.result}
-        onCancel={() => setPhase({ name: "idle" })}
+        // Refresh on the way out too: a replace deletes the old document before review, so the
+        // list would otherwise still show a row that no longer exists if the review is cancelled.
+        onCancel={() => {
+          setPhase({ name: "idle" });
+          void loadDocs();
+        }}
         // Counts are kept rather than a finished sentence, so the summary can be worded
         // for the active theme at render time and still read plainly to a screen reader.
         onConfirmed={(created) => {
@@ -468,6 +482,45 @@ export function SyllabusUpload({
               plain="Already uploaded"
             />
           </p>
+
+          {/* Replacing is destructive -- it empties the class before reading the new file -- so
+              it is never done on the click that picked the file. This is the deliberate second
+              step, and it names exactly what is about to be lost. */}
+          {pendingReplace && (
+            <div className="replace-confirm" role="alertdialog" aria-label="Confirm replacing the syllabus">
+              <p style={{ margin: "0 0 0.6rem" }}>
+                Replace the syllabus for{" "}
+                <strong>{courses.find((c) => c.id === courseId)?.name ?? "this class"}</strong> with{" "}
+                <strong>{pendingReplace.file.name}</strong>?
+              </p>
+              <p className="muted" style={{ margin: "0 0 0.7rem" }}>
+                This deletes every assignment, recorded grade, grading weight and class time
+                already on this {courseNoun.toLowerCase()}, then reads the new file from scratch.
+                It cannot be undone. Nothing changes until you confirm the new read afterwards.
+              </p>
+              <div className="button-row">
+                <button
+                  className="action primary"
+                  disabled={working}
+                  onClick={() => {
+                    const { doc, file } = pendingReplace;
+                    setPendingReplace(null);
+                    void doReplace(doc, file);
+                  }}
+                >
+                  {quest ? "Redraw the map" : "Replace and start over"}
+                </button>
+                <button
+                  className="action"
+                  disabled={working}
+                  onClick={() => setPendingReplace(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           <ul>
             {docs.map((doc) => (
               <li key={doc.id}>
@@ -503,7 +556,8 @@ export function SyllabusUpload({
                       disabled={working}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) void replaceFile(doc, file);
+                        // Staged, not run: replacing wipes the class, so it waits on a confirm.
+                        if (file) setPendingReplace({ doc, file });
                         e.target.value = "";
                       }}
                     />
@@ -514,8 +568,9 @@ export function SyllabusUpload({
           </ul>
           <p className="muted" style={{ fontSize: "0.8rem", margin: "0.4rem 0 0" }}>
             <strong>Review again</strong> re-reads this file and opens the review -- use it if a
-            class has no work yet. <strong>Replace</strong> swaps in a different file and starts
-            over. Either way, nothing changes until you confirm.
+            class has no work yet. <strong>Replace</strong> starts the class over: it clears the
+            class's assignments and grading, then reads a different file in their place. Both open
+            the review, and nothing changes until you confirm it.
           </p>
         </div>
       )}

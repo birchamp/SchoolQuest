@@ -322,6 +322,20 @@ button.action:disabled {
   flex-shrink: 0;
 }
 
+/* The confirm step before a destructive replace. Bordered in the at-risk hue and given a tinted
+   ground so it reads as a stop, not another row -- it is deleting a class's work. */
+.replace-confirm {
+  margin: 0 0 0.7rem;
+  padding: 0.85rem;
+  border: 1px solid var(--at-risk);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--at-risk) 10%, var(--surface));
+}
+
+.replace-confirm p {
+  font-size: 0.9rem;
+}
+
 .alternatives {
   list-style: none;
   margin: 0;

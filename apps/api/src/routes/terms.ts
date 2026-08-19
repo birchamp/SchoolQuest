@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import {
   COURSE_COLOR_TOKENS,
@@ -41,6 +41,7 @@ import {
   sourceDocuments,
   terms,
   workItems,
+  workSessions,
 } from "../db/schema.js";
 import {
   assertTermOwner,
@@ -1450,4 +1451,58 @@ termsRoute.put("/courses/:courseId/meeting-patterns", async (c) => {
     );
   }
   return c.json({ ok: true, patterns: parsed.data.patterns.length });
+});
+
+/**
+ * Wipes a course's academic data back to empty: every assignment, its sessions and recorded
+ * grades, its dependencies, its grading scheme, and its class times. The course itself stays --
+ * name, code, target grade are the student's, not the syllabus's.
+ *
+ * This exists for "replace the syllabus and start this class over". Re-reading a syllabus in
+ * place replaces only that document's extraction claims; it cannot know that the student wants
+ * the old assignments gone too. So the client calls this first, deliberately and after
+ * confirming, then reads the new syllabus into a clean course.
+ *
+ * Children are deleted explicitly rather than by cascade: D1 does not enforce foreign-key
+ * cascades unless every connection opts in, and `dependencies` carries no foreign key at all.
+ * Ordered children-first so nothing is ever orphaned even if a later delete fails. Ids are
+ * chunked because a course with many items would otherwise overflow the SQL variable limit.
+ */
+termsRoute.post("/courses/:courseId/reset-academics", async (c) => {
+  const db = getDb(c.env.DB);
+  const courseId = c.req.param("courseId");
+  if (!(await assertCourseOwner(db, courseId, c.get("userId")))) {
+    return c.json({ error: "Course not found" }, 404);
+  }
+
+  const items = await db
+    .select({ id: workItems.id })
+    .from(workItems)
+    .where(eq(workItems.courseId, courseId));
+  const itemIds = items.map((i) => i.id);
+
+  // SQLite/D1 caps bound variables per statement; 100 ids per delete stays well under it.
+  const CHUNK = 100;
+  for (let i = 0; i < itemIds.length; i += CHUNK) {
+    const batch = itemIds.slice(i, i + CHUNK);
+    await db.delete(gradeResults).where(inArray(gradeResults.workItemId, batch));
+    await db.delete(workSessions).where(inArray(workSessions.workItemId, batch));
+    await db
+      .delete(dependencies)
+      .where(
+        or(
+          inArray(dependencies.predecessorWorkItemId, batch),
+          inArray(dependencies.successorWorkItemId, batch),
+        ),
+      );
+  }
+
+  await db.delete(workItems).where(eq(workItems.courseId, courseId));
+  await db.delete(gradingCategories).where(eq(gradingCategories.courseId, courseId));
+  await db.delete(meetingPatterns).where(eq(meetingPatterns.courseId, courseId));
+
+  // The grading scheme is gone, so the course no longer claims to know its weights.
+  await db.update(courses).set({ gradingConfidence: "unknown" }).where(eq(courses.id, courseId));
+
+  return c.json({ ok: true, workItemsDeleted: itemIds.length });
 });
