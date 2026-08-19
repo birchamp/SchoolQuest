@@ -215,6 +215,62 @@ describe("courseGauges", () => {
     });
   });
 
+  describe("every non-green dial is its own door", () => {
+    it("gives each troubled dial an action, and leaves green and empty dials none", () => {
+      const g = run(
+        health({
+          gradePercent: 60,
+          targetPercent: 80,
+          gradedWeightFraction: 0.5,
+          blocks: 0,
+          openItems: 3,
+          concerns: [{ code: "UNPLANNED_WEEK", level: "at_risk", detail: "Nothing booked." }],
+        }),
+        facts(),
+      );
+      // Setup is fully done here, so its dial is green and inert.
+      expect(g.gauges.setup.level).toBe("good");
+      expect(g.gauges.setup.action).toBeNull();
+      // Grade below target and planning unbooked both point somewhere.
+      expect(g.gauges.grade.action?.target).toBe("week");
+      expect(g.gauges.planning.action?.target).toBe("week");
+    });
+
+    it("sends an ungraded-results grade dial to the assignments table, not the week", () => {
+      const g = run(health({ gradePercent: null, ungradedResults: 2 }));
+      expect(g.gauges.grade.level).toBe("unknown");
+      expect(g.gauges.grade.action).toEqual({ label: "Record the results", target: "work" });
+    });
+
+    it("makes the overall dial a link to the same place as the ranked next step", () => {
+      const g = run(
+        health({
+          gradePercent: 55,
+          targetPercent: 80,
+          gradedWeightFraction: 0.6,
+          blocks: 2,
+          openItems: 2,
+        }),
+      );
+      expect(g.gauges.overall.action).toEqual(g.nextStep);
+      expect(g.gauges.overall.action).not.toBeNull();
+    });
+
+    it("gives the overall dial no door when the class is fine", () => {
+      const g = run();
+      expect(g.gauges.overall.level).toBe("good");
+      expect(g.gauges.overall.action).toBeNull();
+    });
+
+    it("routes the calendar block through the setup dial itself", () => {
+      const g = run(health(), facts({ hasSyllabus: false }), 0);
+      expect(g.gauges.setup.action).toEqual({
+        label: "Fill in the semester calendar",
+        target: "setup:calendar",
+      });
+    });
+  });
+
   it("treats a class with no setup record as having none, rather than failing", () => {
     // Readiness and health are separate reads and can disagree for a moment after a change.
     const [only] = courseGauges({ health: [health()], setup: [], calendarEntries: 4 });

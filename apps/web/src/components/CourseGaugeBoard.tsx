@@ -4,6 +4,7 @@ import {
   courseGauges,
   type CourseSetupFacts,
   type Gauge,
+  type GaugeKey,
   type GaugeLevel,
   type GaugeTarget,
 } from "@schoolquest/planning-engine";
@@ -51,7 +52,7 @@ const LEVEL_WORD: Record<GaugeLevel, string> = {
   unknown: "not measured yet",
 };
 
-const GAUGE_TITLE: Record<string, string> = {
+const GAUGE_TITLE: Record<GaugeKey, string> = {
   setup: "Set up",
   grade: "Grade",
   planning: "Planned",
@@ -139,9 +140,52 @@ function Dial({ gauge, size }: { gauge: Gauge; size: number }) {
   );
 }
 
-function SmallGauge({ gauge }: { gauge: Gauge }) {
+/**
+ * Wraps a dial so a click lands where the problem is fixed.
+ *
+ * Only a dial with an action is interactive: a green dial, or an empty one with nothing to
+ * measure, is a fact, not a door. A dial that names a problem and cannot be clicked hands
+ * the student a diagnosis and no next move, which is the whole complaint this answers.
+ */
+function DialTarget({
+  gauge,
+  size,
+  label,
+  onNavigate,
+  children,
+}: {
+  gauge: Gauge;
+  size: number;
+  label: string;
+  onNavigate: (target: GaugeTarget) => void;
+  children: React.ReactNode;
+}) {
+  if (!gauge.action) {
+    return <div style={{ textAlign: "center", minWidth: `${size < 90 ? 5.2 : 6.5}rem` }}>{children}</div>;
+  }
   return (
-    <div style={{ textAlign: "center", minWidth: "5.2rem" }}>
+    <button
+      type="button"
+      className="gauge-target"
+      style={{ minWidth: `${size < 90 ? 5.2 : 6.5}rem` }}
+      onClick={() => onNavigate(gauge.action!.target)}
+      title={gauge.action.label}
+      aria-label={`${label}: ${gauge.detail} — ${gauge.action.label}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SmallGauge({
+  gauge,
+  onNavigate,
+}: {
+  gauge: Gauge;
+  onNavigate: (target: GaugeTarget) => void;
+}) {
+  return (
+    <DialTarget gauge={gauge} size={72} label={GAUGE_TITLE[gauge.key]} onNavigate={onNavigate}>
       <Dial gauge={gauge} size={72} />
       <div
         style={{
@@ -154,7 +198,7 @@ function SmallGauge({ gauge }: { gauge: Gauge }) {
       >
         {GAUGE_TITLE[gauge.key]}
       </div>
-    </div>
+    </DialTarget>
   );
 }
 
@@ -237,10 +281,15 @@ export function CourseGaugeBoard({
               className="gauge-row"
               style={{ borderLeftColor: LEVEL_COLOUR[overall.level] }}
             >
-              <div style={{ textAlign: "center", minWidth: "6.5rem" }}>
+              <DialTarget
+                gauge={overall}
+                size={104}
+                label={`${nameOf(row.courseId)} overall`}
+                onNavigate={onNavigate}
+              >
                 <Dial gauge={overall} size={104} />
                 <div style={{ fontWeight: 600, marginTop: "-0.3rem" }}>{nameOf(row.courseId)}</div>
-              </div>
+              </DialTarget>
 
               <div style={{ flex: "1 1 20rem", minWidth: "16rem" }}>
                 <p style={{ margin: "0 0 0.5rem" }}>
@@ -262,9 +311,9 @@ export function CourseGaugeBoard({
               </div>
 
               <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-                <SmallGauge gauge={row.gauges.setup} />
-                <SmallGauge gauge={row.gauges.grade} />
-                <SmallGauge gauge={row.gauges.planning} />
+                <SmallGauge gauge={row.gauges.setup} onNavigate={onNavigate} />
+                <SmallGauge gauge={row.gauges.grade} onNavigate={onNavigate} />
+                <SmallGauge gauge={row.gauges.planning} onNavigate={onNavigate} />
               </div>
             </div>
           );
@@ -274,7 +323,8 @@ export function CourseGaugeBoard({
       <p className="muted" style={{ margin: "0.7rem 0 0", fontSize: "0.85rem" }}>
         A dial reading <strong>--</strong> has nothing to measure yet, which is not the same as
         zero. The overall dial takes the worst of the three, never the average — a class with one
-        real problem is not two-thirds fine.
+        real problem is not two-thirds fine. Any dial that is not green is a link to where you
+        fix it.
       </p>
     </section>
   );

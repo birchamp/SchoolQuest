@@ -193,6 +193,9 @@ export function App() {
         "setup:effort": ["setup", "effort-survey"],
         today: ["today"],
         week: ["week"],
+        // The grade dial sends the student to record a result, which is done on the
+        // assignments table beside the work -- the same tab the radar opens work items in.
+        work: ["work"],
         stats: ["stats"],
       };
       const [tabId, elementId] = routes[target];

@@ -3299,3 +3299,32 @@ body[data-theme="quest"] .card .gauge-row {
   margin-left: 50%;
   transform: translateX(-50%);
 }
+
+/* A dial you can click.
+ *
+ * Reset to a bare button so the SVG dial and its label read exactly as they did static,
+ * then a focus ring and a hover lift that say "this goes somewhere" without repainting the
+ * dial's own colour -- the colour is the verdict and must not shift on hover. */
+.gauge-target {
+  display: block;
+  border: 0;
+  padding: 0.25rem;
+  margin: -0.25rem;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+
+.gauge-target:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  transform: translateY(-1px);
+}
+
+.gauge-target:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

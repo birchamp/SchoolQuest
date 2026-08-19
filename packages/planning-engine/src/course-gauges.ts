@@ -68,6 +68,7 @@ export type GaugeTarget =
   | "setup:effort"
   | "today"
   | "week"
+  | "work"
   | "stats";
 
 export interface Gauge {
@@ -77,6 +78,13 @@ export interface Gauge {
   level: GaugeLevel;
   /** One sentence, already specific. The interface prints it as-is. */
   detail: string;
+  /**
+   * Where a click on this dial should land, and what to call it. Null when the dial has
+   * nothing to fix. A board that names a problem and offers no door to it hands the student
+   * a diagnosis instead of a next move -- so every non-green dial carries its own remedy,
+   * not just the one the row's ranked button happens to surface.
+   */
+  action: { label: string; target: GaugeTarget } | null;
 }
 
 export interface CourseGauges {
@@ -136,6 +144,21 @@ function setupGauge(facts: CourseSetupFacts, calendarEntries: number): Gauge {
     (facts.gradingKnown ? SETUP_WEIGHTS.grading : 0) +
     (facts.hasMeetingTimes ? SETUP_WEIGHTS.meetings : 0);
 
+  // The same blocked-first ordering the ranked next step has always used: the calendar
+  // gates syllabus reading, so it outranks everything a syllabus would provide.
+  const action =
+    calendarEntries === 0 && !facts.hasSyllabus
+      ? { label: "Fill in the semester calendar", target: "setup:calendar" as const }
+      : !facts.hasSyllabus
+        ? { label: "Upload the syllabus", target: "setup:syllabus" as const }
+        : facts.workItemCount === 0
+          ? { label: "Look at the syllabus reading", target: "setup:syllabus" as const }
+          : !facts.gradingKnown
+            ? { label: "Say how it is graded", target: "setup:grading" as const }
+            : !facts.hasMeetingTimes
+              ? { label: "Add the class times", target: "setup:courses" as const }
+              : null;
+
   // The calendar gates syllabus reading for every class at once, so a class with no syllabus
   // and no calendar is blocked rather than neglected, and saying "upload a syllabus" would send
   // the student to a control that is deliberately disabled.
@@ -145,6 +168,7 @@ function setupGauge(facts: CourseSetupFacts, calendarEntries: number): Gauge {
       value,
       level: "bad",
       detail: "The semester calendar has to come first -- a syllabus cannot be read without it.",
+      action,
     };
   }
 
@@ -157,6 +181,7 @@ function setupGauge(facts: CourseSetupFacts, calendarEntries: number): Gauge {
         facts.workItemCount > 0
           ? "No syllabus, so anything not entered by hand is missing."
           : "No syllabus and no work, so this class is empty.",
+      action,
     };
   }
 
@@ -166,6 +191,7 @@ function setupGauge(facts: CourseSetupFacts, calendarEntries: number): Gauge {
       value,
       level: "bad",
       detail: "A syllabus was read but no work came out of it, which is worth a look.",
+      action,
     };
   }
 
@@ -182,6 +208,7 @@ function setupGauge(facts: CourseSetupFacts, calendarEntries: number): Gauge {
       missing.length > 0
         ? `Set up, but nobody has said ${missing.join(" or ")}.`
         : "Everything this class needs is set up.",
+    action: missing.length > 0 ? action : null,
   };
 }
 
@@ -203,6 +230,9 @@ function gradeGauge(health: CourseHealthLike): Gauge {
         health.ungradedResults > 0
           ? `${health.ungradedResults} finished ${health.ungradedResults === 1 ? "item has" : "items have"} no result recorded yet.`
           : "Nothing has been graded yet.",
+      // Results are written down on the assignments table, beside the work they belong to.
+      action:
+        health.ungradedResults > 0 ? { label: "Record the results", target: "work" } : null,
     };
   }
 
@@ -218,6 +248,8 @@ function gradeGauge(health: CourseHealthLike): Gauge {
       // Deliberately not a verdict. Too little is in for this to mean anything either way.
       level: "unknown",
       detail: `${Math.round(health.gradePercent)}% so far, but only ${share}% of the course has been graded.`,
+      action:
+        health.ungradedResults > 0 ? { label: "Record the results", target: "work" } : null,
     };
   }
 
@@ -227,6 +259,7 @@ function gradeGauge(health: CourseHealthLike): Gauge {
       value,
       level: "bad",
       detail: `${Math.round(health.gradePercent)}%, below the ${target}% ${health.targetIsOwn ? "you set" : "default"}, on ${share}% of the course.`,
+      action: { label: "Give it more time this week", target: "week" },
     };
   }
 
@@ -236,6 +269,7 @@ function gradeGauge(health: CourseHealthLike): Gauge {
       value,
       level: "watch",
       detail: `${Math.round(health.gradePercent)}%, just under ${target}%, on ${share}% of the course.`,
+      action: { label: "Give it more time this week", target: "week" },
     };
   }
 
@@ -244,6 +278,7 @@ function gradeGauge(health: CourseHealthLike): Gauge {
     value,
     level: "good",
     detail: `${Math.round(health.gradePercent)}%, at or above ${target}%, on ${share}% of the course.`,
+    action: null,
   };
 }
 
@@ -264,6 +299,7 @@ function planningGauge(health: CourseHealthLike): Gauge {
       value: 1,
       level: "good",
       detail: "Nothing open, so there is nothing to book.",
+      action: null,
     };
   }
 
@@ -278,6 +314,7 @@ function planningGauge(health: CourseHealthLike): Gauge {
       value,
       level: concern.level === "at_risk" ? "bad" : "watch",
       detail: concern.detail,
+      action: { label: "Look at the week", target: "week" },
     };
   }
 
@@ -291,6 +328,7 @@ function planningGauge(health: CourseHealthLike): Gauge {
       value,
       level: "watch",
       detail: `${health.openItems} open, and no time booked this week.${due}`,
+      action: { label: "Look at the week", target: "week" },
     };
   }
 
@@ -299,6 +337,7 @@ function planningGauge(health: CourseHealthLike): Gauge {
     value,
     level: "good",
     detail: `${health.blocks} ${health.blocks === 1 ? "block" : "blocks"} booked against ${health.openItems} open.`,
+    action: null,
   };
 }
 
@@ -309,37 +348,16 @@ function planningGauge(health: CourseHealthLike): Gauge {
  * one whose other two dials are measuring an incomplete record, and acting on those numbers
  * before the record is whole is acting on the wrong information.
  */
-function chooseNextStep(
-  gauges: Record<GaugeKey, Gauge>,
-  facts: CourseSetupFacts,
-  calendarEntries: number,
-): CourseGauges["nextStep"] {
-  const ranked: { gauge: Gauge; step: { label: string; target: GaugeTarget } }[] = [];
-
-  if (gauges.setup.level === "bad" || gauges.setup.level === "watch") {
-    if (calendarEntries === 0) {
-      ranked.push({ gauge: gauges.setup, step: { label: "Fill in the semester calendar", target: "setup:calendar" } });
-    } else if (!facts.hasSyllabus) {
-      ranked.push({ gauge: gauges.setup, step: { label: "Upload the syllabus", target: "setup:syllabus" } });
-    } else if (!facts.gradingKnown) {
-      ranked.push({ gauge: gauges.setup, step: { label: "Say how it is graded", target: "setup:grading" } });
-    } else if (!facts.hasMeetingTimes) {
-      ranked.push({ gauge: gauges.setup, step: { label: "Add the class times", target: "setup:courses" } });
-    }
-  }
-
-  if (gauges.planning.level === "bad" || gauges.planning.level === "watch") {
-    ranked.push({ gauge: gauges.planning, step: { label: "Look at the week", target: "week" } });
-  }
-
-  if (gauges.grade.level === "bad" || gauges.grade.level === "watch") {
-    ranked.push({ gauge: gauges.grade, step: { label: "Check the standing", target: "stats" } });
-  }
-
-  // Stable: `sort` on an already-ordered list keeps setup ahead of planning ahead of grade when
-  // they tie, which is the priority the comment above states.
-  ranked.sort((a, b) => SEVERITY[b.gauge.level] - SEVERITY[a.gauge.level]);
-  return ranked[0]?.step ?? null;
+function chooseNextStep(gauges: Record<GaugeKey, Gauge>): CourseGauges["nextStep"] {
+  // Each dial already knows its own remedy; this only ranks them. The list order is the
+  // tie-break: setup first, because a class that is not set up is one whose other two dials
+  // are measuring an incomplete record, and acting on those numbers before the record is
+  // whole is acting on the wrong information.
+  const ranked = [gauges.setup, gauges.planning, gauges.grade].filter(
+    (g) => g.action !== null && (g.level === "bad" || g.level === "watch"),
+  );
+  ranked.sort((a, b) => SEVERITY[b.level] - SEVERITY[a.level]);
+  return ranked[0]?.action ?? null;
 }
 
 const LEVEL_FROM_HEALTH: Record<HealthLevel, GaugeLevel> = {
@@ -389,6 +407,7 @@ export function courseGauges(input: CourseGaugesInput): CourseGauges[] {
       value: overallValue,
       level: worst([setup.level, grade.level, planning.level, LEVEL_FROM_HEALTH[health.level]]),
       detail: "",
+      action: null,
     };
 
     const gauges = { setup, grade, planning, overall };
@@ -397,10 +416,15 @@ export function courseGauges(input: CourseGaugesInput): CourseGauges[] {
         ? "Nothing needs a decision here."
         : ([setup, planning, grade].find((g) => g.level === overall.level) ?? setup).detail;
 
+    const nextStep = chooseNextStep(gauges);
+    // The overall dial is the summary, so its door is the summary's door: the one ranked
+    // next step. Clicking the big dial and clicking the button beside it agree.
+    overall.action = nextStep;
+
     return {
       courseId: health.courseId,
       gauges,
-      nextStep: chooseNextStep(gauges, facts, input.calendarEntries),
+      nextStep,
     };
   });
 }
