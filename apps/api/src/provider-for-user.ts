@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
-import { MODELS } from "@schoolquest/ai";
+import { coachModelId, defaultReaderId, guardModelId, MODELS, readerChoices, CEILINGS } from "@schoolquest/ai";
 import { users } from "./db/schema.js";
 import { decryptSecret } from "./secrets.js";
+import { getCatalog } from "./model-catalog.js";
 import type { Db } from "./db/repo.js";
 import type { Env } from "./env.js";
 
@@ -21,6 +22,8 @@ export interface ResolvedProvider {
   apiKey: string | null;
   extractionModel: string;
   coachModel: string;
+  /** The topic guardrail's model. The cheapest trusted model; it only classifies. */
+  guardModel: string;
   /** True when the key came from the signed-in student rather than the deployment. */
   usingOwnKey: boolean;
 }
@@ -36,12 +39,27 @@ export async function providerForUser(
     ? await decryptSecret(user.openrouterKeyEncrypted, env.AUTH_SECRET)
     : null;
 
+  // The live catalogue supplies the defaults, which is what stops a deprecated model id ever
+  // being the fallback: the coach and guard follow whatever OpenRouter currently lists. The
+  // hardcoded MODELS constants are the last resort under `getCatalog`'s own fallback, reached
+  // only when even the fallback catalogue is empty.
+  const catalog = await getCatalog(env);
+  const strongestUnderReaderCeiling =
+    defaultReaderId(readerChoices(catalog, { maxOutputPerMillion: CEILINGS.reader })) ?? MODELS.EXTRACTION;
+
   return {
     // `decryptSecret` returns null for a row sealed under a previous AUTH_SECRET, which is
     // indistinguishable from having no key — and falling back is the right answer for both.
     apiKey: own ?? env.OPENROUTER_API_KEY ?? null,
-    extractionModel: user?.extractionModel ?? env.OPENROUTER_EXTRACTION_MODEL ?? MODELS.EXTRACTION,
-    coachModel: user?.coachModel ?? env.OPENROUTER_COACH_MODEL ?? MODELS.COACH,
+    // The student's saved pick wins; then the deployment override; then the strongest reader
+    // the live catalogue offers. A saved pick that OpenRouter has since dropped will error on
+    // use, which is the signal to re-pick -- and the picker only ever shows live models.
+    extractionModel: user?.extractionModel ?? env.OPENROUTER_EXTRACTION_MODEL ?? strongestUnderReaderCeiling,
+    // Auto, always: the strongest model under the coach ceiling, so a deprecation self-heals
+    // rather than surfacing mid-conversation. An env override still wins for a deployment that
+    // wants to pin one.
+    coachModel: env.OPENROUTER_COACH_MODEL ?? coachModelId(catalog) ?? MODELS.COACH,
+    guardModel: guardModelId(catalog) ?? MODELS.GUARD,
     usingOwnKey: own !== null,
   };
 }

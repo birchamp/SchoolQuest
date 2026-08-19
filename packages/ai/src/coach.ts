@@ -129,6 +129,8 @@ export interface CoachRequest {
   /** Prior turns, oldest first. Trimmed to the most recent few before sending. */
   history?: CoachTurn[];
   model?: string;
+  /** The guardrail's model, resolved from the live catalogue. Its own default is a stale id. */
+  guardModel?: string;
 }
 
 export interface CoachResult {
@@ -143,7 +145,11 @@ export interface CoachResult {
 const MAX_HISTORY_TURNS = 6;
 
 export async function runCoach(provider: AiProvider, request: CoachRequest): Promise<CoachResult> {
-  const guard = await guardMessage(request.message, provider, {});
+  const guard = await guardMessage(
+    request.message,
+    provider,
+    request.guardModel ? { model: request.guardModel } : {},
+  );
 
   // A refused message never reaches the coach model — that is the point of the gate, and
   // it also means an off-topic message costs one tiny classifier call rather than a full turn.

@@ -22,7 +22,7 @@ export const users = sqliteTable("users", {
    * deployment was configured with", which is how a self-hosted single-user install works.
    */
   openrouterKeyEncrypted: text("openrouter_key_encrypted"),
-  /** Chosen from `MODEL_CHOICES`. Null falls back to the app's default. */
+  /** A live OpenRouter model id. Null falls back to the strongest reader in the catalogue. */
   extractionModel: text("extraction_model"),
   coachModel: text("coach_model"),
   createdAt: text("created_at").notNull(),

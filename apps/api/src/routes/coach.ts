@@ -95,6 +95,7 @@ coachRoute.post("/coach/messages", async (c) => {
       context,
       theme,
       history,
+      guardModel: resolved.guardModel,
     });
   } catch (error) {
     if (error instanceof AiProviderError) {

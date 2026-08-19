@@ -39,10 +39,10 @@ import { useBodyTheme } from "../lib/use-body-theme";
 interface ModelOption {
   id: string;
   label: string;
+  provider: string;
   inputPerMillion: number;
   outputPerMillion: number;
   context: number;
-  note: string;
   centsPerSemester: number;
   centsPerSemesterThreePasses: number;
 }
@@ -57,6 +57,8 @@ interface MeResponse {
   models: ModelOption[];
   /** What reading uses when the student has not chosen. Named by the server, not guessed here. */
   defaultExtractionModel: string;
+  /** The model answering the daily coach chat, chosen automatically. Null if the catalogue is empty. */
+  coachModel: string | null;
 }
 
 export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
@@ -164,6 +166,10 @@ export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
       </div>
 
       <h3 style={{ marginTop: "1.1rem" }}>Which model reads your syllabi</h3>
+      <p className="muted" style={{ margin: "0 0 0.6rem", fontSize: "0.85rem" }}>
+        Live from OpenRouter, cheapest first. The strongest is the default, because a misread
+        date costs a deadline and reading is pennies a semester at any of these.
+      </p>
       <ul className="model-list">
         {models.map((model) => (
           <li key={model.id}>
@@ -180,7 +186,10 @@ export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
                   )
                 }
               />
-              <span className="model-name">{model.label}</span>
+              <span className="model-name">
+                {model.label}
+                <span className="muted" style={{ fontWeight: 400 }}> · {model.provider}</span>
+              </span>
               {/* The cost first, because it is the part that decides the answer. */}
               {/* Per semester, not per syllabus: it is the unit a student decides against, and
                   the only one that survives rounding — the cheap model is under a cent a
@@ -193,11 +202,18 @@ export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
                   ${model.inputPerMillion}/M in, ${model.outputPerMillion}/M out
                 </span>
               </span>
-              <span className="muted model-note">{model.note}</span>
             </label>
           </li>
         ))}
       </ul>
+
+      {me.coachModel && (
+        <p className="muted" style={{ marginTop: "0.8rem", fontSize: "0.86rem" }}>
+          Your daily coach chat is answered by <strong>{me.coachModel}</strong>, chosen
+          automatically as the strongest fast model — around $2 a semester of daily use, and it
+          moves with OpenRouter's list so it can never go stale.
+        </p>
+      )}
     </section>
   );
 }

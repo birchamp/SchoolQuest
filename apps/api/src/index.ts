@@ -3,7 +3,8 @@ import { cors } from "hono/cors";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { detailMode, themeName } from "@schoolquest/domain";
-import { centsPerSemester, MODEL_CHOICES, MODEL_IDS, MODELS } from "@schoolquest/ai";
+import { CEILINGS, coachModelId, defaultReaderId, MODELS } from "@schoolquest/ai";
+import { getCatalog, readerListFor } from "./model-catalog.js";
 import { decryptSecret, encryptSecret, keyHint } from "./secrets.js";
 import { redeemLoginToken, requestLoginLink, requireAuth, SESSION_COOKIE, setSessionCookie, signOut } from "./auth.js";
 import { getDb } from "./db/repo.js";
@@ -98,6 +99,10 @@ app.get("/api/me", async (c) => {
     ? await decryptSecret(openrouterKeyEncrypted, c.env.AUTH_SECRET)
     : null;
 
+  // Live from OpenRouter (cached), so the picker never shows a model that has been retired.
+  const catalog = await getCatalog(c.env);
+  const readerList = await readerListFor(c.env, CEILINGS.reader);
+
   return c.json({
     user: {
       ...safe,
@@ -105,17 +110,16 @@ app.get("/api/me", async (c) => {
       // Whether this deployment has its own key, which decides whether a student *must* supply one.
       providerConfigured: Boolean(stored ?? c.env.OPENROUTER_API_KEY),
     },
-    // Both figures, because the choice is really between them: one careful reading of each
-    // syllabus, or three readings reconciled against each other on a document that fights back.
     // Named rather than inferred: the client used to assume the first entry, and the list is
     // ordered by price while the default is chosen for accuracy. Those stopped agreeing the
     // moment extraction went back to the strongest reader.
-    defaultExtractionModel: c.env.OPENROUTER_EXTRACTION_MODEL ?? MODELS.EXTRACTION,
-    models: MODEL_CHOICES.map((m) => ({
-      ...m,
-      centsPerSemester: centsPerSemester(m),
-      centsPerSemesterThreePasses: centsPerSemester(m, 3),
-    })),
+    defaultExtractionModel:
+      c.env.OPENROUTER_EXTRACTION_MODEL ?? defaultReaderId(readerList) ?? MODELS.EXTRACTION,
+    // The reader list is live from OpenRouter, so it can never offer a deprecated model. The
+    // coach is not in this list -- it is chosen for the student -- and is named separately only
+    // so the settings screen can say which one is answering and what it costs.
+    models: readerList,
+    coachModel: coachModelId(catalog),
   });
 });
 
@@ -130,8 +134,22 @@ const profileBody = z.object({
    * deployment's own key once one has been set.
    */
   openrouterKey: z.string().max(400).optional(),
-  extractionModel: z.enum(MODEL_IDS as [string, ...string[]]).nullable().optional(),
-  coachModel: z.enum(MODEL_IDS as [string, ...string[]]).nullable().optional(),
+  /**
+   * Validated by shape, not against a fixed list. The choices are live from OpenRouter now,
+   * so an enum of hardcoded ids would reject exactly the models the picker just offered. A
+   * `provider/model` slug from a trusted family is the real constraint; a since-retired pick
+   * simply errors on use, which is the signal to re-pick.
+   */
+  extractionModel: z
+    .string()
+    .regex(/^(google|anthropic|openai|x-ai)\/[\w.:-]+$/)
+    .nullable()
+    .optional(),
+  coachModel: z
+    .string()
+    .regex(/^(google|anthropic|openai|x-ai)\/[\w.:-]+$/)
+    .nullable()
+    .optional(),
 });
 
 app.patch("/api/me", async (c) => {
