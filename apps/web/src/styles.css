@@ -108,6 +108,16 @@ body[data-reduced-motion="true"] *::before {
   gap: 1rem;
   padding: 1.25rem 0;
   flex-wrap: wrap;
+  /* Stays at the top of the window while the page scrolls, so the view switch and the tabs are
+     always reachable rather than needing a scroll back up. It needs its own opaque ground
+     (--bg, the body colour) so content sliding under it is covered, and a rule to give it an
+     edge; z-index keeps it above ordinary content. Table headers stick too, but inside their
+     own `.table-scroll` container, so they never collide with this one. */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 
 .app-header h1 {

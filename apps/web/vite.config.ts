@@ -122,6 +122,16 @@ export default defineConfig({
   ],
 
   server: {
+    // Bind IPv4 loopback explicitly rather than letting Vite default to `localhost`.
+    //
+    // On Windows `localhost` resolves to IPv6 `::1` first, so a default-host Vite binds only to
+    // `::1`. Everything else here speaks IPv4: `tools/dev.mjs` polls `127.0.0.1:5173` to know when
+    // to open the browser and then opens `http://127.0.0.1:5173`, and the `/api` proxy below targets
+    // `127.0.0.1:8787`. With Vite on `::1` only, that poll never connects -- so the desktop launcher
+    // never opened a browser at all, even though the page was reachable if you typed `localhost:5173`
+    // by hand (a browser falls back to IPv4; a raw socket to 127.0.0.1 does not). Pinning the host
+    // lines Vite up with the rest of the stack. Invisible to CI, which never runs the Windows path.
+    host: "127.0.0.1",
     port: 5173,
     strictPort: true,
     proxy: {
