@@ -3,6 +3,11 @@ main = "src/index.ts"
 compatibility_date = "2026-07-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Wrangler v4 collects anonymous telemetry and prompts about it on first run. A student who
+# double-clicked the desktop shortcut should not meet a data-collection question in a black
+# window, so it is turned off here rather than left to a per-machine prompt.
+send_metrics = false
+
 # Free-tier configuration: D1 and R2 only. No Queues — syllabus extraction runs inline
 # via ctx.waitUntil(). Swap JobRunner for a Queues producer when moving to the paid plan;
 # see src/jobs/runner.ts.
