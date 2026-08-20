@@ -408,6 +408,69 @@ button.action:disabled {
   background: var(--at-risk);
 }
 
+/* --- Syllabus reading progress --------------------------------------------
+ * Two honest states, and the difference between them is the point. Reading a
+ * PDF gives a real page count, so the bar is a true fraction: it advances only
+ * when a page has actually been read. Reading a .docx (no page count) and
+ * waiting on the model during extraction (which returns everything at once)
+ * have no fraction to report -- so the bar slides instead of filling, which
+ * says "working" without claiming a position it does not know. It never fakes a
+ * percentage. */
+.reading-progress {
+  margin: 0.6rem 0 0.35rem;
+}
+
+.reading-progress-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.reading-progress-track {
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.reading-progress-track > span {
+  display: block;
+  height: 100%;
+  background: var(--accent-dim);
+  border-radius: 3px;
+  transition: width 0.25s ease;
+}
+
+/* A short segment sliding across, for the phases with no fraction to report. */
+.reading-progress-track[data-indeterminate="true"] > span {
+  width: 35%;
+  transition: none;
+  animation: reading-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes reading-slide {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+/* For a reader who has asked for stillness, the sliding segment would just be
+   noise. Hold it as a dimmed full-width bar -- still clearly "working", not
+   still claiming a fraction. */
+@media (prefers-reduced-motion: reduce) {
+  .reading-progress-track[data-indeterminate="true"] > span {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 /* --- Term progress strip and completion moment ------------------------------
  * Both are theme-neutral by default: a plain progress readout and a plain
  * acknowledgment. The Quest theme dresses them up further down the file.

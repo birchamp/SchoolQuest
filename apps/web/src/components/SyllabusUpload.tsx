@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Course, ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
@@ -30,7 +30,7 @@ const ACCEPT = `.pdf,.docx,application/pdf,${DOCX_MIME}`;
 
 type Phase =
   | { name: "idle" }
-  | { name: "reading"; progress: string }
+  | { name: "reading"; pagesDone: number; pagesTotal: number | null }
   | { name: "extracting" }
   | { name: "review"; documentId: string; filename: string; result: ExtractionResponse }
   | {
@@ -70,6 +70,53 @@ function Themed({ visible, plain }: { visible: string; plain: string }) {
       <span aria-hidden="true">{visible}</span>
       <span className="sr-only">{plain}</span>
     </>
+  );
+}
+
+/**
+ * An honest reading indicator, and the honesty is the whole point.
+ *
+ * Reading a PDF gives a real page count, so `determinate` is true and the bar is a true
+ * fraction: it advances only when a page has actually been read, and the percentage beside it
+ * is a fact, not a guess. A `.docx` has no page count, and extraction is a single call to the
+ * model that returns everything at once with nothing to report in between -- for those the bar
+ * slides instead of filling, which says "working" without claiming a position it does not know.
+ * It never shows a percentage it cannot stand behind.
+ */
+function ReadingBar({
+  determinate,
+  done,
+  total,
+  srLabel,
+  children,
+}: {
+  determinate: boolean;
+  done?: number;
+  total?: number;
+  /** Plain label for the progressbar, read by assistive technology. */
+  srLabel: string;
+  /** Visible label content -- may be themed. */
+  children: ReactNode;
+}) {
+  const pct = determinate && total ? Math.round((Math.min(done ?? 0, total) / total) * 100) : undefined;
+  return (
+    <div className="reading-progress">
+      <p className="reading-progress-label" aria-live="polite">
+        <span>{children}</span>
+        {pct !== undefined && <span aria-hidden="true">{pct}%</span>}
+      </p>
+      <div
+        className="reading-progress-track"
+        data-indeterminate={determinate ? undefined : "true"}
+        role="progressbar"
+        aria-label={srLabel}
+        {...(pct !== undefined
+          ? { "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": pct }
+          : {})}
+      >
+        <span style={pct !== undefined ? { width: `${pct}%` } : undefined} />
+      </div>
+    </div>
   );
 }
 
@@ -195,12 +242,14 @@ export function SyllabusUpload({
     filename: string,
     mimeType?: string,
   ): Promise<DocumentPage[] | null> {
-    setPhase({ name: "reading", progress: "Reading the document…" });
+    // Start with no page total: a PDF learns its count on the first onProgress call, and a
+    // .docx never has one. Until then the bar slides rather than claiming a fraction.
+    setPhase({ name: "reading", pagesDone: 0, pagesTotal: null });
     const isDocx = /\.docx$/i.test(filename) || mimeType === DOCX_MIME;
     const parsed = isDocx
       ? await extractDocxText(file)
       : await extractPdfText(file, (done, total) =>
-          setPhase({ name: "reading", progress: `Reading page ${done} of ${total}…` }),
+          setPhase({ name: "reading", pagesDone: done, pagesTotal: total }),
         );
 
     if (parsed.likelyScanned) {
@@ -627,12 +676,25 @@ export function SyllabusUpload({
       )}
 
       {phase.name === "reading" && (
-        <p className="muted" aria-live="polite">
-          {phase.progress}
-        </p>
+        <ReadingBar
+          determinate={phase.pagesTotal !== null}
+          done={phase.pagesDone}
+          total={phase.pagesTotal ?? undefined}
+          srLabel="Reading the document"
+        >
+          {phase.pagesTotal !== null
+            ? `Reading page ${phase.pagesDone} of ${phase.pagesTotal}…`
+            : "Reading the document…"}
+        </ReadingBar>
       )}
       {phase.name === "extracting" && (
-        <p className="muted" aria-live="polite">
+        // Indeterminate on purpose: the model returns the whole extraction at once, so there is
+        // no progress to report between "sent" and "done". The sliding bar shows it is working
+        // without inventing a percentage.
+        <ReadingBar
+          determinate={false}
+          srLabel="Finding assignments, dates, and grading weights"
+        >
           <Themed
             visible={
               quest
@@ -641,7 +703,7 @@ export function SyllabusUpload({
             }
             plain="Finding assignments, dates, and grading weights…"
           />
-        </p>
+        </ReadingBar>
       )}
       {phase.name === "done" && (
         <>
