@@ -54,6 +54,12 @@ export function ExtractionReview({
   const [outcomes, setOutcomes] = useState<Record<string, string>>({});
   /** The meeting-times question whose day/time editor is open, if any. */
   const [openMeeting, setOpenMeeting] = useState<string | null>(null);
+  /**
+   * The weekday the student last applied, so its button stays selected. One value, not one per
+   * question: `resolve-weekday` applies a single day to every week-listed item in the document,
+   * so a second click on a different day re-dates the whole set and the highlight moves with it.
+   */
+  const [chosenWeekday, setChosenWeekday] = useState<string | null>(null);
 
   useEffect(() => {
     if (initial) return;
@@ -197,6 +203,10 @@ export function ExtractionReview({
         }),
       );
 
+      // Record the applied day so its button stays selected -- the click had no lasting effect on
+      // screen before, which read as "nothing happened" even though the whole set had been dated.
+      setChosenWeekday(weekday);
+
       const settled = result.resolved.filter((r) => !r.needsAttention).length;
       const flagged = result.resolved.filter((r) => r.needsAttention);
       setResolution(
@@ -303,7 +313,11 @@ export function ExtractionReview({
                   <p style={{ margin: "0 0 0.2rem", fontWeight: 500 }}>{q.question}</p>
                   <p className="muted" style={{ margin: "0 0 0.5rem" }}>{q.why}</p>
                   <QuestionSource evidence={q.evidence} />
-                  <div className="button-row">
+                  {/* One day at a time: picking a day dates the whole week-listed set, and a
+                      second pick re-dates it, so these are radios, not toggles. The chosen one
+                      stays selected -- before, the click left no mark and read as "nothing
+                      happened" even though every item had been dated. */}
+                  <div className="button-row" role="radiogroup" aria-label={q.question}>
                     {[
                       "Monday",
                       "Tuesday",
@@ -318,13 +332,17 @@ export function ExtractionReview({
                     ].map((day) => (
                       <button
                         key={day}
-                        className="action"
+                        role="radio"
+                        aria-checked={chosenWeekday === day}
+                        className={`action${chosenWeekday === day ? " primary" : ""}`}
                         disabled={busy}
                         onClick={() => void resolveWeekday(day)}
                       >
                         {day}
                       </button>
                     ))}
+                  </div>
+                  <div className="button-row" style={{ marginTop: "0.4rem" }}>
                     <button
                       className="action"
                       disabled={busy}
