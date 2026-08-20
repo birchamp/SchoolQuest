@@ -216,10 +216,19 @@ function CardHeading({ quest, visible, plain }: { quest: boolean; visible: strin
 export function CourseManager({
   termId,
   onChanged,
+  refreshKey,
   theme: themeProp,
 }: {
   termId: string;
   onChanged: () => void;
+  /**
+   * Bumped by the parent whenever something outside this card changes course data -- most
+   * of all a confirmed syllabus, which creates grading categories and meeting patterns in the
+   * separate upload card. Without re-reading the snapshot on that signal, a course keeps showing
+   * "no meeting times" / "no grading set" after a syllabus is read, even as the chart above --
+   * which reads the freshly regenerated plan -- shows the opposite.
+   */
+  refreshKey?: number;
   /** Optional. Omitted by the current call site, which is why the theme is read off body. */
   theme?: ThemeName;
 }) {
@@ -282,7 +291,7 @@ export function CourseManager({
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, refreshKey]);
 
   function gradingSummary(courseId: string): string | null {
     const cats = snapshot?.gradingCategories.filter((g) => g.courseId === courseId) ?? [];

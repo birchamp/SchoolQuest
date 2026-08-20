@@ -779,6 +779,7 @@ export function App() {
               <div id="course-manager">
               <CourseManager
                 termId={term.id}
+                refreshKey={setupSaves}
                 onChanged={() => {
                   refreshPlan();
                   noteSetupChange();
