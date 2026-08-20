@@ -86,6 +86,14 @@ export interface ValidationContext {
    * one too many per break and cannot know it.
    */
   termCalendar?: TermCalendar;
+  /**
+   * Weekdays the course is already known to meet, from an earlier read, a pasted timetable, or
+   * the student typing them in -- 0 = Sunday. Merged with any meeting pattern this document
+   * states, so a rule stated per class session ("a quiz every class") can be dated even when
+   * this particular syllabus never prints the meeting times. When the app already knows the
+   * days, it also stops asking for them: no `meeting_times` question is raised.
+   */
+  knownMeetingDays?: readonly number[];
 }
 
 /** Collapses whitespace and punctuation variants so quoting is robust to PDF text quirks. */
@@ -299,7 +307,12 @@ export function validateExtraction(
    * states the meeting pattern, so this needs no second source and no question to the student.
    */
   const meetingDays = [
-    ...new Set(extraction.meetingPatterns.flatMap((pattern) => pattern.daysOfWeek)),
+    ...new Set([
+      ...extraction.meetingPatterns.flatMap((pattern) => pattern.daysOfWeek),
+      // Days the app already knows from elsewhere -- a prior read, a pasted timetable, or the
+      // student. A per-class rule can be dated from these even when this syllabus omits the times.
+      ...(context.knownMeetingDays ?? []),
+    ]),
   ].sort((a, b) => a - b);
 
   /**
@@ -603,7 +616,9 @@ export function validateExtraction(
     });
   }
 
-  if (extraction.meetingPatterns.length === 0) {
+  // Ask for meeting times only when nobody knows them yet: not on this syllabus, and not
+  // already recorded on the course. If the days are known from elsewhere, the question is noise.
+  if (extraction.meetingPatterns.length === 0 && (context.knownMeetingDays ?? []).length === 0) {
     derivedQuestions.push({
       question: "What days and times does this class meet?",
       why: "Class meetings are fixed commitments, and the plan schedules work around them.",

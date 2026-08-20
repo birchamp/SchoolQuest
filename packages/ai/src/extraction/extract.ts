@@ -40,6 +40,13 @@ export interface ExtractionRequest {
   /** Breaks, finals and the week-numbering convention, when the term has supplied one. */
   termCalendar?: TermCalendar;
   courseName?: string;
+  /**
+   * Weekdays the course is already known to meet (0 = Sunday), from a prior read, a pasted
+   * timetable, or the student. Lets a per-class rule ("a quiz every class") be dated even when
+   * this syllabus never states the meeting times, and suppresses the question that would ask for
+   * them. Empty or absent is the ordinary case and changes nothing.
+   */
+  knownMeetingDays?: readonly number[];
   model?: string;
   /**
    * How many independent readings to take of this document. One by default.
@@ -138,6 +145,7 @@ export async function extractSyllabus(
     ...(request.termStartDate ? { termStartDate: request.termStartDate } : {}),
     ...(request.termEndDate ? { termEndDate: request.termEndDate } : {}),
     ...(request.termCalendar ? { termCalendar: request.termCalendar } : {}),
+    ...(request.knownMeetingDays ? { knownMeetingDays: request.knownMeetingDays } : {}),
   });
 
   const openIssues =

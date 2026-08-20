@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { MeetingTimesEntry } from "./MeetingTimesEntry";
 import {
   ISSUE_TEXT,
   REJECTION_TEXT,
@@ -21,15 +22,25 @@ import {
 export function ExtractionReview({
   documentId,
   filename,
+  courseId,
   initial,
   onConfirmed,
   onCancel,
+  onMeetingTimesSaved,
 }: {
   documentId: string;
   filename: string;
+  /** The course this document belongs to, so the meeting-times question can save straight to it. */
+  courseId: string;
   initial?: ExtractionResponse;
   onConfirmed: (created: { workItems: number; categories: number; meetingPatterns: number }) => void;
   onCancel: () => void;
+  /**
+   * Offered after class times are entered in review: re-read the syllabus so work stated per
+   * class session ("a quiz every class") gets dated against the days just supplied. Optional --
+   * without it the times are still saved, just not applied to work already parsed in this pass.
+   */
+  onMeetingTimesSaved?: () => void;
 }) {
   const [claims, setClaims] = useState<ClaimView[]>(initial?.claims ?? []);
   const [rejected] = useState(initial?.rejected ?? []);
@@ -41,6 +52,8 @@ export function ExtractionReview({
   const [resolution, setResolution] = useState<string | null>(null);
   /** What each answered question actually changed, keyed by question claim id. */
   const [outcomes, setOutcomes] = useState<Record<string, string>>({});
+  /** The meeting-times question whose day/time editor is open, if any. */
+  const [openMeeting, setOpenMeeting] = useState<string | null>(null);
 
   useEffect(() => {
     if (initial) return;
@@ -290,6 +303,68 @@ export function ExtractionReview({
                       I don&apos;t know yet
                     </button>
                   </div>
+                </div>
+              );
+            }
+
+            // "When does this class meet?" has a structured answer, not a sentence. A free-text
+            // box here recorded words that created no meeting pattern -- the student still had to
+            // go to Setup and type it all again. A real day/time picker saves straight to the
+            // course, and the days feed the dating of work due "every class".
+            if (q.kind === "meeting_times") {
+              const note = outcomes[claim.id];
+              return (
+                <div key={claim.id} style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--border)" }}>
+                  <p style={{ margin: "0 0 0.2rem", fontWeight: 500 }}>{q.question}</p>
+                  <p className="muted" style={{ margin: "0 0 0.5rem" }}>{q.why}</p>
+                  <QuestionSource evidence={q.evidence} />
+                  {openMeeting === claim.id ? (
+                    <MeetingTimesEntry
+                      courseId={courseId}
+                      onSaved={() => {
+                        setOpenMeeting(null);
+                        setOutcomes((prev) => ({
+                          ...prev,
+                          [claim.id]: onMeetingTimesSaved
+                            ? "Class times saved. Re-read the syllabus to place any work due every class."
+                            : "Class times saved. They show on your week and are used the next time this syllabus is read.",
+                        }));
+                      }}
+                      onCancel={() => setOpenMeeting(null)}
+                    />
+                  ) : note ? (
+                    <>
+                      <p className="muted" style={{ margin: "0.2rem 0 0.5rem", fontSize: "0.82rem" }}>
+                        {note}
+                      </p>
+                      {onMeetingTimesSaved && (
+                        <button
+                          className="action primary"
+                          disabled={busy}
+                          onClick={() => onMeetingTimesSaved()}
+                        >
+                          Re-read to place per-class work
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <div className="button-row">
+                      <button
+                        className="action"
+                        disabled={busy}
+                        onClick={() => setOpenMeeting(claim.id)}
+                      >
+                        Enter class times
+                      </button>
+                      <button
+                        className="action"
+                        disabled={busy}
+                        onClick={() => void saveAnswer(claim, "unknown")}
+                      >
+                        I don&apos;t know yet
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             }

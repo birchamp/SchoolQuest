@@ -50,7 +50,7 @@ export async function insertInChunks<T>(
 }
 
 /** SQLite has no arrays; day lists are stored as "1,3". */
-function parseDays(value: string): number[] {
+export function parseDays(value: string): number[] {
   return value
     .split(",")
     .map((s) => Number(s.trim()))

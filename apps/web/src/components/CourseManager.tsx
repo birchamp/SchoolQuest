@@ -4,6 +4,7 @@ import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { CoursePaste } from "./CoursePaste";
 import { DayPicker, TimeRange } from "./DayPicker";
+import { MeetingTimesEntry } from "./MeetingTimesEntry";
 import { courseTincture } from "../lib/course-colour";
 import { useBodyTheme } from "../lib/use-body-theme";
 
@@ -428,17 +429,20 @@ export function CourseManager({
         )}
 
         {editingMeetings && (
-          <MeetingTimesForm
-            courseId={editingMeetings}
-            patterns={snapshot?.meetingPatterns.filter((m) => m.courseId === editingMeetings) ?? []}
-            onDone={() => {
-              setEditingMeetings(null);
-              void refresh();
-              onChanged();
-            }}
-            onCancel={() => setEditingMeetings(null)}
-            onError={setError}
-          />
+          <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border)" }}>
+            <MeetingTimesEntry
+              courseId={editingMeetings}
+              initial={snapshot?.meetingPatterns.filter((m) => m.courseId === editingMeetings) ?? []}
+              intro="When this class meets. Nothing is ever scheduled over it, and it shows on your hour-by-hour week."
+              onSaved={() => {
+                setEditingMeetings(null);
+                void refresh();
+                onChanged();
+              }}
+              onCancel={() => setEditingMeetings(null)}
+              onError={setError}
+            />
+          </div>
         )}
 
         {/*
@@ -949,190 +953,6 @@ function CommitmentRow({
   );
 }
 
-
-/**
- * A course's class times, editable after the course exists.
- *
- * These could only be supplied in the same request that created the course. A class that
- * moves hour or room mid-term had no way in, so the calendar and the scheduler both went on
- * believing the student was free during a lecture — which is the one thing on the week that
- * is genuinely immovable.
- *
- * The whole set is replaced on save rather than appended to: a timetable is a statement
- * about the entire week, and merging would strand last term's Tuesday with nothing able to
- * remove it.
- */
-function MeetingTimesForm({
-  courseId,
-  patterns,
-  onDone,
-  onCancel,
-  onError,
-}: {
-  courseId: string;
-  patterns: SnapshotMeeting[];
-  onDone: () => void;
-  onCancel: () => void;
-  onError: (message: string | null) => void;
-}) {
-  const [rows, setRows] = useState(
-    patterns.length > 0
-      ? patterns.map((p, i) => ({
-          key: `${p.id ?? i}`,
-          days: new Set(p.daysOfWeek),
-          startTime: p.startTime,
-          endTime: p.endTime,
-          location: p.location ?? "",
-        }))
-      : [
-          {
-            key: "new",
-            days: new Set<number>([1, 3]),
-            startTime: "09:00",
-            endTime: "10:15",
-            location: "",
-          },
-        ],
-  );
-  const [busy, setBusy] = useState(false);
-
-  async function save() {
-    const bad = rows.find((r) => r.endTime <= r.startTime || r.days.size === 0);
-    if (bad) {
-      onError("Every class needs at least one day and an end after its start.");
-      return;
-    }
-    setBusy(true);
-    onError(null);
-    try {
-      await api.put(`/api/courses/${courseId}/meeting-patterns`, {
-        patterns: rows.map((r) => ({
-          daysOfWeek: [...r.days].sort(),
-          startTime: r.startTime,
-          endTime: r.endTime,
-          location: r.location.trim() || null,
-        })),
-      });
-      onDone();
-    } catch (e) {
-      onError(e instanceof Error ? e.message : "That did not save.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div
-      style={{
-        marginTop: "0.75rem",
-        paddingTop: "0.75rem",
-        borderTop: "1px solid var(--border)",
-      }}
-    >
-      <p className="muted" style={{ margin: "0 0 0.5rem" }}>
-        When this class meets. Nothing is ever scheduled over it, and it shows on your
-        hour-by-hour week.
-      </p>
-      {rows.map((row) => (
-        <div key={row.key} style={{ marginBottom: "0.6rem" }}>
-          <DayPicker
-            value={row.days}
-            onChange={(days) =>
-              setRows((rs) => rs.map((r) => (r.key === row.key ? { ...r, days } : r)))
-            }
-            label="Days"
-          />
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "flex-end" }}>
-            <label style={{ display: "grid", gap: "0.2rem" }}>
-              <span className="muted" style={{ fontSize: "0.78rem" }}>
-                From
-              </span>
-              <input
-                style={fieldStyle}
-                type="time"
-                value={row.startTime}
-                onChange={(e) =>
-                  setRows((rs) =>
-                    rs.map((r) => (r.key === row.key ? { ...r, startTime: e.target.value } : r)),
-                  )
-                }
-              />
-            </label>
-            <label style={{ display: "grid", gap: "0.2rem" }}>
-              <span className="muted" style={{ fontSize: "0.78rem" }}>
-                Until
-              </span>
-              <input
-                style={fieldStyle}
-                type="time"
-                value={row.endTime}
-                onChange={(e) =>
-                  setRows((rs) =>
-                    rs.map((r) => (r.key === row.key ? { ...r, endTime: e.target.value } : r)),
-                  )
-                }
-              />
-            </label>
-            <label style={{ display: "grid", gap: "0.2rem", flex: "1 1 8rem" }}>
-              <span className="muted" style={{ fontSize: "0.78rem" }}>
-                Where (optional)
-              </span>
-              <input
-                style={fieldStyle}
-                value={row.location}
-                placeholder="Science 210"
-                onChange={(e) =>
-                  setRows((rs) =>
-                    rs.map((r) => (r.key === row.key ? { ...r, location: e.target.value } : r)),
-                  )
-                }
-              />
-            </label>
-            {rows.length > 1 && (
-              <button
-                className="action"
-                onClick={() => setRows((rs) => rs.filter((r) => r.key !== row.key))}
-              >
-                Remove
-              </button>
-            )}
-          </div>
-        </div>
-      ))}
-      <div className="button-row">
-        <button className="action primary" disabled={busy} onClick={() => void save()}>
-          {busy ? "Saving…" : "Save class times"}
-        </button>
-        <button
-          className="action"
-          disabled={busy}
-          onClick={() =>
-            setRows((rs) => [
-              ...rs,
-              {
-                key: `new-${rs.length}-${rs.length}`,
-                days: new Set<number>([2]),
-                startTime: "13:00",
-                endTime: "14:15",
-                location: "",
-              },
-            ])
-          }
-        >
-          Another meeting
-        </button>
-        <button className="action" disabled={busy} onClick={onCancel}>
-          Cancel
-        </button>
-        {rows.length > 0 && (
-          <button className="action" disabled={busy} onClick={() => { setRows([]); void save(); }}>
-            Clear all
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /**
  * Editing a course's grading scheme after the syllabus is in.

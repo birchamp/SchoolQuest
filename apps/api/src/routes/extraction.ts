@@ -25,7 +25,7 @@ import {
   terms,
   workItems,
 } from "../db/schema.js";
-import { getDb, insertInChunks, serializeDays, type Db } from "../db/repo.js";
+import { getDb, insertInChunks, parseDays, serializeDays, type Db } from "../db/repo.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import type { AppBindings } from "../env.js";
 
@@ -119,6 +119,18 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
     ...(c.env.OPENROUTER_BASE_URL ? { baseUrl: c.env.OPENROUTER_BASE_URL } : {}),
   });
 
+  // Days the course is already known to meet -- from an earlier read, a pasted timetable, or the
+  // student typing them in. Passed to extraction so a rule stated per class session ("a quiz every
+  // class") is dated even when this syllabus omits the meeting times, and so it does not ask for
+  // times the app already has.
+  const existingMeetings = await db
+    .select({ daysOfWeek: meetingPatterns.daysOfWeek })
+    .from(meetingPatterns)
+    .where(eq(meetingPatterns.courseId, owned.course.id));
+  const knownMeetingDays = [
+    ...new Set(existingMeetings.flatMap((m) => parseDays(m.daysOfWeek))),
+  ].sort((a, b) => a - b);
+
   let outcome;
   try {
     outcome = await extractSyllabus(provider, {
@@ -127,6 +139,7 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
       termEndDate: owned.term.endDate,
       termCalendar: calendar,
       courseName: owned.course.name,
+      ...(knownMeetingDays.length > 0 ? { knownMeetingDays } : {}),
     });
   } catch (error) {
     await db

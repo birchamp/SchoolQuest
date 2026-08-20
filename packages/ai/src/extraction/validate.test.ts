@@ -311,6 +311,55 @@ describe("duplicates and totals", () => {
     expect(result.clarificationQuestions.some((q) => q.kind === "meeting_times")).toBe(true);
   });
 
+  it("does not ask for meeting times the course already has recorded", () => {
+    const result = validateExtraction(extraction({ meetingPatterns: [] }), {
+      pages: PAGES,
+      knownMeetingDays: [1, 3],
+    });
+    expect(result.clarificationQuestions.some((q) => q.kind === "meeting_times")).toBe(false);
+  });
+
+  it("dates work due 'every class' from meeting days the course already has", () => {
+    const quiz: ExtractedAssignment = {
+      title: "Quiz",
+      type: "quiz",
+      dueDate: { iso: null, raw: "every class", time: null, ambiguity: "none" },
+      pointsPossible: null,
+      category: "Quizzes",
+      isMajorProject: false,
+      recurrence: {
+        frequency: "weekly",
+        dayOfWeek: null,
+        everyClassMeeting: true,
+        count: null,
+        dropLowest: null,
+      },
+      evidence: { page: 1, excerpt: "A short quiz at the start of every class" },
+      confidence: 0.9,
+    };
+    const pages = [{ page: 1, text: `${PAGE_TEXT}\nA short quiz at the start of every class` }];
+    const term = { termStartDate: "2026-09-01", termEndDate: "2026-09-30" };
+
+    // The syllabus states no meeting pattern, but the course does -- so the per-class rule
+    // expands and every instance is dated.
+    const known = validateExtraction(extraction({ meetingPatterns: [], assignments: [quiz] }), {
+      pages,
+      ...term,
+      knownMeetingDays: [1, 3],
+    });
+    const dated = known.assignments.filter((a) => a.assignment.title.startsWith("Quiz"));
+    expect(dated.length).toBeGreaterThan(1);
+    expect(dated.every((q) => q.assignment.dueDate.iso !== null)).toBe(true);
+
+    // With no stated pattern and nothing known, the same rule cannot be dated -- it stays one
+    // undated item, which is the honest outcome the known days are meant to remove.
+    const blind = validateExtraction(extraction({ meetingPatterns: [], assignments: [quiz] }), {
+      pages,
+      ...term,
+    });
+    expect(blind.assignments.filter((a) => a.assignment.title.startsWith("Quiz"))).toHaveLength(1);
+  });
+
   it("does not ask the same question twice", () => {
     const base = extraction();
     const result = validateExtraction(

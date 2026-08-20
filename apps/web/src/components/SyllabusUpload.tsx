@@ -6,6 +6,7 @@ import { extractDocxText } from "../lib/docx-text";
 import { extractPdfText, type DocumentPage } from "../lib/pdf-text";
 import type { ExtractionResponse } from "../lib/extraction-types";
 import { ExtractionReview } from "./ExtractionReview";
+import { MeetingTimesEntry, type MeetingPatternInit } from "./MeetingTimesEntry";
 import { useBodyTheme } from "../lib/use-body-theme";
 
 /**
@@ -45,6 +46,24 @@ interface UploadedDoc {
   type: string;
   mimeType: string;
   processingStatus: string;
+}
+
+/** A course meeting pattern, as the term snapshot returns it. */
+interface MeetingSnapshot {
+  id: string;
+  courseId: string;
+  daysOfWeek: number[];
+  startTime: string;
+  endTime: string;
+  location: string | null;
+}
+
+const DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Mon Wed 09:00-10:15", the same shape the Setup screen shows. */
+function formatMeeting(m: MeetingSnapshot): string {
+  const days = [...m.daysOfWeek].sort((a, b) => a - b).map((d) => DAY_ABBR[d]).join(" ");
+  return `${days} ${m.startTime}-${m.endTime}`;
 }
 
 /** Plain, honest words for a stored document's processing state. */
@@ -200,6 +219,13 @@ export function SyllabusUpload({
   const [pendingReplace, setPendingReplace] = useState<{ doc: UploadedDoc; file: File } | null>(
     null,
   );
+  /** Every course's meeting patterns for this term, filtered per course at render. */
+  const [allMeetings, setAllMeetings] = useState<MeetingSnapshot[]>([]);
+  /** Whether the optional class-times editor is open. */
+  const [showTimes, setShowTimes] = useState(false);
+
+  const termId = courses.find((c) => c.id === courseId)?.termId;
+  const meetings = allMeetings.filter((m) => m.courseId === courseId);
 
   // Courses can be created after this mounts (the add-course form sits right above).
   // Without this sync, the picker stays empty and upload reports "Add a course first"
@@ -231,6 +257,36 @@ export function SyllabusUpload({
   useEffect(() => {
     void loadDocs();
   }, [loadDocs]);
+
+  /**
+   * The meeting patterns already recorded for this term's courses, so the upload card can show
+   * whether the selected class has times yet -- and offer to add them if not. Knowing them before
+   * the read is what lets the syllabus reader place work due "every class"; the API passes them
+   * into extraction, so setting them here is not a duplicate of what the syllabus might also say.
+   */
+  const loadMeetings = useCallback(async () => {
+    if (!termId) {
+      setAllMeetings([]);
+      return;
+    }
+    try {
+      const snapshot = await api.get<{ meetingPatterns: MeetingSnapshot[] }>(
+        `/api/terms/${termId}/snapshot`,
+      );
+      setAllMeetings(snapshot.meetingPatterns);
+    } catch {
+      setAllMeetings([]);
+    }
+  }, [termId]);
+
+  useEffect(() => {
+    void loadMeetings();
+  }, [loadMeetings]);
+
+  // Collapse the editor when switching courses, so it never opens onto another class's state.
+  useEffect(() => {
+    setShowTimes(false);
+  }, [courseId]);
 
   /**
    * Reads a document to page text in the browser, or returns null after explaining why it could
@@ -290,6 +346,26 @@ export function SyllabusUpload({
       const pages = await readToPages(file, doc.filename, doc.mimeType);
       if (pages === null) return;
       await extractAndReview(doc.id, doc.filename, pages);
+    } catch (e) {
+      setPhase({ name: "idle" });
+      setError(e instanceof Error ? e.message : "That did not work.");
+    }
+  }
+
+  /**
+   * Re-read the document currently in review, by id. Used after class times are entered on the
+   * review screen: the extract route now knows the course's meeting days, so a second read dates
+   * work stated per class session that the first read had to leave undated. The stored file is
+   * fetched and re-parsed exactly as a first read; the .docx flag comes off the filename.
+   */
+  async function reReadInReview(documentId: string, name: string) {
+    setError(null);
+    try {
+      const blob = await api.blob(`/api/documents/${documentId}/file`);
+      const file = new File([blob], name, { type: blob.type });
+      const pages = await readToPages(file, name, blob.type);
+      if (pages === null) return;
+      await extractAndReview(documentId, name, pages);
     } catch (e) {
       setPhase({ name: "idle" });
       setError(e instanceof Error ? e.message : "That did not work.");
@@ -389,6 +465,7 @@ export function SyllabusUpload({
       <ExtractionReview
         documentId={phase.documentId}
         filename={phase.filename}
+        courseId={courseId}
         initial={phase.result}
         // Refresh on the way out too: a replace deletes the old document before review, so the
         // list would otherwise still show a row that no longer exists if the review is cancelled.
@@ -402,6 +479,12 @@ export function SyllabusUpload({
           setPhase({ name: "done", created });
           onPlanChanged();
           void loadDocs();
+        }}
+        // Class times entered in review are now known to the course; re-read so any "every class"
+        // work gets dated against them. Refresh the meeting summary shown on the upload card too.
+        onMeetingTimesSaved={() => {
+          void loadMeetings();
+          void reReadInReview(phase.documentId, phase.filename);
         }}
       />
     );
@@ -509,6 +592,59 @@ export function SyllabusUpload({
         </select>
         {quest && <SelectChevron dim={working} />}
       </span>
+
+      {/*
+        Class times, before the read. A syllabus interprets better against them -- work due
+        "every class" can only be dated once the meeting days are known -- and the reader is
+        given whatever is set here. Optional on purpose: most syllabi state their own times, so
+        this only asks when the class has none yet, and never blocks choosing a file.
+      */}
+      {courseId && hasCalendar && !showTimes && (
+        <p className="muted" style={{ margin: "0 0 0.75rem", fontSize: "0.9rem" }}>
+          {meetings.length > 0 ? (
+            <>
+              Class meets {meetings.map(formatMeeting).join("; ")}.{" "}
+              <button
+                type="button"
+                className="link-button"
+                disabled={working}
+                onClick={() => setShowTimes(true)}
+              >
+                Edit class times
+              </button>
+            </>
+          ) : (
+            <>
+              No class times set yet.{" "}
+              <button
+                type="button"
+                className="link-button"
+                disabled={working}
+                onClick={() => setShowTimes(true)}
+              >
+                Add them
+              </button>{" "}
+              (optional) -- the reader uses them to place work due &ldquo;every class.&rdquo;
+            </>
+          )}
+        </p>
+      )}
+      {courseId && hasCalendar && showTimes && (
+        <div style={{ margin: "0 0 0.9rem" }}>
+          <MeetingTimesEntry
+            courseId={courseId}
+            initial={meetings as MeetingPatternInit[]}
+            intro="When this class meets. Saved to the course, shown on your week, and used when the syllabus is read."
+            saveLabel="Save class times"
+            onSaved={() => {
+              setShowTimes(false);
+              void loadMeetings();
+              onPlanChanged();
+            }}
+            onCancel={() => setShowTimes(false)}
+          />
+        </div>
+      )}
 
       {/* The native file input's "No file chosen" strip cannot be styled, so the input
           is visually hidden behind a real label-button. Keyboard and screen-reader flow
