@@ -382,6 +382,56 @@ describe("duplicates and totals", () => {
   });
 });
 
+describe("resolving a yearless date from the term", () => {
+  function yearlessQuiz(title: string, raw: string): ExtractedAssignment {
+    return assignment({
+      title,
+      type: "quiz",
+      category: "Quizzes",
+      isMajorProject: false,
+      pointsPossible: null,
+      dueDate: { iso: null, raw, time: null, ambiguity: "no_year" },
+      evidence: { page: 1, excerpt: `${title} due ${raw}` },
+    });
+  }
+
+  it("fills the year when only one places the date inside the term", () => {
+    const quiz = yearlessQuiz("Quiz 1", "September 12");
+    const result = validateExtraction(extraction({ assignments: [quiz] }), {
+      pages: [{ page: 1, text: `${PAGE_TEXT}\nQuiz 1 due September 12` }],
+      termStartDate: "2026-08-25",
+      termEndDate: "2026-12-18",
+    });
+    const q = result.assignments.find((a) => a.assignment.title === "Quiz 1")!;
+    expect(q.assignment.dueDate.iso).toBe("2026-09-12");
+    expect(q.issues).not.toContain("AMBIGUOUS_DATE");
+    expect(result.clarificationQuestions.some((x) => x.relatesToTitle === "Quiz 1")).toBe(false);
+  });
+
+  it("picks the year that lands the date in a term crossing the new year", () => {
+    const quiz = yearlessQuiz("Quiz X", "January 10");
+    const result = validateExtraction(extraction({ assignments: [quiz] }), {
+      pages: [{ page: 1, text: `${PAGE_TEXT}\nQuiz X due January 10` }],
+      termStartDate: "2026-08-25",
+      termEndDate: "2027-01-20",
+    });
+    const q = result.assignments.find((a) => a.assignment.title === "Quiz X")!;
+    expect(q.assignment.dueDate.iso).toBe("2027-01-10");
+  });
+
+  it("still asks when the date falls outside the term, since that is likely a stale year", () => {
+    const quiz = yearlessQuiz("Quiz 9", "July 4");
+    const result = validateExtraction(extraction({ assignments: [quiz] }), {
+      pages: [{ page: 1, text: `${PAGE_TEXT}\nQuiz 9 due July 4` }],
+      termStartDate: "2026-08-25",
+      termEndDate: "2026-12-18",
+    });
+    const q = result.assignments.find((a) => a.assignment.title === "Quiz 9")!;
+    expect(q.assignment.dueDate.iso).toBeNull();
+    expect(q.issues).toContain("AMBIGUOUS_DATE");
+  });
+});
+
 describe("toDueAt", () => {
   it("returns null when the date was never resolved", () => {
     expect(toDueAt({ iso: null, raw: "Week 5", time: null, ambiguity: "relative_week" })).toBeNull();

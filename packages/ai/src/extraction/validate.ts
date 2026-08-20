@@ -1,7 +1,7 @@
 import { expandAll } from "./expand-recurrence.js";
 import type { ConfidenceStatus, TermCalendar } from "@schoolquest/domain";
 import type { DocumentPage } from "./prompt.js";
-import { isWithinTerm } from "./resolve-dates.js";
+import { isWithinTerm, parseStatedDate } from "./resolve-dates.js";
 import type {
   ClarificationQuestion,
   ExtractedAssignment,
@@ -272,6 +272,37 @@ function yearNear(haystack: string, from: number): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/**
+ * Fills the year into a date the syllabus stated by month and day but not year -- "September 12"
+ * -- when the term makes it unambiguous.
+ *
+ * A semester runs in one or two calendar years, and the right year is simply the one that lands
+ * the date inside the term: "September 12" in a Fall 2026 term is 2026, and "January 10" in a
+ * term running Aug 2026 to Jan 2027 is 2027, not 2026. This is arithmetic over the term the app
+ * already knows, not a guess -- which is why it belongs here rather than in a question to the
+ * student.
+ *
+ * Returns null when neither year fits (the date is outside the term -- likely stale) or both do
+ * (a term spanning the same month twice), so a real ambiguity still gets asked. The caller
+ * re-checks the resolved date against the page text, so a month/day the model misread off the
+ * document is still caught.
+ */
+function resolveYearFromTerm(raw: string, context: ValidationContext): string | null {
+  if (!context.termStartDate || !context.termEndDate) return null;
+  const startYear = Number(context.termStartDate.slice(0, 4));
+  const endYear = Number(context.termEndDate.slice(0, 4));
+  const years = startYear === endYear ? [startYear] : [startYear, endYear];
+  const fits = [
+    ...new Set(
+      years
+        .map((year) => parseStatedDate(raw, year))
+        .filter((iso): iso is string => iso !== null)
+        .filter((iso) => isWithinTerm(iso, context.termStartDate!, context.termEndDate!)),
+    ),
+  ];
+  return fits.length === 1 ? fits[0]! : null;
+}
+
 export function validateExtraction(
   extraction: SyllabusExtraction,
   context: ValidationContext,
@@ -368,6 +399,26 @@ export function validateExtraction(
 
     // --- Date checks.
     const date = assignment.dueDate;
+
+    // A date stated by month and day but no year -- "September 12" -- is not really unresolved:
+    // the term runs in known years and usually only one places the date inside it. Fill that year
+    // in instead of asking the student for it. The resolved date then goes through the same
+    // evidence and within-term checks below as any date the model read, so a month/day that is
+    // not actually on the page, or lands outside the term, still falls through to a question.
+    // Relative ("Week 5"), event ("the Friday before break") and self-conflicting dates are left
+    // alone -- those are genuine ambiguities, not a missing year.
+    if (
+      date.iso === null &&
+      date.raw !== null &&
+      (date.ambiguity === "no_year" || date.ambiguity === "none" || date.ambiguity === "missing")
+    ) {
+      const resolved = resolveYearFromTerm(date.raw, context);
+      if (resolved !== null) {
+        date.iso = resolved;
+        date.ambiguity = "none";
+      }
+    }
+
     if (date.iso !== null && date.ambiguity === "derived_recurrence") {
       /**
        * A date this codebase computed, not one the model claimed to read.
