@@ -21,6 +21,7 @@ import { OpenQuestions } from "./components/OpenQuestions";
 import { ProviderSettings } from "./components/ProviderSettings";
 import { TermCalendar } from "./components/TermCalendar";
 import { TermSettings } from "./components/TermSettings";
+import { ArchivedTerms } from "./components/ArchivedTerms";
 import { StudyHours } from "./components/StudyHours";
 import { Stats } from "./components/Stats";
 import { Dashboard } from "./components/Dashboard";
@@ -856,7 +857,7 @@ export function App() {
                     className="replace-confirm"
                     role="alertdialog"
                     aria-label="Confirm starting a new semester"
-                    style={{ marginTop: "0.7rem" }}
+                    style={{ marginTop: "0.7rem", marginBottom: 0 }}
                   >
                     <p style={{ margin: "0 0 0.5rem" }}>
                       Start a new semester and set it up from scratch?
@@ -877,6 +878,9 @@ export function App() {
                   </div>
                 )}
               </section>
+              {/* Renders itself only when something is archived; reopening reloads the app on
+                  the chosen term. This is the "get it back" path for a semester set aside. */}
+              <ArchivedTerms onReopened={bootstrap} />
             </>
           )}
         </>

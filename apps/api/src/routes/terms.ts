@@ -155,6 +155,25 @@ termsRoute.post("/terms/:id/archive", async (c) => {
   return c.json({ ok: true });
 });
 
+/**
+ * Bring an archived term back as the active one. Archiving never deleted anything -- it only set
+ * this flag -- so reopening is just flipping it back. Exactly one term is active at a time, so
+ * whatever is active now is archived in the same move; the app then loads the reopened term.
+ */
+termsRoute.post("/terms/:id/unarchive", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+  if (!(await assertTermOwner(db, id, c.get("userId")))) {
+    return c.json({ error: "Term not found" }, 404);
+  }
+  await db
+    .update(terms)
+    .set({ status: "archived" })
+    .where(and(eq(terms.userId, c.get("userId")), eq(terms.status, "active")));
+  await db.update(terms).set({ status: "active" }).where(eq(terms.id, id));
+  return c.json({ ok: true });
+});
+
 /** Everything the client needs to render a term in one round trip. */
 termsRoute.get("/terms/:id/readiness", async (c) => {
   const db = getDb(c.env.DB);

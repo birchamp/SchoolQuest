@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ArchivedTerms } from "./ArchivedTerms";
 import type { ThemeName } from "@schoolquest/domain";
 import { api } from "../lib/api";
 import { DayPicker, TimeRange } from "./DayPicker";
@@ -1012,6 +1013,10 @@ export function Onboarding({
         ) : (
           termForm
         )}
+
+        {/* The way back, right where a student lands after "start a new semester": if any term
+            is archived, offer to reopen it instead of building a new one from scratch. */}
+        <ArchivedTerms onReopened={onDone} />
       </div>
     );
   }
