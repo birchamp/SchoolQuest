@@ -5,6 +5,7 @@ import { newId, termCalendar } from "@schoolquest/domain";
 import {
   AiProviderError,
   createOpenRouterProvider,
+  expandRecurrence,
   extractSyllabus,
   ExtractionError,
   isWithinTerm,
@@ -14,6 +15,8 @@ import {
   resolveWeekdayForClaim,
   toDueAt,
   WEEKDAY_NAMES,
+  type ExtractedAssignment,
+  type TermWindow,
   type ValidatedAssignment,
 } from "@schoolquest/ai";
 import {
@@ -672,6 +675,93 @@ extractionRoute.post("/documents/:id/extraction/answer", async (c) => {
   });
 });
 
+/**
+ * Re-expands per-class rules against the course's now-known meeting days -- deterministically,
+ * with no second AI call.
+ *
+ * The case this closes: a syllabus says "a quiz at the start of every class" but never prints the
+ * meeting times, so the read left it a single undated item carrying its recurrence rule. Once the
+ * student answers "when does this class meet?" in review, the days are known and the rule can be
+ * placed -- and this is arithmetic over data the app already holds, not a reading of the document,
+ * so re-running the model would be both wasteful and a source of churn (a fresh read can return a
+ * different list and undo the student's edits). Same inputs, same rules, same output.
+ *
+ * Idempotent: an item with no rule, or one already dated, is left untouched, so calling it twice
+ * changes nothing the second time.
+ */
+extractionRoute.post("/documents/:id/extraction/reexpand-recurrence", async (c) => {
+  const db = getDb(c.env.DB);
+  const documentId = c.req.param("id");
+
+  const owned = await loadOwnedDocument(db, documentId, c.get("userId"));
+  if (!owned) return c.json({ error: "Document not found" }, 404);
+
+  const meetingRows = await db
+    .select({ daysOfWeek: meetingPatterns.daysOfWeek })
+    .from(meetingPatterns)
+    .where(eq(meetingPatterns.courseId, owned.course.id));
+  const meetingDays = [
+    ...new Set(meetingRows.flatMap((m) => parseDays(m.daysOfWeek))),
+  ].sort((a, b) => a - b);
+
+  const calendar = termCalendar.parse(JSON.parse(owned.term.calendarJson || "{}"));
+  const term: TermWindow = {
+    termStartDate: owned.term.startDate,
+    termEndDate: owned.term.endDate,
+    calendar,
+  };
+
+  const claimRows = await db
+    .select()
+    .from(extractionClaims)
+    .where(eq(extractionClaims.sourceDocumentId, documentId));
+
+  const { deleteIds, insertPayloads } = reexpandRecurrenceClaims(
+    claimRows
+      .filter((r) => r.claimType === "assignment")
+      .map((r) => ({
+        id: r.id,
+        payload: JSON.parse(r.payloadJson) as ClaimAssignmentPayload,
+        page: r.pageNumber ?? 1,
+        excerpt: r.sourceExcerpt ?? "",
+        confidence: r.confidence ?? 0.5,
+        reviewStatus: r.reviewStatus ?? "pending",
+      })),
+    term,
+    meetingDays,
+  );
+
+  for (const id of deleteIds) {
+    await db.delete(extractionClaims).where(eq(extractionClaims.id, id));
+  }
+  const rows: ClaimRow[] = insertPayloads.map((r) => ({
+    sourceDocumentId: documentId,
+    reviewStatus: "pending" as const,
+    promptVersion: "reexpand-recurrence",
+    model: "deterministic",
+    id: newId("extractionClaim"),
+    claimType: "assignment",
+    payloadJson: JSON.stringify(r.payload),
+    pageNumber: r.page,
+    sourceExcerpt: r.excerpt,
+    confidence: r.confidence,
+  }));
+  await insertInChunks(rows, CLAIM_INSERT_BATCH, (batch) =>
+    db.insert(extractionClaims).values(batch),
+  );
+
+  const claims = await db
+    .select()
+    .from(extractionClaims)
+    .where(eq(extractionClaims.sourceDocumentId, documentId));
+
+  return c.json({
+    rulesExpanded: deleteIds.length,
+    placed: insertPayloads.length,
+    claims: claims.map(toClaimView),
+  });
+});
+
 const confirmBody = z.object({
   /** Claim ids the student accepted. Anything omitted is left alone, not silently applied. */
   acceptedClaimIds: z.array(z.string()),
@@ -853,7 +943,7 @@ async function markResolved(db: Db, claimId: string, entityType: string, entityI
     .where(eq(extractionClaims.id, claimId));
 }
 
-interface ClaimAssignmentPayload {
+export interface ClaimAssignmentPayload {
   title: string;
   type:
     | "reading"
@@ -870,6 +960,12 @@ interface ClaimAssignmentPayload {
   pointsPossible: number | null;
   category: string | null;
   isMajorProject: boolean;
+  /**
+   * The recurrence rule, kept so a per-class rule the app could not date at read time -- because
+   * the meeting days were unknown -- can be re-expanded once they are answered, with no second AI
+   * call. Null for ordinary one-off assignments and for instances already expanded from a rule.
+   */
+  recurrence?: ExtractedAssignment["recurrence"] | null;
   issues?: string[];
   duplicateOf?: string | null;
   confidenceStatus?: string;
@@ -1015,12 +1111,102 @@ function assignmentPayload(item: ValidatedAssignment) {
     pointsPossible: item.assignment.pointsPossible,
     category: item.assignment.category,
     isMajorProject: item.assignment.isMajorProject,
+    // Kept so a per-class rule left undated for want of the meeting days can be re-expanded once
+    // they are answered. Instances expanded from a rule carry null and are not re-expanded again.
+    recurrence: item.assignment.recurrence,
     // Carried into the payload so the review UI can explain why something needs a look.
     issues: item.issues,
     duplicateOf: item.duplicateOf,
     confidenceStatus: item.confidenceStatus,
     evidenceVerified: item.evidenceVerified,
   };
+}
+
+/** One stored assignment claim, parsed, as the re-expander reads it. */
+export interface ReexpandClaim {
+  id: string;
+  payload: ClaimAssignmentPayload;
+  page: number;
+  excerpt: string;
+  confidence: number;
+  reviewStatus: string;
+}
+
+export interface ReexpandResult {
+  /** Claim ids to delete: the single rule items being replaced by their dated instances. */
+  deleteIds: string[];
+  /** New assignment-claim payloads to insert, with the evidence to carry onto each. */
+  insertPayloads: { payload: Record<string, unknown>; page: number; excerpt: string; confidence: number }[];
+}
+
+/**
+ * The pure core of re-expansion: given the stored assignment claims, the term, and the meeting
+ * days, work out which per-class rules can now be placed and what their dated instances are.
+ * No database, no model -- so it is unit-tested directly.
+ *
+ * A claim is re-expanded only when it still carries a per-class rule, is still undated, and is
+ * still pending review (an accepted or rejected item is the student's decision, not ours to
+ * rewrite). Expansion replaces it only when every instance came out dated; a partial expansion --
+ * more quizzes than the term has class days -- is left as the single item so it stays one honest
+ * question rather than a mix of dated and dateless rows.
+ */
+export function reexpandRecurrenceClaims(
+  claims: ReexpandClaim[],
+  term: TermWindow,
+  meetingDays: readonly number[],
+): ReexpandResult {
+  const result: ReexpandResult = { deleteIds: [], insertPayloads: [] };
+  if (meetingDays.length === 0) return result;
+
+  for (const claim of claims) {
+    const p = claim.payload;
+    const rule = p.recurrence;
+    if (!rule || rule.everyClassMeeting !== true) continue;
+    if (p.dueDate?.iso != null) continue;
+    if (claim.reviewStatus !== "pending") continue;
+
+    const source: ExtractedAssignment = {
+      title: p.title,
+      type: p.type,
+      dueDate: p.dueDate as ExtractedAssignment["dueDate"],
+      pointsPossible: p.pointsPossible,
+      category: p.category,
+      isMajorProject: p.isMajorProject,
+      recurrence: rule,
+      evidence: { page: claim.page, excerpt: claim.excerpt },
+      confidence: claim.confidence,
+    };
+
+    const instances = expandRecurrence(source, term, [...meetingDays]);
+    // Nothing placed, or only partially placed: leave the single rule item as it was.
+    if (instances.length <= 1 || instances.some((a) => a.dueDate.iso === null)) continue;
+
+    result.deleteIds.push(claim.id);
+    for (const inst of instances) {
+      result.insertPayloads.push({
+        payload: {
+          title: inst.title,
+          type: inst.type,
+          dueDate: inst.dueDate,
+          pointsPossible: inst.pointsPossible,
+          category: inst.category,
+          isMajorProject: inst.isMajorProject,
+          recurrence: null,
+          // Dates the app computed from a rule, not read off the page -- the same standing a
+          // "Week 3" resolved in review gets: an inference the student accepts, not a fabrication.
+          issues: ["DATE_DERIVED_FROM_RULE"],
+          duplicateOf: null,
+          confidenceStatus: "high_inference",
+          evidenceVerified: true,
+        },
+        page: claim.page,
+        excerpt: claim.excerpt,
+        confidence: claim.confidence,
+      });
+    }
+  }
+
+  return result;
 }
 
 function toClaimView(claim: ClaimRow) {

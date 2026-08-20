@@ -353,26 +353,6 @@ export function SyllabusUpload({
   }
 
   /**
-   * Re-read the document currently in review, by id. Used after class times are entered on the
-   * review screen: the extract route now knows the course's meeting days, so a second read dates
-   * work stated per class session that the first read had to leave undated. The stored file is
-   * fetched and re-parsed exactly as a first read; the .docx flag comes off the filename.
-   */
-  async function reReadInReview(documentId: string, name: string) {
-    setError(null);
-    try {
-      const blob = await api.blob(`/api/documents/${documentId}/file`);
-      const file = new File([blob], name, { type: blob.type });
-      const pages = await readToPages(file, name, blob.type);
-      if (pages === null) return;
-      await extractAndReview(documentId, name, pages);
-    } catch (e) {
-      setPhase({ name: "idle" });
-      setError(e instanceof Error ? e.message : "That did not work.");
-    }
-  }
-
-  /**
    * Stores the original bytes against the selected course and returns the new document.
    *
    * The server checks the declared type, and browsers report .docx inconsistently -- an empty
@@ -480,12 +460,9 @@ export function SyllabusUpload({
           onPlanChanged();
           void loadDocs();
         }}
-        // Class times entered in review are now known to the course; re-read so any "every class"
-        // work gets dated against them. Refresh the meeting summary shown on the upload card too.
-        onMeetingTimesSaved={() => {
-          void loadMeetings();
-          void reReadInReview(phase.documentId, phase.filename);
-        }}
+        // Class times entered in review have already re-dated per-class work on the server;
+        // just refresh the meeting summary the upload card shows.
+        onMeetingTimesSaved={() => void loadMeetings()}
       />
     );
   }

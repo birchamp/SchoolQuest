@@ -36,9 +36,9 @@ export function ExtractionReview({
   onConfirmed: (created: { workItems: number; categories: number; meetingPatterns: number }) => void;
   onCancel: () => void;
   /**
-   * Offered after class times are entered in review: re-read the syllabus so work stated per
-   * class session ("a quiz every class") gets dated against the days just supplied. Optional --
-   * without it the times are still saved, just not applied to work already parsed in this pass.
+   * Signalled after class times are saved in review, once the per-class work has been re-dated
+   * against them here. Lets the parent refresh anything it shows about the course's meeting times
+   * (the upload card's summary). Optional; the re-dating itself happens on the server regardless.
    */
   onMeetingTimesSaved?: () => void;
 }) {
@@ -115,6 +115,36 @@ export function ExtractionReview({
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "That answer did not save.");
+    }
+  }
+
+  /**
+   * After class times are saved, place any "every class" work against them -- deterministically,
+   * on the server, with no second AI read. The rule was kept undated at read time only because
+   * the meeting days were unknown; now they are, so the same arithmetic the extractor uses dates
+   * every session. Re-fetches the claims so the newly dated instances replace the single rule row,
+   * and tells the parent so the upload card's meeting summary refreshes.
+   */
+  async function placePerClassWork(claim: ClaimView) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.post<{ rulesExpanded: number; placed: number; claims: ClaimView[] }>(
+        `/api/documents/${documentId}/extraction/reexpand-recurrence`,
+      );
+      setClaims(res.claims);
+      onMeetingTimesSaved?.();
+      setOutcomes((prev) => ({
+        ...prev,
+        [claim.id]:
+          res.placed > 0
+            ? `Class times saved, and ${res.placed} per-class ${res.placed === 1 ? "item was" : "items were"} dated from them.`
+            : "Class times saved. They show on your week and are used when planning.",
+      }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Class times saved, but placing per-class work failed.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -323,30 +353,14 @@ export function ExtractionReview({
                       courseId={courseId}
                       onSaved={() => {
                         setOpenMeeting(null);
-                        setOutcomes((prev) => ({
-                          ...prev,
-                          [claim.id]: onMeetingTimesSaved
-                            ? "Class times saved. Re-read the syllabus to place any work due every class."
-                            : "Class times saved. They show on your week and are used the next time this syllabus is read.",
-                        }));
+                        void placePerClassWork(claim);
                       }}
                       onCancel={() => setOpenMeeting(null)}
                     />
                   ) : note ? (
-                    <>
-                      <p className="muted" style={{ margin: "0.2rem 0 0.5rem", fontSize: "0.82rem" }}>
-                        {note}
-                      </p>
-                      {onMeetingTimesSaved && (
-                        <button
-                          className="action primary"
-                          disabled={busy}
-                          onClick={() => onMeetingTimesSaved()}
-                        >
-                          Re-read to place per-class work
-                        </button>
-                      )}
-                    </>
+                    <p className="muted" style={{ margin: "0.2rem 0 0.5rem", fontSize: "0.82rem" }}>
+                      {note}
+                    </p>
                   ) : (
                     <div className="button-row">
                       <button

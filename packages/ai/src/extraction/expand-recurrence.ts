@@ -122,6 +122,13 @@ export function expandRecurrence(
       ? []
       : [rule.dayOfWeek];
 
+  // A per-class rule with no meeting days yet cannot be placed, so keep it as the single item it
+  // was and hold on to the rule -- even when a count is stated. Exploding "there are 14 quizzes"
+  // into fourteen undated rows would both strip the rule (so it can never be re-expanded once the
+  // days are known) and bury the class list under fourteen dateless entries. One item that can
+  // still be resolved beats fourteen that cannot.
+  if (rule.everyClassMeeting && days.length === 0) return [assignment];
+
   const dates = days.length === 0 ? [] : datesForWeekdays(term, days);
   const total = Math.min(
     MAX_INSTANCES,

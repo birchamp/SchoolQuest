@@ -204,6 +204,28 @@ describe("work due at every class meeting", () => {
     expect(out[0]!.dueDate.iso).toBeNull();
   });
 
+  it("keeps a stated count as one re-expandable item while the days are unknown", () => {
+    // "There are 3 quizzes" with no meeting days must not explode into three dateless rows: that
+    // would drop the rule and it could never be dated once the days are answered. One item that
+    // still carries its rule is what lets the deterministic re-expand place them later.
+    const out = expandRecurrence(
+      quiz({
+        recurrence: {
+          frequency: "weekly" as const,
+          dayOfWeek: null,
+          everyClassMeeting: true,
+          count: 3,
+          dropLowest: null,
+        },
+      }),
+      TERM,
+      [],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.recurrence).not.toBeNull();
+    expect(out[0]!.dueDate.iso).toBeNull();
+  });
+
   it("ignores meeting days for an ordinary weekly rule", () => {
     // "Each Tuesday" in a Monday/Wednesday class is still Tuesdays. Only a per-session rule
     // takes its days from the meeting pattern.
