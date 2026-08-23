@@ -33,6 +33,13 @@ const generateBody = z.object({
   /** When false, the plan is rebuilt from scratch, ignoring previously accepted blocks. */
   preserveAcceptedSessions: z.boolean().default(true),
   /**
+   * How much of the current plan a replan may disturb. Defaults to "minimal": every still-valid
+   * future block stays where it is and only displaced work reflows, so a day-to-day replan does
+   * not reshuffle a week the student was relying on. "fresh" is the deliberate "start over" that
+   * re-solves from scratch. The first plan has no prior blocks, so the two are identical there.
+   */
+  reflowMode: z.enum(["minimal", "fresh"]).default("minimal"),
+  /**
    * The moment to plan from. **Honoured only in local development**, and ignored outright once
    * a mail provider is configured — the same signal that decides whether magic links are echoed
    * back instead of emailed.
@@ -88,7 +95,12 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
     now,
   });
 
-  if (!parsed.data.preserveAcceptedSessions) input.existingSessions = [];
+  input.reflowMode = parsed.data.reflowMode;
+  // A from-scratch rebuild only when explicitly asked for it: "fresh" mode with accepted blocks
+  // not preserved. Minimal reflow always needs the prior blocks in hand to soft-pin them.
+  if (parsed.data.reflowMode === "fresh" && !parsed.data.preserveAcceptedSessions) {
+    input.existingSessions = [];
+  }
 
   const planVersionId = newId("planVersion");
   const plan = generatePlan(input, planVersionId);
