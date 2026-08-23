@@ -41,6 +41,63 @@ reviewRoute.get("/terms/:termId/review", async (c) => {
   return c.json(await loadReview(db, termId));
 });
 
+/**
+ * Blocks whose time has passed while they still said "planned" -- the ones the student may have
+ * done but never checked off. This is the catch-up list: the app never assumes a block happened,
+ * so before it reflows anything it asks the student to say what actually got done. Only the
+ * *silent* ones appear; a block already skipped or completed has been answered for.
+ *
+ * This is also the only way to mark a forgotten block after the fact -- Today only ever acts on
+ * the current recommendation, so without this a block missed yesterday was simply unreachable.
+ */
+reviewRoute.get("/terms/:termId/catchup", async (c) => {
+  const db = getDb(c.env.DB);
+  const termId = c.req.param("termId");
+  if (!(await assertTermOwner(db, termId, c.get("userId")))) {
+    return c.json({ error: "Term not found" }, 404);
+  }
+
+  // Dev builds may plan from a simulated clock; honour it here too so a walked term reconciles
+  // against the same "now" its plan was built against. Ignored once mail is configured.
+  const nowParam = c.req.query("now");
+  const now = !c.env.RESEND_API_KEY && nowParam ? new Date(nowParam).toISOString() : new Date().toISOString();
+  const since = new Date(
+    (toEpochMinutes(now) - DEFAULT_LOOKBACK_DAYS * MINUTES_PER_DAY) * 60_000,
+  ).toISOString();
+
+  const rows = await db
+    .select({
+      id: workSessions.id,
+      workItemId: workSessions.workItemId,
+      startAt: workSessions.startAt,
+      endAt: workSessions.endAt,
+      status: workSessions.status,
+      title: workItems.title,
+      courseName: courses.name,
+      courseCode: courses.code,
+    })
+    .from(workSessions)
+    .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
+    .innerJoin(courses, eq(courses.id, workItems.courseId))
+    .where(and(eq(courses.termId, termId), gte(workSessions.startAt, since)));
+
+  const blocks = rows
+    .filter((r) => r.endAt <= now && (r.status === "planned" || r.status === "started"))
+    .map((r) => ({
+      sessionId: r.id,
+      workItemId: r.workItemId,
+      title: r.title,
+      courseName: r.courseName,
+      courseCode: r.courseCode,
+      startAt: r.startAt,
+      endAt: r.endAt,
+      minutes: Math.round((Date.parse(r.endAt) - Date.parse(r.startAt)) / 60_000),
+    }))
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+
+  return c.json({ blocks });
+});
+
 /** Shared with the plan route, which folds the review into what it already returns. */
 export async function loadReview(db: Db, termId: string) {
   const now = new Date().toISOString();

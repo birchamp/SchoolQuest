@@ -33,6 +33,7 @@ import { CampaignTable } from "./components/CampaignTable";
 import { buildLayers, LayerBar } from "./components/LayerBar";
 import type { GaugeTarget } from "@schoolquest/planning-engine";
 import { SyllabusUpload } from "./components/SyllabusUpload";
+import { CatchUp } from "./components/CatchUp";
 import { SetupStatus } from "./components/SetupStatus";
 import { StopButton } from "./components/StopButton";
 import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
@@ -567,14 +568,24 @@ export function App() {
               </p>
             ))}
           {tab === "today" && (
-            <Today
-              plan={plan}
-              theme={theme}
-              onChanged={refreshPlan}
-              onReplan={regenerate}
-              onGoToSetup={goToEffortSurvey}
-              onOpenWork={openWorkItem}
-            />
+            <>
+              {/* Reconcile anything from earlier that was never marked before showing today's
+                  work -- the plan never assumes a block happened, and never reflows until asked. */}
+              <CatchUp
+                termId={term.id}
+                now={devNow()}
+                onReconciled={refreshPlan}
+                onReplan={regenerate}
+              />
+              <Today
+                plan={plan}
+                theme={theme}
+                onChanged={refreshPlan}
+                onReplan={regenerate}
+                onGoToSetup={goToEffortSurvey}
+                onOpenWork={openWorkItem}
+              />
+            </>
           )}
           {/* The week tab reads as one zoom-out: the seven days as beats, then the term's
               landmarks, then how far each course has come. */}
