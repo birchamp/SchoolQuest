@@ -80,9 +80,28 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
   // Free space remaining in each window as we consume it.
   const remainingWindows: CapacityWindow[] = windows.map((w) => ({ ...w }));
 
-  // --- Carry over the previous plan's committed blocks first, so replanning is stable.
-  const carried = carryOverSessions(input, horizonStartMinutes, horizonEndMinutes);
-  for (const session of carried) {
+  // --- Carry over the previous plan's blocks first, so replanning is stable.
+  //
+  // Committed blocks (locked/accepted) are kept unconditionally, as before. In minimal mode the
+  // ordinary blocks are kept only when they are still valid *now*: they must still sit inside a
+  // free window -- so a block a newly-added class or commitment overlaps is dropped -- and must
+  // still end before their assignment's deadline. A dropped block is simply not carried; its
+  // item keeps its full remaining time and reflows through the normal placement below.
+  const itemsForCarry = new Map(input.workItems.map((w) => [w.id, w]));
+  const carried: PlannedSession[] = [];
+  for (const candidate of carryOverSessions(input, horizonStartMinutes, horizonEndMinutes)) {
+    const { session } = candidate;
+    if (!candidate.mustKeep) {
+      const start = toEpochMinutes(session.startAt);
+      const end = toEpochMinutes(session.endAt);
+      const item = itemsForCarry.get(session.workItemId);
+      const latestEnd = item ? latestSafeEnd(item, input) : null;
+      const stillValid =
+        (latestEnd === null || end <= latestEnd) &&
+        windows.some((w) => w.start <= start && w.end >= end);
+      if (!stillValid) continue;
+    }
+    carried.push(session);
     sessions.push(session);
     consumeWithBreak(remainingWindows, toEpochMinutes(session.startAt), toEpochMinutes(session.endAt), input);
     addDaily(dailyMinutes, session.startAt, session.minutes);
@@ -132,10 +151,18 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
       continue;
     }
 
-    const required = requiredMinutes(item) - (carriedMinutesByItem.get(item.id) ?? 0);
+    const carriedThisItem = carriedMinutesByItem.get(item.id) ?? 0;
+    const totalRequired = requiredMinutes(item);
+    const required = totalRequired - carriedThisItem;
     if (required <= 0) continue;
 
-    const allocation = horizonAllocation(item, required, input, now);
+    // The horizon target is computed on the whole requirement, then reduced by what carried
+    // blocks already cover *this* horizon. Without this, re-running would compute a fresh slice
+    // from the not-yet-carried remainder and stack it on top of the carried one, so a paced
+    // project would grow a little every replan -- the opposite of the stability minimal reflow
+    // exists to give. `toPlace` is what still needs placing after the carried blocks count.
+    const allocation = horizonAllocation(item, totalRequired, input, now);
+    const toPlace = Math.max(0, Math.min(required, allocation.minutes - carriedThisItem));
 
     if (item.estimatedMinutes === null && item.remainingMinutes === null) {
       risks.push({
@@ -170,16 +197,19 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
         code: "PACED_TO_DEADLINE",
         workItemId: item.id,
         detail:
-          `"${item.title}" is being worked through steadily: ${allocation.minutes} of its ` +
+          `"${item.title}" is being worked through steadily: ${toPlace} of its ` +
           `${required} remaining minutes are planned for this week.`,
       });
     }
 
+    // This horizon's target is already met by carried blocks -- nothing new to place.
+    if (toPlace <= 0) continue;
+
     pending.push({
       item,
       priority,
-      minutesRemaining: allocation.minutes,
-      allocatedMinutes: allocation.minutes,
+      minutesRemaining: toPlace,
+      allocatedMinutes: toPlace,
       latestEnd: latestSafeEnd(item, input),
       earliestStart: Math.max(
         now,
@@ -402,9 +432,14 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
   }
 
   placeAll();
-  if (sessions.length === carried.length && orderedPending.length > 0) {
-    // Nothing was ripe. Lift the runway floor and try again — nothing has been consumed, so the
-    // second pass starts from the same empty week the first one did.
+  if (sessions.length === 0 && orderedPending.length > 0) {
+    // The plan came out genuinely empty: nothing was ripe and nothing carried over. That is the
+    // one answer this app must never give by accident, so lift the runway floor and try again --
+    // nothing has been consumed, so the second pass starts from the same empty week.
+    //
+    // Keyed on a truly empty plan, not "no new placement": a minimal reflow keeps a week full of
+    // carried blocks, and pulling deferred work forward there would un-defer exactly the work the
+    // prior plan deliberately held back -- making the reflow add sessions instead of preserving.
     unscheduled.length = 0;
     for (const work of orderedPending) {
       work.earliestStart = Math.max(
@@ -710,21 +745,38 @@ function contextFit(
 }
 
 /**
- * Keeps locked and user-accepted blocks from the previous plan. This is the whole of
- * "minimal-change replanning" at the block level — anything the student committed to
- * survives unless it is impossible (docs/04 §12).
+ * Candidate blocks to carry from the previous plan.
+ *
+ * In `"fresh"` mode this is only what the student committed to -- locked and accepted blocks --
+ * which survive unless impossible (docs/04 §12); everything else is re-placed from scratch.
+ *
+ * In `"minimal"` mode every still-valid future block is a candidate too, so a day-to-day replan
+ * keeps the week the student was relying on rather than reshuffling it. These ordinary blocks are
+ * only *candidates* here: `generatePlan` still checks each one against the current calendar and
+ * drops any that a newly-added obligation now collides with, or that its assignment's deadline
+ * has moved in front of. A skipped block never appears -- its status is no longer planned/started.
+ *
+ * `mustKeep` marks the committed blocks, which are kept without a fit check exactly as before.
  */
+interface CarryCandidate {
+  session: PlannedSession;
+  mustKeep: boolean;
+}
+
 function carryOverSessions(
   input: PlanningInput,
   horizonStart: number,
   horizonEnd: number,
-): PlannedSession[] {
+): CarryCandidate[] {
+  const minimal = input.reflowMode === "minimal";
   const now = toEpochMinutes(input.now);
   const itemsById = new Map(input.workItems.map((w) => [w.id, w]));
-  const carried: PlannedSession[] = [];
+  const carried: CarryCandidate[] = [];
 
   for (const session of input.existingSessions) {
-    if (!session.locked && !session.acceptedByUser) continue;
+    const committed = session.locked || session.acceptedByUser;
+    // Fresh mode keeps only committed blocks; minimal mode also considers ordinary ones.
+    if (!committed && !minimal) continue;
     if (session.status !== "planned" && session.status !== "started") continue;
 
     const start = toEpochMinutes(session.startAt);
@@ -736,22 +788,31 @@ function carryOverSessions(
     if (!item || !isSchedulable(item)) continue;
 
     carried.push({
-      id: session.id,
-      workItemId: session.workItemId,
-      courseId: item.courseId,
-      startAt: session.startAt,
-      endAt: session.endAt,
-      minutes: durationMinutes({ start, end }),
-      locked: session.locked,
-      acceptedByUser: session.acceptedByUser,
-      reasonCodes: session.locked ? [] : ["USER_PRIORITIZED"],
-      tradeoffCode: null,
-      movementCost: session.locked ? 1 : 0.8,
+      mustKeep: committed,
+      session: {
+        id: session.id,
+        workItemId: session.workItemId,
+        courseId: item.courseId,
+        startAt: session.startAt,
+        endAt: session.endAt,
+        minutes: durationMinutes({ start, end }),
+        locked: session.locked,
+        acceptedByUser: session.acceptedByUser,
+        reasonCodes: committed && !session.locked ? ["USER_PRIORITIZED"] : [],
+        tradeoffCode: null,
+        // Locked is immovable (1), an accepted block dear (0.8), and a block merely carried for
+        // stability cheaper still (0.5) -- preserved when it can be, yielded before a fresh one.
+        movementCost: session.locked ? 1 : session.acceptedByUser ? 0.8 : 0.5,
+      },
     });
   }
 
   // Deterministic ordering keeps generated session ids stable across runs.
-  return carried.sort((a, b) => a.startAt.localeCompare(b.startAt) || a.id.localeCompare(b.id));
+  return carried.sort(
+    (a, b) =>
+      a.session.startAt.localeCompare(b.session.startAt) ||
+      a.session.id.localeCompare(b.session.id),
+  );
 }
 
 /**

@@ -43,6 +43,18 @@ export interface PlanningInput {
   dependencies: Dependency[];
   /** Sessions from the previous plan, used to keep replanning stable. */
   existingSessions: WorkSession[];
+  /**
+   * How much of the previous plan a replan is allowed to disturb.
+   *
+   * - `"fresh"` (default): only locked and user-accepted blocks survive; everything else is
+   *   re-placed from scratch. The right mode for a first plan, or a deliberate "start over".
+   * - `"minimal"`: every still-valid future block is soft-pinned in place, and only work that
+   *   is genuinely displaced -- a block the student skipped, an item now past due, a block that
+   *   a newly-added obligation collides with -- is re-placed. This is what keeps a day-to-day
+   *   replan from reshuffling a week the student was relying on: unchanged work stays put, and
+   *   only the gap left by what moved gets filled.
+   */
+  reflowMode?: "minimal" | "fresh";
   /** Per-course standing, keyed by course id. Absent means "no grade data". */
   courseStandings?: Record<string, CourseStanding>;
   /** Deterministic tie-breaking seed. Same inputs + same seed => same plan. */

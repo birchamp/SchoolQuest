@@ -213,6 +213,107 @@ describe("stability and replanning", () => {
   });
 });
 
+describe("minimal reflow mode", () => {
+  /** Present a prior plan's blocks back as existing sessions, all uncommitted. */
+  function asExisting(
+    sessions: { id: string; workItemId: string; startAt: string; endAt: string }[],
+    override: (s: { id: string }) => Partial<WorkSession> = () => ({}),
+  ): WorkSession[] {
+    return sessions.map((s) => ({
+      id: s.id,
+      workItemId: s.workItemId,
+      planVersionId: "plan_prev",
+      startAt: s.startAt,
+      endAt: s.endAt,
+      status: "planned" as const,
+      locked: false,
+      acceptedByUser: false,
+      actualMinutes: null,
+      outcomeCode: null,
+      ...override(s),
+    }));
+  }
+
+  const slot = (s: { id: string; startAt: string; endAt: string }) =>
+    `${s.id}@${s.startAt}@${s.endAt}`;
+
+  it("re-solving with no change keeps every block exactly where it was", () => {
+    const base = planFor();
+    const replan = generatePlan(
+      { ...seedPlanningInput(), reflowMode: "minimal", existingSessions: asExisting(base.sessions) },
+      "plan_replan",
+    );
+    // Same set of blocks, same ids, same slots -- a no-op replan does not move anything.
+    expect(new Set(replan.sessions.map(slot))).toEqual(new Set(base.sessions.map(slot)));
+  });
+
+  it("without the mode, an uncommitted prior plan is re-placed from scratch", () => {
+    // The guard: default ("fresh") mode must NOT carry ordinary blocks, or the mode is a no-op.
+    const base = planFor();
+    const fresh = generatePlan(
+      { ...seedPlanningInput(), existingSessions: asExisting(base.sessions) },
+      "plan_replan",
+    );
+    // Fresh mode assigns its own new session ids; none of the prior ids survive.
+    const priorIds = new Set(base.sessions.map((s) => s.id));
+    expect(fresh.sessions.every((s) => !priorIds.has(s.id))).toBe(true);
+  });
+
+  it("skipping one block leaves the rest untouched and reflows only that work", () => {
+    const base = planFor();
+    const target =
+      base.sessions.find((s) => s.workItemId === "wi_psych_reading_w2") ?? base.sessions[0]!;
+
+    const existing = asExisting(base.sessions, (s) =>
+      s.id === target.id ? { status: "skipped", outcomeCode: "did_not_start" } : {},
+    );
+    const replan = generatePlan(
+      { ...seedPlanningInput(), reflowMode: "minimal", existingSessions: existing },
+      "plan_replan",
+    );
+
+    // Every block except the skipped one is still exactly where it was.
+    for (const s of base.sessions) {
+      if (s.id === target.id) continue;
+      expect(replan.sessions.some((r) => slot(r) === slot(s))).toBe(true);
+    }
+    // The skipped block itself is not carried back into its old slot.
+    expect(replan.sessions.some((r) => r.id === target.id)).toBe(false);
+  });
+
+  it("drops a carried block a newly-added commitment now collides with", () => {
+    const base = planFor();
+    const target = base.sessions[0]!;
+    const day = new Date(target.startAt).getUTCDay();
+    const hhmm = (iso: string) => new Date(iso).toISOString().slice(11, 16);
+
+    const input = seedPlanningInput();
+    // A hard commitment laid exactly over the first block's time removes that free window.
+    // Built off an existing commitment so every required field matches the domain type.
+    const clash = {
+      ...input.commitments[0]!,
+      id: "cm_clash",
+      title: "New standing thing",
+      daysOfWeek: [day],
+      startTime: hhmm(target.startAt),
+      endTime: hhmm(target.endAt),
+      specificDate: null,
+      flexibility: "fixed" as const,
+    };
+    const replan = generatePlan(
+      {
+        ...input,
+        commitments: [...input.commitments, clash],
+        reflowMode: "minimal",
+        existingSessions: asExisting(base.sessions),
+      },
+      "plan_replan",
+    );
+    // The clashing block is not kept in place; its slot is no longer free.
+    expect(replan.sessions.some((r) => slot(r) === slot(target))).toBe(false);
+  });
+});
+
 describe("explanations and risk", () => {
   it("attaches at least one reason code to every recommendation", () => {
     const plan = planFor();
