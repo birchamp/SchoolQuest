@@ -24,7 +24,7 @@ import type { PlanResponse } from "../lib/types";
  * The assignments table is also where work is *changed*, which is why it carries inputs rather
  * than text. A syllabus is a forecast, not a record: an instructor moves an exam, announces a
  * paper in class, or drops a chapter, and none of that is in the PDF. Three things happen in a
- * lecture and all three land here -- a new date, a new task, a task skipped.
+ * lecture and all three land here -- a new date, a new task, a task canceled.
  *
  * Kept in one table rather than spread across three screens, because they are one job: the
  * student is reconciling what was said in class against what the app believes. Splitting that
@@ -354,7 +354,11 @@ export function AssignmentsTable({
   }
 
   /**
-   * Skipping is a status, never a delete. So is handing something in.
+   * Canceling is a status, never a delete. So is handing something in.
+   *
+   * Canceling an assignment ("we are not doing chapter 7") is a different act from skipping a
+   * study block ("I didn't get to it tonight") -- the assignment leaves the plan for good, the
+   * block just did not happen and the work is still owed -- so they carry different words.
    *
    * "We are not doing chapter 7" is a fact about this term that can be reversed next week, and a
    * row that vanishes takes its history with it -- what it was worth, what was already done
@@ -387,7 +391,7 @@ export function AssignmentsTable({
       <p className="muted" style={{ margin: "0 0 0.6rem" }}>
         When an instructor moves a date, sets something new, or drops a task, change it here and
         the week is replanned around it. A date the syllabus never stated is shown empty rather
-        than guessed, and skipping keeps the record rather than deleting it.
+        than guessed, and canceling keeps the record rather than deleting it.
       </p>
 
       <div className="button-row" style={{ marginBottom: "0.6rem" }}>
@@ -395,7 +399,7 @@ export function AssignmentsTable({
           {adding ? "Cancel" : "Add an assignment"}
         </button>
         <button className="action" onClick={() => setShowDone((v) => !v)}>
-          {showDone ? "Hide finished and skipped" : "Show finished and skipped too"}
+          {showDone ? "Hide finished and canceled" : "Show finished and canceled too"}
         </button>
       </div>
 
@@ -672,9 +676,9 @@ export function AssignmentsTable({
                         className="action"
                         disabled={busy === item.id}
                         onClick={() => void setStatus(item, "canceled")}
-                        title="Takes it out of the plan and keeps the record"
+                        title="Takes this assignment out of the plan entirely; the record is kept"
                       >
-                        Skip
+                        Cancel
                       </button>
                     </>
                   )}
