@@ -213,7 +213,16 @@ sessionsRoute.post("/work-sessions/:id/skip", async (c) => {
 
   const updated = await db
     .update(workSessions)
-    .set({ status: "skipped", outcomeCode: "did_not_start" })
+    .set({
+      status: "skipped",
+      outcomeCode: "did_not_start",
+      // Skipping releases any pin. A block the student moved or locked into this slot was a
+      // statement that the work belonged *here*; saying it did not happen withdraws that, so the
+      // next replan is free to place the still-owed work elsewhere rather than re-pinning it to a
+      // time that just failed. (No-op today, since nothing is locked yet -- correct once it can be.)
+      locked: false,
+      acceptedByUser: false,
+    })
     .where(eq(workSessions.id, c.req.param("id")))
     .returning();
 

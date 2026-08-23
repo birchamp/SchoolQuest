@@ -571,6 +571,7 @@ export function App() {
               plan={plan}
               theme={theme}
               onChanged={refreshPlan}
+              onReplan={regenerate}
               onGoToSetup={goToEffortSurvey}
               onOpenWork={openWorkItem}
             />

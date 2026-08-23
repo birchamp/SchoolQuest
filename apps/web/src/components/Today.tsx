@@ -32,12 +32,20 @@ export function Today({
   plan,
   theme,
   onChanged,
+  onReplan,
   onGoToSetup,
   onOpenWork,
 }: {
   plan: PlanResponse;
   theme: ThemeName;
+  /** A light refresh of the plan (re-read), used after starting or finishing a block. */
   onChanged: () => void;
+  /**
+   * A full replan, used when a block did not happen. Skipping keeps the work owed, so the
+   * schedule has to be re-solved for the leftover to reflow into open time rather than sitting
+   * where it was already missed. Falls back to a plain refresh if not supplied.
+   */
+  onReplan?: () => void;
   /** Takes the student to Setup, where the effort survey lives. */
   onGoToSetup: () => void;
   /**
@@ -160,7 +168,8 @@ export function Today({
     setError(null);
     try {
       await api.post(`/api/work-sessions/${sessionId}/interrupted`, body);
-      onChanged();
+      // The block did not happen; replan so the still-owed work reflows into open time.
+      (onReplan ?? onChanged)();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
     } finally {
@@ -173,7 +182,9 @@ export function Today({
     setError(null);
     try {
       await api.post(`/api/work-sessions/${sessionId}/${action}`, body);
-      onChanged();
+      // A skip means the block did not happen, so the leftover has to be re-solved into open
+      // time; starting or locking only needs the plan re-read.
+      (action === "skip" ? (onReplan ?? onChanged) : onChanged)();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
     } finally {
