@@ -369,6 +369,22 @@ export function App() {
   }, [term, loadPlan]);
 
   /**
+   * Move a study block to a slot the student chose, and pin it there.
+   *
+   * The move records the new time and the lock pins it; the replan that follows is the ordinary
+   * minimal one, so the block stays put and only what it displaced reflows around it. Skipping the
+   * block later clears the pin (the /skip route unlocks it).
+   */
+  const moveStudyBlock = useCallback(
+    async (sessionId: string, startAt: string, endAt: string) => {
+      await api.post(`/api/work-sessions/${sessionId}/move`, { startAt, endAt });
+      await api.post(`/api/work-sessions/${sessionId}/lock`, { locked: true });
+      await regenerate();
+    },
+    [regenerate],
+  );
+
+  /**
    * The radar's one action: put these items at the front of the queue and replan.
    *
    * A board that shows a shortfall and offers nothing to do about it hands the planning
@@ -681,7 +697,12 @@ export function App() {
                       hiddenCourseIds={hiddenCourseIds}
                     />
                   ) : weekView === "calendar" ? (
-                    <WeekCalendar plan={plan} theme={theme} hiddenCourseIds={hiddenCourseIds} />
+                    <WeekCalendar
+                      plan={plan}
+                      theme={theme}
+                      hiddenCourseIds={hiddenCourseIds}
+                      onMoveBlock={moveStudyBlock}
+                    />
                   ) : (
                     <WeekMap
                       plan={plan}

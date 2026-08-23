@@ -62,6 +62,10 @@ export interface CalendarSlot {
   workItemId: string | null;
   /** Set for `commitment`, e.g. "work" or "club". */
   commitmentType: string | null;
+  /** Set for `study`, so a block can be moved or locked from the calendar. */
+  sessionId?: string | null;
+  /** True for a `study` block the student has pinned; the reflow leaves it where it is. */
+  locked?: boolean;
 }
 
 export interface CalendarDay {
@@ -95,6 +99,8 @@ export interface WeekCalendarInput {
     startAt: string;
     endAt: string;
     title?: string;
+    sessionId?: string;
+    locked?: boolean;
   }[];
   meals: readonly MealBreak[];
 }
@@ -288,6 +294,8 @@ function studySlots(
       courseId: session.courseId,
       workItemId: session.workItemId,
       commitmentType: null,
+      sessionId: session.sessionId ?? null,
+      locked: session.locked ?? false,
     });
   }
   return slots;

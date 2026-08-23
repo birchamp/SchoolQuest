@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Course, ThemeName } from "@schoolquest/domain";
 import { buildWeekCalendar, type CalendarSlot, type SlotKind } from "@schoolquest/planning-engine";
 import { courseTincture } from "../lib/course-colour";
@@ -95,13 +96,29 @@ function clockOf(minuteOfDay: number): string {
   });
 }
 
+/** A study block the student has chosen to move, held while the slot picker is open. */
+interface MovingBlock {
+  sessionId: string;
+  title: string;
+  minutes: number;
+  /** Current start, ISO UTC, to seed the picker. */
+  startAt: string;
+}
+
 export function WeekCalendar({
   plan,
   theme,
   hiddenCourseIds,
+  onMoveBlock,
 }: {
   plan: PlanResponse;
   theme: ThemeName;
+  /**
+   * Move a study block to a slot the student picks, and pin it there. The handler moves and locks
+   * the block, then does a minimal replan so the rest of the week reflows around it. Absent on
+   * read-only renders.
+   */
+  onMoveBlock?: (sessionId: string, startAt: string, endAt: string) => Promise<void>;
   /**
    * Classes switched off at the tab level.
    *
@@ -114,6 +131,9 @@ export function WeekCalendar({
   hiddenCourseIds?: ReadonlySet<string>;
 }) {
   const quest = theme === "quest";
+  const [moving, setMoving] = useState<MovingBlock | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
   const today = new Date().toISOString().slice(0, 10);
@@ -131,6 +151,8 @@ export function WeekCalendar({
       startAt: s.startAt,
       endAt: s.endAt,
       title: itemsById.get(s.workItemId)?.title ?? "Study",
+      sessionId: s.id,
+      locked: s.locked,
     })),
     meals: plan.meals ?? [],
   });
@@ -167,6 +189,39 @@ export function WeekCalendar({
           four -- classes, study, meals and other commitments -- and the free/off time it
           leaves uncoloured is not one of them. */}
       <CalendarLegend kinds={["class", "study", "meal", "commitment"]} />
+
+      {onMoveBlock && !moving && (
+        <p className="muted" style={{ margin: "0.4rem 0 0", fontSize: "0.8rem" }}>
+          Choose a study block to move it to a time that suits you. It gets pinned there, and the
+          rest of your week reflows around it.
+        </p>
+      )}
+
+      {error && <p className="error">{error}</p>}
+
+      {moving && onMoveBlock && (
+        <MovePanel
+          moving={moving}
+          days={calendar.days.map((d) => ({ date: d.date, dayOfWeek: d.dayOfWeek }))}
+          busy={busy}
+          onCancel={() => {
+            setMoving(null);
+            setError(null);
+          }}
+          onConfirm={async (startAt, endAt) => {
+            setBusy(true);
+            setError(null);
+            try {
+              await onMoveBlock(moving.sessionId, startAt, endAt);
+              setMoving(null);
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "That did not move.");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+      )}
 
       <div style={{ overflowX: "auto" }}>
         <div
@@ -242,17 +297,32 @@ export function WeekCalendar({
                   />
                 ))}
 
-                {day.slots.map((slot) => (
-                  <Band
-                    key={`${slot.kind}-${slot.start}`}
-                    slot={slot}
-                    base={base}
-                    windowStart={calendar.windowStartMinute}
-                    quest={quest}
-                    course={slot.courseId ? coursesById.get(slot.courseId) : undefined}
-                    receded={slot.courseId !== null && (hiddenCourseIds?.has(slot.courseId) ?? false)}
-                  />
-                ))}
+                {day.slots.map((slot) => {
+                  const movable =
+                    slot.kind === "study" && !!onMoveBlock && !!slot.sessionId;
+                  return (
+                    <Band
+                      key={`${slot.kind}-${slot.start}`}
+                      slot={slot}
+                      base={base}
+                      windowStart={calendar.windowStartMinute}
+                      quest={quest}
+                      course={slot.courseId ? coursesById.get(slot.courseId) : undefined}
+                      receded={slot.courseId !== null && (hiddenCourseIds?.has(slot.courseId) ?? false)}
+                      onSelect={
+                        movable
+                          ? () =>
+                              setMoving({
+                                sessionId: slot.sessionId!,
+                                title: slot.title ?? "Study",
+                                minutes: slot.minutes,
+                                startAt: new Date(slot.start * 60_000).toISOString(),
+                              })
+                          : undefined
+                      }
+                    />
+                  );
+                })}
               </div>
             );
           })}
@@ -269,6 +339,7 @@ function Band({
   quest,
   course,
   receded,
+  onSelect,
 }: {
   slot: CalendarSlot;
   base: number;
@@ -276,6 +347,8 @@ function Band({
   quest: boolean;
   course: Course | undefined;
   receded: boolean;
+  /** When set, the band is a button that opens the move picker for this study block. */
+  onSelect?: () => void;
 }) {
   const top = (slot.start - base - windowStart) * PIXELS_PER_MINUTE;
   const height = slot.minutes * PIXELS_PER_MINUTE;
@@ -309,34 +382,39 @@ function Band({
    */
   const worthNaming = slot.kind !== "free" || slot.minutes >= 25;
 
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: 2,
-        right: 2,
-        top,
-        height: Math.max(height - 1, 8),
-        background: style.background,
-        color: style.color,
-        borderLeft: `3px solid ${receded ? "var(--border)" : edge}`,
-        border: slot.kind === "free" ? "none" : undefined,
-        borderRadius: 4,
-        padding: height > 26 ? "0.15rem 0.3rem" : "0 0.3rem",
-        fontSize: "0.68rem",
-        lineHeight: 1.2,
-        overflow: "hidden",
-        borderTop: slot.kind === "meal" ? `1px dashed ${style.border}` : undefined,
-        borderBottom: slot.kind === "meal" ? `1px dashed ${style.border}` : undefined,
-        fontStyle: slot.kind === "meal" || slot.kind === "free" ? "italic" : undefined,
-      }}
-    >
+  const boxStyle = {
+    position: "absolute" as const,
+    left: 2,
+    right: 2,
+    top,
+    height: Math.max(height - 1, 8),
+    background: style.background,
+    color: style.color,
+    borderLeft: `3px solid ${receded ? "var(--border)" : edge}`,
+    border: slot.kind === "free" ? "none" : undefined,
+    // A pinned study block wears a full ring so it reads as fixed, not just coloured.
+    boxShadow: slot.locked ? `inset 0 0 0 1px ${edge}` : undefined,
+    borderRadius: 4,
+    padding: height > 26 ? "0.15rem 0.3rem" : "0 0.3rem",
+    fontSize: "0.68rem",
+    lineHeight: 1.2,
+    overflow: "hidden",
+    borderTop: slot.kind === "meal" ? `1px dashed ${style.border}` : undefined,
+    borderBottom: slot.kind === "meal" ? `1px dashed ${style.border}` : undefined,
+    fontStyle: slot.kind === "meal" || slot.kind === "free" ? "italic" : undefined,
+  };
+
+  const inner = (
+    <>
       {/* Duration is in the accessible name rather than on screen: at this size the figure
           competes with the label, and the band's height already carries it visually. */}
-      <span className="sr-only">
-        {KIND_WORD[slot.kind]}: {label}, {formatMinutes(slot.minutes)} from{" "}
-        {clockOf(slot.start - base)}
-      </span>
+      {!onSelect && (
+        <span className="sr-only">
+          {KIND_WORD[slot.kind]}: {label}, {formatMinutes(slot.minutes)} from{" "}
+          {clockOf(slot.start - base)}
+          {slot.locked ? ", pinned" : ""}
+        </span>
+      )}
       {worthNaming && (
         <span aria-hidden="true">
           {/* No opacity anywhere in here. Dimming the time prefix with `opacity: 0.85`
@@ -350,6 +428,127 @@ function Band({
           )}
         </span>
       )}
+    </>
+  );
+
+  // A movable study block is a real button, so it works by keyboard and touch alike -- the
+  // accessible name says what activating it does. Everything else stays a plain band.
+  if (onSelect) {
+    return (
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-label={`Move ${label}, ${formatMinutes(slot.minutes)} from ${clockOf(
+          slot.start - base,
+        )}${slot.locked ? ", pinned" : ""}`}
+        style={{
+          ...boxStyle,
+          textAlign: "left",
+          font: "inherit",
+          fontSize: "0.68rem",
+          cursor: "pointer",
+          appearance: "none",
+        }}
+      >
+        {inner}
+      </button>
+    );
+  }
+
+  return <div style={boxStyle}>{inner}</div>;
+}
+
+/**
+ * Pick a new day and time for a study block, then pin it there.
+ *
+ * A deliberate two-field choice rather than a drag: it works by keyboard and on a phone, and it
+ * says plainly what will happen -- the block moves, is pinned, and the week reflows around it.
+ */
+function MovePanel({
+  moving,
+  days,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  moving: MovingBlock;
+  days: { date: string; dayOfWeek: number }[];
+  busy: boolean;
+  onConfirm: (startAt: string, endAt: string) => void;
+  onCancel: () => void;
+}) {
+  const [date, setDate] = useState(moving.startAt.slice(0, 10));
+  const [time, setTime] = useState(moving.startAt.slice(11, 16));
+
+  const fieldStyle = {
+    background: "var(--surface-2)",
+    color: "var(--text)",
+    border: "1px solid var(--border)",
+    borderRadius: "8px",
+    padding: "0.45rem 0.6rem",
+    font: "inherit",
+    fontSize: "0.9rem",
+  } as const;
+
+  function confirm() {
+    const startAt = `${date}T${time}:00.000Z`;
+    const endAt = new Date(Date.parse(startAt) + moving.minutes * 60_000).toISOString();
+    onConfirm(startAt, endAt);
+  }
+
+  const duration =
+    moving.minutes < 60
+      ? `${moving.minutes}m`
+      : `${Math.floor(moving.minutes / 60)}h${moving.minutes % 60 ? ` ${moving.minutes % 60}m` : ""}`;
+
+  return (
+    <div
+      role="group"
+      aria-label={`Move ${moving.title}`}
+      style={{
+        margin: "0.6rem 0 0.2rem",
+        padding: "0.7rem 0.8rem",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        background: "var(--surface)",
+      }}
+    >
+      <p style={{ margin: "0 0 0.5rem", fontWeight: 500 }}>
+        Move <strong>{moving.title}</strong>{" "}
+        <span className="muted">({duration})</span>
+      </p>
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label style={{ display: "grid", gap: "0.2rem" }}>
+          <span className="muted" style={{ fontSize: "0.78rem" }}>
+            Day
+          </span>
+          <select style={fieldStyle} value={date} onChange={(e) => setDate(e.target.value)}>
+            {days.map((d) => (
+              <option key={d.date} value={d.date}>
+                {DAY_NAMES[d.dayOfWeek]} {Number(d.date.slice(8, 10))}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label style={{ display: "grid", gap: "0.2rem" }}>
+          <span className="muted" style={{ fontSize: "0.78rem" }}>
+            Start
+          </span>
+          <input style={fieldStyle} type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+        </label>
+      </div>
+      <p className="muted" style={{ margin: "0.5rem 0 0.6rem", fontSize: "0.82rem" }}>
+        It will be pinned to that time, and the rest of your week reflows around it. Skip it later
+        to unpin it.
+      </p>
+      <div className="button-row">
+        <button className="action primary" disabled={busy} onClick={confirm}>
+          {busy ? "Moving…" : "Move and pin"}
+        </button>
+        <button className="action" disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
