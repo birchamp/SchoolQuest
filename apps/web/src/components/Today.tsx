@@ -548,11 +548,11 @@ export function Today({
               disabled={busy !== null}
               onClick={() => setInterrupting(primary.sessionId)}
             >
-              Not now
+              Skipped
             </button>
           </div>
 
-          {/* "Not now" used to record `did_not_start` and stop there, throwing away the one
+          {/* "Skipped" used to record `did_not_start` and stop there, throwing away the one
               fact worth having: not that the block did not happen, but what was there
               instead. Naming it is optional and takes one tap to decline — but when the same
               thing takes the same hour three weeks running, this is where the planner learns
