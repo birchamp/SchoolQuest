@@ -34,6 +34,7 @@ import { buildLayers, LayerBar } from "./components/LayerBar";
 import type { GaugeTarget } from "@schoolquest/planning-engine";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 import { CatchUp } from "./components/CatchUp";
+import { Help } from "./components/Help";
 import { SetupStatus } from "./components/SetupStatus";
 import { StopButton } from "./components/StopButton";
 import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
@@ -57,7 +58,7 @@ import { CampaignRadar } from "./components/CampaignRadar";
  * make before they can fix a date their instructor just changed. A thing done every week gets a
  * door of its own, and correcting a date is not a "table view" preference.
  */
-type Tab = "radar" | "today" | "week" | "work" | "stats" | "coach" | "setup";
+type Tab = "radar" | "today" | "week" | "work" | "stats" | "coach" | "setup" | "help";
 
 /** How the week is drawn. A peer of the map, not a fallback for it — the map answers what
  *  the student is working on, the calendar answers where the hours go. */
@@ -528,6 +529,7 @@ export function App() {
     { id: "stats", labelText: label("statsPage", theme) },
     { id: "coach", labelText: label("coach", theme) },
     { id: "setup", labelText: "Setup" },
+    { id: "help", labelText: "Help" },
   ];
 
   return (
@@ -768,6 +770,7 @@ export function App() {
           {tab === "coach" && (
             <Coach termId={term.id} theme={theme} onPlanChanged={refreshPlan} />
           )}
+          {tab === "help" && <Help />}
           {tab === "setup" && (
             <>
               {/*
