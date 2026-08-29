@@ -889,9 +889,9 @@ export function App() {
               <section className="card">
                 <h2>Help &amp; diagnostics</h2>
                 <p className="muted" style={{ marginTop: 0 }}>
-                  If something is not working and you are asked for a diagnostics log, this copies
-                  one. Paste it into your reply -- it names this build and what the app recently did,
-                  and never contains your assignments, password, or personal data.
+                  Something not working? <strong>Report a problem</strong> opens an email with a
+                  diagnostics log attached for you to paste. It names this build and what the app
+                  recently did, and never contains your assignments, password, or personal data.
                 </p>
                 <DiagnosticsButton />
               </section>

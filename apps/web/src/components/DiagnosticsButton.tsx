@@ -1,53 +1,62 @@
 import { useState } from "react";
 import { copyDiagnostics, dumpDiagnostics } from "../lib/diagnostics";
+import { supportMailto } from "../lib/support";
 
 /**
- * "Copy diagnostics" -- the log's way back to whoever can fix it.
+ * Reporting a problem, and the log that goes with it.
  *
- * An install can point at any backend, self-hosted included, so the server-side log is on a
- * machine the person debugging cannot reach. This copies the last few hundred lines the app kept
- * in memory to the clipboard, for the student to paste into an email. When the clipboard is
- * unavailable (an insecure origin, a locked-down browser) it falls back to a selectable box so
- * the text is still gettable by hand.
+ * An install can point at any backend, self-hosted included, so the server-side log is on a machine
+ * the person debugging cannot reach -- the log has to travel back with the student. "Report a
+ * problem" opens their email prefilled to the support address AND copies the last few hundred lines
+ * the app kept in memory, so they can paste it in. "Copy diagnostics" is the same log on its own,
+ * for anyone who would rather paste it somewhere else. When the clipboard is unavailable (an
+ * insecure origin, a locked-down browser) both fall back to a selectable box.
  *
- * Nothing is uploaded. The bytes go only where the student pastes them.
+ * Nothing is uploaded. The log goes only where the student pastes or emails it.
  */
 export function DiagnosticsButton({ compact = false }: { compact?: boolean }) {
-  const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
-  const [text, setText] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [manual, setManual] = useState<string | null>(null);
 
-  async function onCopy() {
+  /** Copy the log; on failure reveal it for manual selection. Returns nothing -- state carries it. */
+  async function copyLog() {
     if (await copyDiagnostics()) {
-      setState("copied");
-      window.setTimeout(() => setState("idle"), 2500);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2500);
     } else {
-      // Reveal the text so it can be selected and copied by hand.
-      setText(dumpDiagnostics());
-      setState("manual");
+      setManual(dumpDiagnostics());
     }
   }
 
   return (
     <div>
-      <button className="action" onClick={() => void onCopy()}>
-        {state === "copied" ? "Copied to clipboard" : "Copy diagnostics"}
-      </button>
+      <div className="button-row">
+        {/* A real anchor, so the mailto is handled by the OS mail client in both the browser and the
+            desktop shell. The copy is kicked off in the same click gesture (required for clipboard
+            permission) and does not block the navigation. */}
+        <a className="action primary" href={supportMailto()} onClick={() => void copyLog()}>
+          Report a problem
+        </a>
+        <button className="action" onClick={() => void copyLog()}>
+          {copied ? "Copied to clipboard" : "Copy diagnostics"}
+        </button>
+      </div>
       {!compact && (
         <p className="muted" style={{ marginTop: "0.5rem", marginBottom: 0, fontSize: "0.85rem" }}>
-          Copies a log of what the app recently did -- no assignment text, passwords, or personal
-          data -- so you can paste it into an email if you are asked for it. Nothing is sent
-          anywhere on its own.
+          <strong>Report a problem</strong> opens your email with a log attached for you to paste --
+          no assignment text, passwords, or personal data, just what the app recently did. Nothing is
+          sent until you send the email.
         </p>
       )}
-      {state === "manual" && (
+      {manual !== null && (
         <div style={{ marginTop: "0.5rem" }}>
           <p className="muted" style={{ margin: "0 0 0.3rem", fontSize: "0.85rem" }}>
-            This browser would not let the app reach the clipboard. Select all the text below and
-            copy it by hand.
+            This browser would not let the app reach the clipboard. Select all the text below, copy
+            it, and paste it into your email.
           </p>
           <textarea
             readOnly
-            value={text}
+            value={manual}
             onFocus={(e) => e.currentTarget.select()}
             style={{
               width: "100%",

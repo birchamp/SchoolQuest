@@ -83,8 +83,12 @@ export function installConsoleCapture(): void {
   }
 }
 
-/** Build and environment context, so a pasted log names which install produced it. */
-function header(): string {
+/**
+ * Build and environment context, so a pasted log -- or a problem report with no log attached --
+ * names which install produced it. Exported for the support-email body, which carries this even
+ * when the student does not paste the full buffer.
+ */
+export function diagnosticsContext(): string {
   const version = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "unknown";
   const apiBase = (import.meta.env["VITE_API_URL"] as string | undefined) || "(same origin)";
   const shell =
@@ -107,7 +111,7 @@ export function dumpDiagnostics(): string {
     (e) => `${new Date(e.t).toISOString()} [${e.level}] ${e.text}`,
   );
   const body = lines.length > 0 ? lines.join("\n") : "(no activity recorded)";
-  return `${header()}\n\n${body}\n`;
+  return `${diagnosticsContext()}\n\n${body}\n`;
 }
 
 /**
