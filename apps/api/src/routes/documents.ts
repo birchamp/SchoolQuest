@@ -131,7 +131,15 @@ documentsRoute.get("/documents/:id/file", async (c) => {
   if (!row) return c.json({ error: "Document not found" }, 404);
 
   const object = await c.env.DOCUMENTS.get(row.document.storageKey);
-  if (!object) return c.json({ error: "File is no longer stored" }, 410);
+  if (!object) {
+    // The row survived but the bytes are gone from R2 -- the drift behind "Review again" failing
+    // with a 410. Log which document and key so it can be told apart from a never-stored upload or
+    // a wiped bucket. [observability] in wrangler.toml sends this to the Worker log / `wrangler tail`.
+    console.warn(
+      `[documents] object missing for document ${row.document.id} (key ${row.document.storageKey}), user ${c.get("userId")}`,
+    );
+    return c.json({ error: "File is no longer stored" }, 410);
+  }
 
   return new Response(object.body, {
     headers: {

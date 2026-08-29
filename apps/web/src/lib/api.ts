@@ -6,6 +6,8 @@
  * header instead — hence both paths here.
  */
 
+import { recordDiagnostic } from "./diagnostics";
+
 const TOKEN_KEY = "sq_session_token";
 
 /** True when running inside the Tauri desktop window rather than a browser tab. */
@@ -62,6 +64,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
 
+  // Breadcrumb: method, path and status only. No headers, no body -- the token and any page text
+  // stay out of the diagnostics a student might copy and paste.
+  const method = (init.method ?? "GET").toUpperCase();
+  recordDiagnostic("api", `${method} ${path} -> ${response.status}`);
+
   if (response.status === 204) return undefined as T;
 
   const payload = await response.json().catch(() => ({}) as Record<string, unknown>);
@@ -96,7 +103,18 @@ export const api = {
       credentials: "include",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
-    if (!response.ok) throw new ApiError(`Request failed (${response.status})`, response.status);
+    recordDiagnostic("api", `GET ${path} -> ${response.status}`);
+    if (!response.ok) {
+      // The server sends a JSON { error } here too (e.g. "File is no longer stored" for a 410).
+      // Read it, so the human sees what happened rather than a bare status code -- the JSON body
+      // is small, and a file endpoint that failed did not stream any bytes to discard.
+      const payload = await response.json().catch(() => ({}) as Record<string, unknown>);
+      const message =
+        typeof payload["error"] === "string"
+          ? payload["error"]
+          : `Request failed (${response.status})`;
+      throw new ApiError(message, response.status);
+    }
     return response.blob();
   },
 };

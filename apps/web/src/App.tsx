@@ -35,6 +35,7 @@ import type { GaugeTarget } from "@schoolquest/planning-engine";
 import { SyllabusUpload } from "./components/SyllabusUpload";
 import { SetupStatus } from "./components/SetupStatus";
 import { StopButton } from "./components/StopButton";
+import { DiagnosticsButton } from "./components/DiagnosticsButton";
 import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 import { CampaignRadar } from "./components/CampaignRadar";
 
@@ -484,6 +485,10 @@ export function App() {
             Try again
           </button>
         )}
+        {/* The one screen where nothing else works: give the student the log to send for help. */}
+        <div style={{ marginTop: "1.25rem" }}>
+          <DiagnosticsButton compact />
+        </div>
       </div>
     );
   }
@@ -877,6 +882,18 @@ export function App() {
                     </div>
                   </div>
                 )}
+              </section>
+              {/* When something goes wrong, the app remembers what it did; this is how that log
+                  gets back to whoever can read it. A server-side log is unreachable when the
+                  install points at its own backend, so the student carries it out by hand. */}
+              <section className="card">
+                <h2>Help &amp; diagnostics</h2>
+                <p className="muted" style={{ marginTop: 0 }}>
+                  If something is not working and you are asked for a diagnostics log, this copies
+                  one. Paste it into your reply -- it names this build and what the app recently did,
+                  and never contains your assignments, password, or personal data.
+                </p>
+                <DiagnosticsButton />
               </section>
               {/* Renders itself only when something is archived; reopening reloads the app on
                   the chosen term. This is the "get it back" path for a semester set aside. */}

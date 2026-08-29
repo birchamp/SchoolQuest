@@ -1,6 +1,21 @@
+import { readFileSync } from "node:fs";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+
+/**
+ * The version this bundle was built from, baked in so the diagnostics log a student copies can
+ * name it. Read straight off package.json rather than an env var, which is only set when Vite is
+ * launched through an npm/pnpm script -- the desktop launcher spawns it directly.
+ */
+const APP_VERSION: string = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : "unknown";
+  } catch {
+    return "unknown";
+  }
+})();
 
 /**
  * One build, two shells.
@@ -138,6 +153,10 @@ export default defineConfig({
       // `wrangler dev` serves the Worker on 8787; this keeps cookies same-origin in dev.
       "/api": { target: "http://127.0.0.1:8787", changeOrigin: true },
     },
+  },
+
+  define: {
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
   },
 
   build: {
