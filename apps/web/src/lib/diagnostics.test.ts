@@ -87,6 +87,22 @@ describe("mirroring the console", () => {
     console.error = realError;
   });
 
+  it("survives arguments that JSON.stringify throws on", () => {
+    // This wrapper runs on every console call in production; a circular object or a BigInt would
+    // throw inside JSON.stringify. It must fall back rather than take a render down with it.
+    installConsoleCapture();
+    __resetDiagnosticsForTest();
+
+    const circular: Record<string, unknown> = {};
+    circular["self"] = circular;
+
+    expect(() => console.debug("obj", circular, 10n)).not.toThrow();
+    const lines = bodyLines(dumpDiagnostics());
+    expect(lines.at(-1)).toContain("obj");
+    // The circular object degrades to String() output rather than crashing.
+    expect(lines.at(-1)).toContain("[object Object]");
+  });
+
   it("is idempotent -- installing twice does not double-record", () => {
     // Guard check: a second install must not wrap the wrapper. If it did, each layer would push and
     // one line would be recorded twice. debug was wrapped by the first install above; call through it.
