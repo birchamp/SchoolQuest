@@ -1,8 +1,15 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
 import { buildWeekCalendar, DEFAULT_EFFORT_MINUTES, type SlotKind } from "@schoolquest/planning-engine";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
+import {
+  composeDueAt,
+  DEFAULT_DUE_TIME,
+  dueDatePart,
+  dueTimePart,
+  isDefaultDueTime,
+} from "../lib/due-time";
 import type { PlanResponse } from "../lib/types";
 
 /**
@@ -24,7 +31,7 @@ import type { PlanResponse } from "../lib/types";
  * The assignments table is also where work is *changed*, which is why it carries inputs rather
  * than text. A syllabus is a forecast, not a record: an instructor moves an exam, announces a
  * paper in class, or drops a chapter, and none of that is in the PDF. Three things happen in a
- * lecture and all three land here -- a new date, a new task, a task skipped.
+ * lecture and all three land here -- a new date, a new task, a task dropped.
  *
  * Kept in one table rather than spread across three screens, because they are one job: the
  * student is reconciling what was said in class against what the app believes. Splitting that
@@ -157,7 +164,10 @@ export function AssignmentsTable({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const [times, setTimes] = useState<Record<string, string>>({});
   const [titles, setTitles] = useState<Record<string, string>>({});
+  /** The item whose delete is waiting on a yes, or null. */
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [scores, setScores] = useState<Record<string, { earned: string; outOf: string }>>({});
   const [efforts, setEfforts] = useState<Record<string, string>>({});
   const [worths, setWorths] = useState<Record<string, string>>({});
@@ -321,15 +331,25 @@ export function AssignmentsTable({
     }
   }
 
-  async function saveDate(item: WorkItem, value: string) {
+  /**
+   * Saves the two halves of a deadline as the one instant the domain stores.
+   *
+   * Both boxes write through here, so editing the date cannot lose a stated time and editing the
+   * time cannot move the date -- they are read back out of the same string on the next render.
+   * End of day stays the reading of a date given with no time, which is what "due Friday" means
+   * and what extraction writes when the syllabus is silent.
+   */
+  async function saveDue(item: WorkItem, date: string, time: string) {
+    const next = composeDueAt(date, time);
+    if (next === (item.dueAt ?? null)) return;
     setBusy(item.id);
     setError(null);
     try {
-      // A date input gives a calendar day; the domain stores an instant. End of day is the
-      // honest reading of "due Friday" and matches what extraction writes.
-      await api.patch(`/api/work-items/${item.id}`, {
-        dueAt: value ? `${value}T23:59:00.000Z` : null,
-      });
+      await api.patch(`/api/work-items/${item.id}`, { dueAt: next });
+      // Show what was actually stored: a cleared or half-typed clock saves as end of day, and a
+      // box still reading "--:--" over a row due at 11:59 is a lie about the record.
+      setEdits((s) => ({ ...s, [item.id]: dueDatePart(next) }));
+      setTimes((s) => ({ ...s, [item.id]: dueTimePart(next) }));
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not save.");
@@ -354,12 +374,13 @@ export function AssignmentsTable({
   }
 
   /**
-   * Skipping is a status, never a delete. So is handing something in.
+   * "Not doing it" is a status, not a delete. So is handing something in.
    *
    * "We are not doing chapter 7" is a fact about this term that can be reversed next week, and a
    * row that vanishes takes its history with it -- what it was worth, what was already done
    * against it, whether it was ever graded. `canceled` keeps the record and takes it out of the
-   * plan, and "Show finished too" is how it is found again.
+   * plan, and "Show finished too" is how it is found again. Work that was never assigned at all
+   * is the other case, and `deleteItem` below is the answer to that one.
    *
    * `submitted` is the same move for the opposite reason: the work is gone from the student's
    * hands but not from the term, because a result is still owed on it. The API releases the
@@ -378,6 +399,31 @@ export function AssignmentsTable({
     }
   }
 
+  /**
+   * Removing work that was never assigned, which "not doing it" cannot say.
+   *
+   * The two are different claims, so the table offers both. Cancelling keeps a real assignment
+   * this term will not do -- with what it was worth and what was already done against it -- and
+   * "Show finished and skipped too" is how it is found again. Deleting is for a row that should
+   * not exist at all: extraction reading a syllabus table that was not one, the same midterm
+   * confirmed twice under two names, a task typed into the wrong course. Left as cancelled those
+   * pile up, and a list carrying every mistake anyone ever made is one the student stops reading,
+   * which costs more than the record was ever worth.
+   */
+  async function deleteItem(item: WorkItem) {
+    setBusy(item.id);
+    setError(null);
+    try {
+      await api.del(`/api/work-items/${item.id}`);
+      setDeleting(null);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not delete.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section className="card wide-card" aria-labelledby="assignments-table-heading">
       <h2 id="assignments-table-heading">
@@ -387,7 +433,9 @@ export function AssignmentsTable({
       <p className="muted" style={{ margin: "0 0 0.6rem" }}>
         When an instructor moves a date, sets something new, or drops a task, change it here and
         the week is replanned around it. A date the syllabus never stated is shown empty rather
-        than guessed, and skipping keeps the record rather than deleting it.
+        than guessed, and a deadline with no stated hour is taken as the end of that day until
+        you say otherwise. &ldquo;Not doing it&rdquo; keeps the record; Delete is for work that
+        was never really there.
       </p>
 
       <div className="button-row" style={{ marginBottom: "0.6rem" }}>
@@ -428,258 +476,346 @@ export function AssignmentsTable({
           </thead>
           <tbody>
             {rows.map(({ item, course, code, type, effort, status }) => (
-              // Anchored so the radar can send the reader straight to the row it is talking
-              // about rather than to the top of a table of forty.
-              <tr key={item.id} id={`work-item-${item.id}`}>
-                <th scope="row" style={{ fontWeight: 500 }}>
-                  {/* Editable, because "the paper is now an annotated bibliography" is a thing
-                      instructors say, and a title nobody can correct is one the student stops
-                      trusting the whole list over. */}
-                  <label>
-                    <span className="sr-only">Name of {item.title}</span>
-                    <input
-                      type="text"
-                      disabled={busy === item.id}
-                      value={titles[item.id] ?? item.title}
-                      onChange={(e) => setTitles((t) => ({ ...t, [item.id]: e.target.value }))}
-                      onBlur={(e) => void saveTitle(item, e.target.value)}
-                      /* Wide enough to read a real title. Rendered at 12rem, "Settle the topic and re-read
-                          the" was cut mid-phrase, which makes the column useless for telling two
-                          milestones of the same project apart. */
-                      style={{ width: "100%", minWidth: "18rem", fontWeight: 500 }}
-                    />
-                  </label>
-                  {item.sourceConfidence !== "confirmed" && (
-                    <span className="muted" style={{ fontSize: "0.74rem", display: "block" }}>
-                      date unconfirmed
-                    </span>
-                  )}
-                </th>
-                <td style={{ whiteSpace: "nowrap" }} title={course}>
-                  {code}
-                </td>
-                <td style={{ textTransform: "capitalize" }}>{type}</td>
-                <td>
-                  <label>
-                    <span className="sr-only">Due date for {item.title}</span>
-                    <input
-                      type="date"
-                      disabled={busy === item.id}
-                      value={edits[item.id] ?? (item.dueAt ? item.dueAt.slice(0, 10) : "")}
-                      onChange={(e) =>
-                        setEdits((s) => ({ ...s, [item.id]: e.target.value }))
-                      }
-                      onBlur={(e) => {
-                        const next = e.target.value;
-                        const current = item.dueAt ? item.dueAt.slice(0, 10) : "";
-                        if (next !== current) void saveDate(item, next);
-                      }}
-                    />
-                  </label>
-                </td>
-                {/* Both editable, because both are instructor announcements. "The quiz is
-                    now worth 50" moves this assignment's size on the radar and its pull on
-                    the grade; "plan two hours, not one" is the student correcting the one
-                    number the whole schedule is built from. The effort survey only ever
-                    asks about work with no estimate at all, so without this cell a wrong
-                    estimate could never be corrected. */}
-                <td style={{ textAlign: "right" }}>
-                  <label>
-                    <span className="sr-only">Effort in minutes for {item.title}</span>
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      inputMode="numeric"
-                      placeholder="?"
-                      style={{ width: "4.5rem", textAlign: "right" }}
-                      disabled={busy === item.id || item.status === "completed" || item.status === "submitted"}
-                      value={efforts[item.id] ?? (effort === null ? "" : String(effort))}
-                      onChange={(e) => setEfforts((s) => ({ ...s, [item.id]: e.target.value }))}
-                      onBlur={(e) => void saveEffort(item, e.target.value)}
-                    />
-                  </label>
-                  {/* Blank does not mean zero: the planner is already using a per-type assumption.
-                      Showing it makes the "?" a number to confirm rather than a hole to fill. */}
-                  {effort === null && item.status !== "completed" && item.status !== "submitted" && (
-                    <span className="muted" style={{ fontSize: "0.72rem", display: "block" }}>
-                      ~{assumedEffortLabel(item.workType)} assumed
-                    </span>
-                  )}
-                </td>
-                <td style={{ textAlign: "right" }}>
-                  <label>
-                    <span className="sr-only">Points {item.title} is worth</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      inputMode="decimal"
-                      placeholder="?"
-                      style={{ width: "4.5rem", textAlign: "right" }}
-                      disabled={busy === item.id}
-                      value={worths[item.id] ?? (item.pointsPossible === null ? "" : String(item.pointsPossible))}
-                      onChange={(e) => setWorths((s) => ({ ...s, [item.id]: e.target.value }))}
-                      onBlur={(e) => void saveWorth(item, e.target.value)}
-                    />
-                  </label>
-                  {/* No per-item points is the common case: most syllabi weight by category. Show
-                      that weight so the cell says what the item is worth rather than nothing. */}
-                  {item.pointsPossible === null &&
-                    (() => {
-                      const cat = item.gradingCategoryId ? categoryById.get(item.gradingCategoryId) : null;
-                      return cat && cat.weightPercent !== null ? (
-                        <span className="muted" style={{ fontSize: "0.72rem", display: "block" }}>
-                          {cat.weightPercent}% &middot; {cat.name}
-                        </span>
-                      ) : null;
-                    })()}
-                </td>
-                <td style={{ textTransform: "capitalize" }}>
-                  {status}
-                  {/* The result, once it exists. Shown rather than re-asked: a row that goes
-                      on offering an empty score box after the number is in reads as though
-                      nothing was saved. */}
-                  {gradesByItem.get(item.id)?.pointsEarned != null && (
-                    <span className="muted" style={{ display: "block", fontSize: "0.74rem" }}>
-                      scored {gradesByItem.get(item.id)!.pointsEarned} /{" "}
-                      {gradesByItem.get(item.id)!.pointsPossible}
-                    </span>
-                  )}
-                </td>
-                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                  {/* Handed in and still waiting on a result -- or a recorded score reopened to
-                      correct it. Either way the only thing to do is write the number down.
-                      Weeks can pass in the waiting case, which is why it stays on the list. */}
-                  {(item.status === "submitted" && !gradedIds.has(item.id)) ||
-                  editingGrade === item.id ? (
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void saveScore(item);
-                      }}
-                      style={{ display: "inline-flex", gap: "0.25rem", alignItems: "center" }}
-                    >
+              // Keyed on the fragment rather than the row: a row awaiting a delete grows a
+              // second <tr> for the confirmation, and both belong to the same item.
+              <Fragment key={item.id}>
+                {/* Anchored so the radar can send the reader straight to the row it is talking
+                    about rather than to the top of a table of forty. */}
+                <tr id={`work-item-${item.id}`}>
+                  <th scope="row" style={{ fontWeight: 500 }}>
+                    {/* Editable, because "the paper is now an annotated bibliography" is a thing
+                        instructors say, and a title nobody can correct is one the student stops
+                        trusting the whole list over. */}
+                    <label>
+                      <span className="sr-only">Name of {item.title}</span>
+                      <input
+                        type="text"
+                        disabled={busy === item.id}
+                        value={titles[item.id] ?? item.title}
+                        onChange={(e) => setTitles((t) => ({ ...t, [item.id]: e.target.value }))}
+                        onBlur={(e) => void saveTitle(item, e.target.value)}
+                        /* Wide enough to read a real title. Rendered at 12rem, "Settle the topic and re-read
+                            the" was cut mid-phrase, which makes the column useless for telling two
+                            milestones of the same project apart. */
+                        style={{ width: "100%", minWidth: "18rem", fontWeight: 500 }}
+                      />
+                    </label>
+                    {item.sourceConfidence !== "confirmed" && (
+                      <span className="muted" style={{ fontSize: "0.74rem", display: "block" }}>
+                        date unconfirmed
+                      </span>
+                    )}
+                  </th>
+                  <td style={{ whiteSpace: "nowrap" }} title={course}>
+                    {code}
+                  </td>
+                  <td style={{ textTransform: "capitalize" }}>{type}</td>
+                  {/* Day and time of day together, because an instructor announces them together
+                      -- "the quiz closes Friday at nine". The clock is what the planner schedules
+                      against: with every deadline pinned to the end of its day, the whole morning
+                      before a 9am close read as time still available to work in. */}
+                  <td>
+                    <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
                       <label>
-                        <span className="sr-only">Points earned on {item.title}</span>
+                        <span className="sr-only">Due date for {item.title}</span>
                         <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          inputMode="decimal"
-                          placeholder="score"
-                          style={{ width: "4.5rem" }}
+                          type="date"
                           disabled={busy === item.id}
-                          value={scores[item.id]?.earned ?? ""}
-                          onChange={(e) =>
-                            setScores((prev) => ({
-                              ...prev,
-                              [item.id]: {
-                                earned: e.target.value,
-                                outOf: prev[item.id]?.outOf ?? "",
-                              },
-                            }))
+                          value={edits[item.id] ?? dueDatePart(item.dueAt)}
+                          onChange={(e) => setEdits((s) => ({ ...s, [item.id]: e.target.value }))}
+                          onBlur={(e) =>
+                            void saveDue(
+                              item,
+                              e.target.value,
+                              times[item.id] ?? dueTimePart(item.dueAt),
+                            )
                           }
                         />
                       </label>
-                      <span aria-hidden="true">/</span>
                       <label>
-                        <span className="sr-only">Out of, for {item.title}</span>
+                        <span className="sr-only">Time of day {item.title} is due</span>
                         <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          inputMode="decimal"
-                          placeholder={item.pointsPossible ? String(item.pointsPossible) : "total"}
-                          style={{ width: "4.5rem" }}
-                          disabled={busy === item.id}
-                          value={scores[item.id]?.outOf ?? ""}
-                          onChange={(e) =>
-                            setScores((prev) => ({
-                              ...prev,
-                              [item.id]: {
-                                earned: prev[item.id]?.earned ?? "",
-                                outOf: e.target.value,
-                              },
-                            }))
+                          type="time"
+                          /* An undated item has no time to set: a clock with no day cannot be
+                             stored, and a live box invites typing into one that will not hold it. */
+                          disabled={
+                            busy === item.id || (edits[item.id] ?? dueDatePart(item.dueAt)) === ""
                           }
+                          value={times[item.id] ?? dueTimePart(item.dueAt)}
+                          onChange={(e) => setTimes((s) => ({ ...s, [item.id]: e.target.value }))}
+                          onBlur={(e) =>
+                            void saveDue(
+                              item,
+                              edits[item.id] ?? dueDatePart(item.dueAt),
+                              e.target.value,
+                            )
+                          }
+                          style={{ width: "7.5rem" }}
                         />
                       </label>
-                      <button className="action" type="submit" disabled={busy === item.id}>
-                        Save
-                      </button>
-                      {editingGrade === item.id ? (
+                    </div>
+                    {/* Says out loud that nobody has stated a time, so end of day reads as the
+                        assumption it is rather than as something the syllabus said. */}
+                    {item.dueAt !== null && isDefaultDueTime(item.dueAt) && (
+                      <span className="muted" style={{ fontSize: "0.72rem", display: "block" }}>
+                        end of day assumed
+                      </span>
+                    )}
+                  </td>
+                  {/* Both editable, because both are instructor announcements. "The quiz is
+                      now worth 50" moves this assignment's size on the radar and its pull on
+                      the grade; "plan two hours, not one" is the student correcting the one
+                      number the whole schedule is built from. The effort survey only ever
+                      asks about work with no estimate at all, so without this cell a wrong
+                      estimate could never be corrected. */}
+                  <td style={{ textAlign: "right" }}>
+                    <label>
+                      <span className="sr-only">Effort in minutes for {item.title}</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        inputMode="numeric"
+                        placeholder="?"
+                        style={{ width: "4.5rem", textAlign: "right" }}
+                        disabled={busy === item.id || item.status === "completed" || item.status === "submitted"}
+                        value={efforts[item.id] ?? (effort === null ? "" : String(effort))}
+                        onChange={(e) => setEfforts((s) => ({ ...s, [item.id]: e.target.value }))}
+                        onBlur={(e) => void saveEffort(item, e.target.value)}
+                      />
+                    </label>
+                    {/* Blank does not mean zero: the planner is already using a per-type assumption.
+                        Showing it makes the "?" a number to confirm rather than a hole to fill. */}
+                    {effort === null && item.status !== "completed" && item.status !== "submitted" && (
+                      <span className="muted" style={{ fontSize: "0.72rem", display: "block" }}>
+                        ~{assumedEffortLabel(item.workType)} assumed
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    <label>
+                      <span className="sr-only">Points {item.title} is worth</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        inputMode="decimal"
+                        placeholder="?"
+                        style={{ width: "4.5rem", textAlign: "right" }}
+                        disabled={busy === item.id}
+                        value={worths[item.id] ?? (item.pointsPossible === null ? "" : String(item.pointsPossible))}
+                        onChange={(e) => setWorths((s) => ({ ...s, [item.id]: e.target.value }))}
+                        onBlur={(e) => void saveWorth(item, e.target.value)}
+                      />
+                    </label>
+                    {/* No per-item points is the common case: most syllabi weight by category. Show
+                        that weight so the cell says what the item is worth rather than nothing. */}
+                    {item.pointsPossible === null &&
+                      (() => {
+                        const cat = item.gradingCategoryId ? categoryById.get(item.gradingCategoryId) : null;
+                        return cat && cat.weightPercent !== null ? (
+                          <span className="muted" style={{ fontSize: "0.72rem", display: "block" }}>
+                            {cat.weightPercent}% &middot; {cat.name}
+                          </span>
+                        ) : null;
+                      })()}
+                  </td>
+                  <td style={{ textTransform: "capitalize" }}>
+                    {status}
+                    {/* The result, once it exists. Shown rather than re-asked: a row that goes
+                        on offering an empty score box after the number is in reads as though
+                        nothing was saved. */}
+                    {gradesByItem.get(item.id)?.pointsEarned != null && (
+                      <span className="muted" style={{ display: "block", fontSize: "0.74rem" }}>
+                        scored {gradesByItem.get(item.id)!.pointsEarned} /{" "}
+                        {gradesByItem.get(item.id)!.pointsPossible}
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    {/* Handed in and still waiting on a result -- or a recorded score reopened to
+                        correct it. Either way the only thing to do is write the number down.
+                        Weeks can pass in the waiting case, which is why it stays on the list. */}
+                    {(item.status === "submitted" && !gradedIds.has(item.id)) ||
+                    editingGrade === item.id ? (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void saveScore(item);
+                        }}
+                        style={{ display: "inline-flex", gap: "0.25rem", alignItems: "center" }}
+                      >
+                        <label>
+                          <span className="sr-only">Points earned on {item.title}</span>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            inputMode="decimal"
+                            placeholder="score"
+                            style={{ width: "4.5rem" }}
+                            disabled={busy === item.id}
+                            value={scores[item.id]?.earned ?? ""}
+                            onChange={(e) =>
+                              setScores((prev) => ({
+                                ...prev,
+                                [item.id]: {
+                                  earned: e.target.value,
+                                  outOf: prev[item.id]?.outOf ?? "",
+                                },
+                              }))
+                            }
+                          />
+                        </label>
+                        <span aria-hidden="true">/</span>
+                        <label>
+                          <span className="sr-only">Out of, for {item.title}</span>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            inputMode="decimal"
+                            placeholder={item.pointsPossible ? String(item.pointsPossible) : "total"}
+                            style={{ width: "4.5rem" }}
+                            disabled={busy === item.id}
+                            value={scores[item.id]?.outOf ?? ""}
+                            onChange={(e) =>
+                              setScores((prev) => ({
+                                ...prev,
+                                [item.id]: {
+                                  earned: prev[item.id]?.earned ?? "",
+                                  outOf: e.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </label>
+                        <button className="action" type="submit" disabled={busy === item.id}>
+                          Save
+                        </button>
+                        {editingGrade === item.id ? (
+                          <button
+                            className="action"
+                            type="button"
+                            disabled={busy === item.id}
+                            onClick={() => setEditingGrade(null)}
+                          >
+                            Cancel
+                          </button>
+                        ) : (
+                          <button
+                            className="action"
+                            type="button"
+                            disabled={busy === item.id}
+                            onClick={() => void setStatus(item, "not_started")}
+                            title="Not handed in after all; puts its study time back on the plan"
+                          >
+                            Not yet
+                          </button>
+                        )}
+                      </form>
+                    ) : gradedIds.has(item.id) ? (
+                      <>
                         <button
                           className="action"
-                          type="button"
                           disabled={busy === item.id}
-                          onClick={() => setEditingGrade(null)}
+                          onClick={() => startEditGrade(item)}
+                          title="Correct the recorded score"
                         >
-                          Cancel
-                        </button>
-                      ) : (
+                          Edit grade
+                        </button>{" "}
                         <button
                           className="action"
-                          type="button"
                           disabled={busy === item.id}
-                          onClick={() => void setStatus(item, "not_started")}
-                          title="Not handed in after all; puts its study time back on the plan"
+                          onClick={() => void clearGrade(item)}
+                          title="Remove the recorded score; the row waits on a result again"
                         >
-                          Not yet
+                          Clear grade
                         </button>
-                      )}
-                    </form>
-                  ) : gradedIds.has(item.id) ? (
-                    <>
+                      </>
+                    ) : item.status === "canceled" ? (
                       <button
                         className="action"
                         disabled={busy === item.id}
-                        onClick={() => startEditGrade(item)}
-                        title="Correct the recorded score"
+                        onClick={() => void setStatus(item, "not_started")}
                       >
-                        Edit grade
-                      </button>{" "}
-                      <button
-                        className="action"
-                        disabled={busy === item.id}
-                        onClick={() => void clearGrade(item)}
-                        title="Remove the recorded score; the row waits on a result again"
-                      >
-                        Clear grade
+                        Put back
                       </button>
-                    </>
-                  ) : item.status === "canceled" ? (
+                    ) : item.status === "completed" ? (
+                      <span className="muted">done</span>
+                    ) : (
+                      <>
+                        <button
+                          className="action"
+                          disabled={busy === item.id}
+                          onClick={() => void setStatus(item, "submitted")}
+                          title="Frees the study time still booked for it; the score can wait"
+                        >
+                          Handed in
+                        </button>{" "}
+                        {/* Not "Skip": skipping is what Today does to a single study block, and one
+                            word meaning "not this hour" on one screen and "not this term" on another
+                            is how a student cancels work they only meant to postpone. */}
+                        <button
+                          className="action"
+                          disabled={busy === item.id}
+                          onClick={() => void setStatus(item, "canceled")}
+                          title="Takes it out of the plan and keeps the record"
+                        >
+                          Not doing it
+                        </button>
+                      </>
+                    )}{" "}
+                    {/* Offered on every row, finished ones included: the commonest thing to delete
+                        is a duplicate the extractor made, and confirming its twin marks it done. */}
                     <button
                       className="action"
                       disabled={busy === item.id}
-                      onClick={() => void setStatus(item, "not_started")}
+                      onClick={() => setDeleting(deleting === item.id ? null : item.id)}
+                      title="Removes it from the term entirely"
                     >
-                      Put back
+                      Delete
                     </button>
-                  ) : item.status === "completed" ? (
-                    <span className="muted">done</span>
-                  ) : (
-                    <>
-                      <button
-                        className="action"
-                        disabled={busy === item.id}
-                        onClick={() => void setStatus(item, "submitted")}
-                        title="Frees the study time still booked for it; the score can wait"
+                  </td>
+                </tr>
+                {deleting === item.id && (
+                  <tr>
+                    <td colSpan={8}>
+                      <div
+                        className="replace-confirm"
+                        role="alertdialog"
+                        aria-label={`Confirm deleting ${item.title}`}
                       >
-                        Handed in
-                      </button>{" "}
-                      <button
-                        className="action"
-                        disabled={busy === item.id}
-                        onClick={() => void setStatus(item, "canceled")}
-                        title="Takes it out of the plan and keeps the record"
-                      >
-                        Skip
-                      </button>
-                    </>
-                  )}
-                </td>
-              </tr>
+                        <p style={{ margin: "0 0 0.4rem" }}>
+                          Delete <strong>{item.title}</strong>?
+                        </p>
+                        <p className="muted" style={{ margin: "0 0 0.6rem" }}>
+                          This takes it out of the term for good, with any stages it was broken
+                          into, the study time booked for it and any score recorded against it. It
+                          cannot be undone. To drop it from the plan but keep the record, use
+                          &ldquo;Not doing it&rdquo; instead.
+                        </p>
+                        <div className="button-row">
+                          <button
+                            className="action primary"
+                            disabled={busy === item.id}
+                            onClick={() => void deleteItem(item)}
+                          >
+                            Delete it
+                          </button>
+                          <button
+                            className="action"
+                            disabled={busy === item.id}
+                            onClick={() => setDeleting(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -1064,9 +1200,10 @@ export function CoursesTable({ plan, theme }: { plan: PlanResponse; theme: Theme
  * Tuesday exists nowhere in the PDF, so the plan simply did not know about it, and a plan
  * missing a quarter of the work is worse than no plan -- it is confidently wrong.
  *
- * Deliberately four fields. A course, a name, a date and roughly how long: enough for the
- * scheduler to place it, and nothing that would turn a thirty-second entry between classes into
- * a form. Everything else has a sensible default and can be corrected in the table afterwards.
+ * Deliberately small. A course, a name, a date and roughly how long: enough for the scheduler to
+ * place it, and nothing that would turn a thirty-second entry between classes into a form. The
+ * time of day comes prefilled with end of day and is only touched when the instructor said an
+ * hour. Everything else has a sensible default and can be corrected in the table afterwards.
  */
 function AddAssignmentForm({
   courses,
@@ -1081,6 +1218,8 @@ function AddAssignmentForm({
   const [title, setTitle] = useState("");
   const [workType, setWorkType] = useState("assignment");
   const [due, setDue] = useState("");
+  /** Prefilled with the end-of-day default, so adding work between classes stays four fields. */
+  const [dueTime, setDueTime] = useState(DEFAULT_DUE_TIME);
   const [minutes, setMinutes] = useState("");
   const [points, setPoints] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1095,14 +1234,16 @@ function AddAssignmentForm({
         title: title.trim(),
         workType,
         // Same reading of a calendar day as the date column: end of day is what "due Friday"
-        // means, and it matches what extraction writes.
-        dueAt: due ? `${due}T23:59:00.000Z` : null,
+        // means, and it matches what extraction writes. The time box overrides it when the
+        // instructor said one -- "the quiz closes at nine" is announced in the same breath.
+        dueAt: composeDueAt(due, dueTime),
         estimatedMinutes: minutes ? Number(minutes) : null,
         // "A new quiz, worth 20" is one announcement; the weight arrives with the work.
         pointsPossible: points ? Number(points) : null,
       });
       setTitle("");
       setDue("");
+      setDueTime(DEFAULT_DUE_TIME);
       setMinutes("");
       setPoints("");
       onAdded();
@@ -1164,6 +1305,17 @@ function AddAssignmentForm({
       <label style={{ display: "grid", gap: "0.2rem" }}>
         <span className="muted" style={{ fontSize: "0.78rem" }}>Due</span>
         <input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+      </label>
+
+      <label style={{ display: "grid", gap: "0.2rem" }}>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>By</span>
+        <input
+          type="time"
+          value={dueTime}
+          disabled={due === ""}
+          onChange={(e) => setDueTime(e.target.value)}
+          style={{ width: "7.5rem" }}
+        />
       </label>
 
       <label style={{ display: "grid", gap: "0.2rem" }}>

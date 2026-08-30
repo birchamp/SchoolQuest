@@ -111,7 +111,9 @@
 - `description`
 - `work_type`
 - `available_at`
-- `due_at`
+- `due_at` -- a full instant, not a day. The time of day is the deadline the planner schedules
+  against; end of day (`23:59`) is what a syllabus stating only a date means, and the assignments
+  table can set any other hour.
 - `points_possible`
 - `grading_category_id`
 - `category_share_percent`
@@ -255,6 +257,9 @@
 - `GET /api/terms/:termId/work-items`
 - `POST /api/courses/:courseId/work-items`
 - `PATCH /api/work-items/:id`
+- `DELETE /api/work-items/:id` -- removes the item, its stages, its blocks and its result.
+  Distinct from `PATCH { status: "canceled" }`, which keeps the record and only takes the work
+  out of the plan.
 - `POST /api/work-items/:id/decompose`
 - `POST /api/work-items/:id/dependencies`
 

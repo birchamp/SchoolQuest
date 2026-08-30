@@ -50,6 +50,7 @@ import {
   loadTermSnapshot,
   serializeDays,
 } from "../db/repo.js";
+import { collectSubtreeIds, deleteWorkItems } from "../db/delete-work.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import type { AppBindings } from "../env.js";
@@ -1056,6 +1057,49 @@ termsRoute.patch("/work-items/:id", async (c) => {
     await completeParentIfDone(db, existing.item);
   }
   return c.json({ workItem: updated, releasedSessions });
+});
+
+/**
+ * Removes a piece of work for good, with its stages, its blocks and its result.
+ *
+ * Distinct from cancelling, which the table offers alongside it. `canceled` is the right answer to
+ * "we are not doing chapter 7": the assignment was real, and what it was worth and what was
+ * already done against it is part of the term's record. This is the answer to work that was never
+ * assigned at all -- a line the extractor read out of a syllabus table that was not one, the same
+ * midterm confirmed twice under two names, a row typed into the wrong course. Those cannot be left
+ * as cancelled rows: a list that keeps everything anyone ever typed is a list nobody scans.
+ *
+ * Irreversible, so the UI confirms first and names what goes with it.
+ */
+termsRoute.delete("/work-items/:id", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+
+  const [existing] = await db
+    .select({ item: workItems })
+    .from(workItems)
+    .innerJoin(courses, eq(courses.id, workItems.courseId))
+    .innerJoin(terms, eq(terms.id, courses.termId))
+    .where(and(eq(workItems.id, id), eq(terms.userId, c.get("userId"))));
+  if (!existing) return c.json({ error: "Work item not found" }, 404);
+
+  // Stages live in the same course as the project they belong to, so the course is the whole
+  // search space -- and it is a few dozen rows, not the term's several hundred.
+  const inCourse = await db
+    .select({ id: workItems.id, parentWorkItemId: workItems.parentWorkItemId })
+    .from(workItems)
+    .where(eq(workItems.courseId, existing.item.courseId));
+
+  const ids = collectSubtreeIds(id, inCourse);
+  await deleteWorkItems(db, ids);
+
+  // Deleting a stage can be what finishes its project: a paper whose last open stage turns out
+  // never to have been assigned is done, and the same rule closes it here as when a stage is
+  // handed in. A project whose every stage was deleted has no stages left to judge it by, and
+  // `completeParentIfDone` leaves it open rather than banking credit for nothing.
+  await completeParentIfDone(db, existing.item);
+
+  return c.json({ ok: true, deleted: ids.length });
 });
 
 const dependencyBody = z.object({

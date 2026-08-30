@@ -602,7 +602,7 @@ export function SyllabusUpload({
                     </p>
                     <p className="muted" style={{ margin: "0 0 0.6rem", fontSize: "0.85rem" }}>
                       This deletes the uploaded file. Any assignments already added from it stay --
-                      edit or skip those on the {label("assignment", theme).toLowerCase()}s screen.
+                      edit or remove those on the {label("assignment", theme).toLowerCase()}s screen.
                     </p>
                     <div className="button-row">
                       <button className="action primary" disabled={working} onClick={() => void removeDoc(doc)}>
