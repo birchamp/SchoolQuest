@@ -193,8 +193,25 @@ app.route("/api", extractionRoute);
 
 app.onError((error, c) => {
   console.error("[api]", error);
-  // Never leak internals to the client; the Worker log has the detail.
-  return c.json({ error: "Something went wrong on our end." }, 500);
+
+  /**
+   * "Something went wrong on our end." with the cause only in a Worker log is a dead end when the
+   * install points at its own backend: the student sees the sentence, and the one person who could
+   * read the stack cannot reach the machine holding it. So on a deployment with no way to send mail
+   * -- the definition of local development already used by the login and time-travel paths -- the
+   * message rides back with the response, where the diagnostics log picks it up and the student can
+   * send it on. The stack stays server-side; a hosted deployment still says only the plain sentence.
+   */
+  const localDevelopment = !c.env.RESEND_API_KEY;
+  const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return c.json(
+    {
+      error: localDevelopment
+        ? `Something went wrong on our end. (${detail})`
+        : "Something went wrong on our end.",
+    },
+    500,
+  );
 });
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));

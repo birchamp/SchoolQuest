@@ -49,6 +49,34 @@ export async function insertInChunks<T>(
   }
 }
 
+/**
+ * The read-side twin of `insertInChunks`. An `IN (...)` clause binds one parameter per id, so a
+ * single `inArray(col, ids)` over a large id set trips the very same "too many SQL variables"
+ * ceiling -- silently, until a term grows enough. A student with several syllabuses easily passes
+ * a hundred work items (one course alone can state fifty-plus graded items), at which point loading
+ * the term threw and every plan read 500'd. This runs the query in id-set chunks and concatenates
+ * the rows, so a large term loads in a bounded number of statements instead of one that is too big.
+ *
+ * An empty id set does no query and returns nothing, which subsumes the old `ids.length ?` guards.
+ */
+export async function selectByIdsInChunks<Row>(
+  ids: string[],
+  run: (batch: string[]) => Promise<Row[]>,
+): Promise<Row[]> {
+  const out: Row[] = [];
+  for (let i = 0; i < ids.length; i += ID_IN_CLAUSE_CHUNK) {
+    out.push(...(await run(ids.slice(i, i + ID_IN_CLAUSE_CHUNK))));
+  }
+  return out;
+}
+
+/**
+ * Ids per `IN (...)` read. D1 caps a statement near 100 bound parameters; 90 leaves headroom for
+ * the odd extra bound value in the same query (the sessions read also binds a start-date lower
+ * bound) while keeping the number of round trips low.
+ */
+const ID_IN_CLAUSE_CHUNK = 90;
+
 /** SQLite has no arrays; day lists are stored as "1,3". */
 function parseDays(value: string): number[] {
   return value
@@ -150,26 +178,28 @@ export async function loadTermSnapshot(
     : [];
   const itemIds = itemRows.map((i) => i.id);
 
+  // Batched: itemIds can run to the hundreds on a term with several syllabuses, and an unbatched
+  // inArray over that set throws "too many SQL variables" -- the crash that 500'd every plan load.
   const [dependencyRows, gradeRows, sessionRows] = await Promise.all([
-    itemIds.length
-      ? db.select().from(dependencies).where(inArray(dependencies.successorWorkItemId, itemIds))
-      : Promise.resolve([]),
-    itemIds.length
-      ? db.select().from(gradeResults).where(inArray(gradeResults.workItemId, itemIds))
-      : Promise.resolve([]),
-    itemIds.length
-      ? db
-          .select()
-          .from(workSessions)
-          .where(
-            options.sessionsFrom
-              ? and(
-                  inArray(workSessions.workItemId, itemIds),
-                  gte(workSessions.startAt, options.sessionsFrom),
-                )
-              : inArray(workSessions.workItemId, itemIds),
-          )
-      : Promise.resolve([]),
+    selectByIdsInChunks(itemIds, (batch) =>
+      db.select().from(dependencies).where(inArray(dependencies.successorWorkItemId, batch)),
+    ),
+    selectByIdsInChunks(itemIds, (batch) =>
+      db.select().from(gradeResults).where(inArray(gradeResults.workItemId, batch)),
+    ),
+    selectByIdsInChunks(itemIds, (batch) =>
+      db
+        .select()
+        .from(workSessions)
+        .where(
+          options.sessionsFrom
+            ? and(
+                inArray(workSessions.workItemId, batch),
+                gte(workSessions.startAt, options.sessionsFrom),
+              )
+            : inArray(workSessions.workItemId, batch),
+        ),
+    ),
   ]);
 
   const mappedCourses: Course[] = courseRows.map((c) => ({
