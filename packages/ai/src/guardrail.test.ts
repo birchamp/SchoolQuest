@@ -2,14 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 import { guardMessage, prefilter, type GuardVerdict } from "./guardrail.js";
 import type { AiProvider } from "./provider.js";
 
-/** A provider that always returns the label it was constructed with. */
-function stubProvider(label: GuardVerdict): AiProvider & { calls: number } {
+/** A provider that always returns the label it was constructed with, and remembers what it was asked. */
+function stubProvider(label: GuardVerdict): AiProvider & { calls: number; systemPrompt: string } {
   const provider = {
     calls: 0,
+    /** The classifier instructions of the last call, so a test can assert what the gate was told. */
+    systemPrompt: "",
     name: "stub",
     defaultModel: "stub",
-    async complete() {
+    async complete(request: { messages: { role: string; content: string }[] }) {
       provider.calls++;
+      provider.systemPrompt =
+        request.messages.find((m) => m.role === "system")?.content ?? "";
       return {
         text: JSON.stringify({ label }),
         model: "stub",
@@ -171,5 +175,70 @@ describe("gaps found by end-to-end testing", () => {
 
   it("still refuses the imperative form with a deadline attached", () => {
     expect(prefilter("write my essay, it's due Friday")?.verdict).toBe("DO_MY_WORK");
+  });
+});
+
+/**
+ * The bug these guard: a student asking what a button does was refused twice over. The
+ * classifier read an app question as OFF_TOPIC ("anything else", and "when torn, choose
+ * OFF_TOPIC"), and "explain the difference between skip and delete" never reached it at all --
+ * `explain the` is one of the do-my-work patterns, so the prefilter refused a question about two
+ * buttons as a request to explain a reading.
+ *
+ * It matters more here than the usual help-text case: four controls decline four different
+ * things, and "Not doing it" on work the student meant to postpone drops it from the term while
+ * "Delete" cannot be undone at all. The coach is the only place in the product that can answer.
+ */
+describe("prefilter: questions about the app are answered, not refused", () => {
+  const appQuestions = [
+    "what does skip mean?",
+    "what does the delete button do",
+    "what's the difference between skip and delete?",
+    "explain the difference between skip and delete",
+    "how do I delete an assignment",
+    "where do I put back something I marked not doing it",
+    "can I undo a delete",
+    "what happens if I press handed in",
+    "what does end of day assumed mean",
+  ];
+
+  for (const message of appQuestions) {
+    it(`allows: "${message}"`, () => {
+      expect(prefilter(message)?.verdict).toBe("ALLOW");
+    });
+  }
+
+  it("does not become a door for the coursework", () => {
+    // The app words are app words: a reading, a chapter and a problem set are not on that list,
+    // so every one of these still lands on DO_MY_WORK exactly as before.
+    for (const message of [
+      "explain the chapter to me",
+      "summarize this reading",
+      "check my answers",
+      "solve these problems for me",
+      "explain the reading and tell me what it means",
+    ]) {
+      expect(prefilter(message)?.verdict).toBe("DO_MY_WORK");
+    }
+  });
+
+  it("still refuses a do-my-work request that only mentions coursework nouns", () => {
+    // "essay question" is not a control, so nothing here opens the app-help door.
+    expect(prefilter("write my essay question response")?.verdict).toBe("DO_MY_WORK");
+  });
+});
+
+describe("classifier: the app is in scope", () => {
+  it("tells the classifier that how-the-app-works is ALLOW, not OFF_TOPIC", async () => {
+    // The classifier prompt is the layer that catches phrasings the prefilter has no pattern
+    // for ("is there a way to get rid of an assignment I typed in twice?"). Without this line
+    // its own instruction -- "when torn between ALLOW and OFF_TOPIC, choose OFF_TOPIC" -- sends
+    // every such question to a refusal.
+    const provider = stubProvider("ALLOW");
+    await guardMessage("is there a way to get rid of an assignment I typed twice", provider);
+
+    expect(provider.calls).toBe(1);
+    expect(provider.systemPrompt).toMatch(/about the planning app itself/i);
+    expect(provider.systemPrompt).toMatch(/not off-topic; it is ALLOW/i);
   });
 });

@@ -127,8 +127,30 @@ The system should prefer a small number of meaningful stages. It may offer “si
 - Support reduced-choice mode.
 - Recognize that a missed plan is new information, not a moral failure.
 
+### Answering for the app itself
+
+The coach is also the app's help desk, because there is nowhere else to ask. Four controls
+decline four different things (`docs/03-ux-and-interaction-spec.md` §3), two of them are hard to
+take back, and a student who guesses wrong loses work. So "what does skip mean?", "can I undo a
+delete?" and "where do I change a due time?" are in scope and get real answers.
+
+Two constraints make that safe:
+
+- **One source, pinned to the screens.** `packages/ai/src/app-help.ts` holds everything the coach
+  knows about the interface, and its test checks every label it quotes against the component that
+  renders it. A control renamed on screen fails the test rather than surviving as confident bad
+  advice.
+- **Labels are quoted literally, never themed.** The nouns follow the theme -- a course is a
+  questline -- but a button renamed into the metaphor is a button the student cannot find.
+
+The scope gate carries the same rule: the classifier is told app questions are ALLOW, and the
+prefilter recognises them before the do-my-work patterns, since "explain the difference between
+skip and delete" otherwise trips on the word *explain*.
+
 ### Prohibited behavior
 
+- Inventing a control, screen or label that does not exist. Anything outside `app-help.ts` is
+  something the coach does not know.
 - Claiming certainty about grades or instructor policies without evidence.
 - Manipulative urgency.
 - Diagnosing or treating ADHD/autism.
