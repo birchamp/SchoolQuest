@@ -379,7 +379,7 @@ export function AssignmentsTable({
    * "We are not doing chapter 7" is a fact about this term that can be reversed next week, and a
    * row that vanishes takes its history with it -- what it was worth, what was already done
    * against it, whether it was ever graded. `canceled` keeps the record and takes it out of the
-   * plan, and "Show finished too" is how it is found again. Work that was never assigned at all
+   * plan, and "Show finished and canceled too" is how it is found again. Work that was never assigned at all
    * is the other case, and `deleteItem` below is the answer to that one.
    *
    * `submitted` is the same move for the opposite reason: the work is gone from the student's
@@ -404,7 +404,7 @@ export function AssignmentsTable({
    *
    * The two are different claims, so the table offers both. Cancelling keeps a real assignment
    * this term will not do -- with what it was worth and what was already done against it -- and
-   * "Show finished and skipped too" is how it is found again. Deleting is for a row that should
+   * "Show finished and canceled too" is how it is found again. Deleting is for a row that should
    * not exist at all: extraction reading a syllabus table that was not one, the same midterm
    * confirmed twice under two names, a task typed into the wrong course. Left as cancelled those
    * pile up, and a list carrying every mistake anyone ever made is one the student stops reading,
@@ -443,7 +443,9 @@ export function AssignmentsTable({
           {adding ? "Cancel" : "Add an assignment"}
         </button>
         <button className="action" onClick={() => setShowDone((v) => !v)}>
-          {showDone ? "Hide finished and skipped" : "Show finished and skipped too"}
+          {/* "Canceled" rather than "skipped": skipping is what Today does to one study block,
+              and it is the word this table's own Status column prints for these rows. */}
+          {showDone ? "Hide finished and canceled" : "Show finished and canceled too"}
         </button>
       </div>
 

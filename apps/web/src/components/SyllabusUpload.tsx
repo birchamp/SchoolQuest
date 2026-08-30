@@ -321,7 +321,7 @@ export function SyllabusUpload({
   /**
    * Removes an uploaded syllabus: its stored file and its extraction claims. Any assignments a
    * confirmed review already created stay -- those are the student's records, not the file's, and
-   * are edited or skipped on the Assignments screen. This is just for getting a wrong or stray
+   * are edited or removed on the Assignments screen. This is just for getting a wrong or stray
    * document off the class.
    */
   async function removeDoc(doc: UploadedDoc) {
