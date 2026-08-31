@@ -146,6 +146,19 @@ describe("appHelpSignal", () => {
     expect(appHelpSignal("where do I put back something I marked not doing it")).toBe("app");
   });
 
+  it("is unsure when only the interface word is there", () => {
+    // Third review pass: `tab`, `click` and `tap` were settling it alone, so "what is a tab
+    // character in Python?" never reached a model.
+    expect(appHelpSignal("What is a tab character in Python?")).toBe("ambiguous");
+    expect(appHelpSignal("What does click mean in JavaScript?")).toBe("ambiguous");
+  });
+
+  it("holds back the coursework regexes for a real app question with no control named", () => {
+    // The same bug's other half: `explain the` is a do-my-work pattern, so this was refused as a
+    // request to explain a reading. Ambiguous is what keeps it from being refused outright.
+    expect(appHelpSignal("explain the assignments tab")).toBe("ambiguous");
+  });
+
   it("is unsure when the only app word is one a course could own", () => {
     // Still app-shaped, so the do-my-work regexes are held back and a model decides.
     expect(appHelpSignal("what does skip mean?")).toBe("ambiguous");

@@ -51,6 +51,7 @@ import {
 } from "../db/repo.js";
 import { collectSubtreeIds, deleteWorkItems } from "../db/delete-work.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
+import { isoInstant } from "../iso-instant.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import type { AppBindings } from "../env.js";
 
@@ -904,8 +905,8 @@ const workItemBody = z.object({
   title: z.string().min(1),
   description: z.string().nullable().optional(),
   workType: z.string(),
-  dueAt: z.string().datetime({ offset: true }).nullable().optional(),
-  availableAt: z.string().datetime({ offset: true }).nullable().optional(),
+  dueAt: isoInstant.nullable().optional(),
+  availableAt: isoInstant.nullable().optional(),
   pointsPossible: z.number().nonnegative().nullable().optional(),
   gradingCategoryId: z.string().nullable().optional(),
   estimatedMinutes: z.number().int().positive().nullable().optional(),
@@ -1194,7 +1195,7 @@ const stagesBody = z.object({
       z.object({
         title: z.string().min(1),
         estimatedMinutes: z.number().int().positive(),
-        dueAt: z.string().datetime({ offset: true }).nullable().default(null),
+        dueAt: isoInstant.nullable().default(null),
         cognitiveDemand: z.enum(["low", "medium", "high"]).default("medium"),
       }),
     )

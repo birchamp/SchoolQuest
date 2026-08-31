@@ -211,6 +211,7 @@ describe("prefilter: questions about the app are answered, not refused", () => {
     "what does skip mean?",
     "what's the difference between skip and delete?",
     "explain the difference between skip and delete",
+    "explain the assignments tab",
     "how do I delete an assignment",
     "can I undo a delete",
   ];
@@ -236,6 +237,8 @@ describe("prefilter: questions about the app are answered, not refused", () => {
       "how do i skip a line in python",
       "How do I put back an item I popped from a stack?",
       "How do I mark done a node in my traversal?",
+      "What is a tab character in Python?",
+      "What does click mean in JavaScript?",
     ]) {
       expect(prefilter(message)?.verdict).not.toBe("ALLOW");
     }

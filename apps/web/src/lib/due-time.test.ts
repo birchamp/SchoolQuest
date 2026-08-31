@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   composeDueAt,
@@ -89,6 +92,51 @@ describe("due time", () => {
       expect(formatDueDay(`2026-10-05T${hour}:00.000Z`)).toBe(
         formatDueDay("2026-10-05T12:00:00.000Z"),
       );
+    }
+  });
+});
+
+/**
+ * Every view that prints a deadline, checked at once.
+ *
+ * This bug has now been found twice by review in one change: first in `CoursesTable`,
+ * `LookaheadTable` and `TerrainMap`, then again in `SessionBrief`, which the first sweep missed.
+ * Each fix was one line and each time the next copy was still out there, because nothing but a
+ * reader was looking. The pattern is quiet -- `new Date(dueAt).toLocaleDateString()` is what
+ * anyone writes, and it prints the right day for most of the world most of the time.
+ *
+ * So the rule is checked over the sources rather than left to the next reviewer: a view may
+ * format a deadline through `formatDueDay`, or by anchoring the stored day itself, and not by
+ * handing the instant to the reader's locale. This is not covered any other way -- there are no
+ * component tests, and reverting `SessionBrief` broke nothing.
+ */
+describe("no view prints a deadline in the reader's zone", () => {
+  const COMPONENTS = join(dirname(fileURLToPath(import.meta.url)), "..", "components");
+  const sources = readdirSync(COMPONENTS)
+    .filter((name) => name.endsWith(".tsx"))
+    .map((name) => ({ name, text: readFileSync(join(COMPONENTS, name), "utf8") }));
+
+  it("finds the views that format due dates at all", () => {
+    // A guard that matches nothing passes forever. This is the canary for a rename.
+    expect(sources.filter((s) => /function formatDue\b/.test(s.text)).length).toBeGreaterThan(2);
+  });
+
+  for (const source of sources) {
+    const formatters = source.text.match(/function formatDue\b[\s\S]*?\n}/g) ?? [];
+    for (const [index, body] of formatters.entries()) {
+      it(`${source.name} formatDue #${index + 1} uses the stored day`, () => {
+        expect(body.includes("formatDueDay") || body.includes("slice(0, 10)")).toBe(true);
+      });
+    }
+  }
+
+  it("does not hand a due instant straight to toLocaleDateString", () => {
+    // The inline case, which has no named formatter to inspect: `{new Date(row.due).toLocale...}`
+    // in the lookahead and courses tables. Comments come out first -- `CampaignArc` quotes the
+    // very pattern this forbids, in the paragraph explaining why it is forbidden.
+    for (const source of sources) {
+      const code = source.text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+      expect(code).not.toMatch(/new Date\((row\.)?due[A-Za-z]*\)\.toLocale/);
     }
   });
 });

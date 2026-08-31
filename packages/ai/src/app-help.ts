@@ -67,6 +67,10 @@ const QUESTION_SHAPES: RegExp[] = [
   /\b(how|where)\s+(do|can|would)\s+i\b/i,
   /\bdifference between\b/i,
   /\b(can|does|will)\s+(i|it|this|that)\b[^.?!]{0,40}\b(undo|undone|reversed|reversible|permanent)\b/i,
+  // Imperative, but still a request to be told how something works rather than to have work done.
+  // It carries no weight on its own: "explain the chapter" names nothing of this app and stays a
+  // do-my-work request, while "explain the assignments tab" gets to reach a model.
+  /\b(explain|tell me about|show me)\b/i,
 ];
 
 /**
@@ -85,12 +89,18 @@ export function appHelpSignal(message: string): AppHelpSignal {
   if (!QUESTION_SHAPES.some((shape) => shape.test(message))) return "none";
   if (APP_LABEL.test(message)) return "app";
 
-  // A control whose name is plain English, or an action a course could own, counts only when the
-  // message also says it is about an interface -- a button, a tab, pressing something, the app.
+  // Certain only when two things point the same way: a control's name *and* something saying this
+  // is about an interface. Either alone is a word a course can own -- a third review pass caught
+  // context standing on its own, where "what is a tab character in Python?" and "what does click
+  // mean in JavaScript?" were being allowed without a model ever seeing them.
   const named = APP_PHRASE.test(message) || GENERIC_ACTION.test(message);
-  if (named && APP_CONTEXT.test(message)) return "app";
-  if (APP_CONTEXT.test(message)) return "app";
-  return named ? "ambiguous" : "none";
+  const context = APP_CONTEXT.test(message);
+  if (named && context) return "app";
+
+  // One signal is still enough to hold back the do-my-work regexes, which is the other half of
+  // the same bug: "explain the assignments tab" was being refused as a request to explain a
+  // reading, because `explain the` is one of those patterns and nothing here spoke for the tab.
+  return named || context ? "ambiguous" : "none";
 }
 
 /**
