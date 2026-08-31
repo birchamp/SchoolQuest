@@ -1,5 +1,6 @@
 import type { Course, ThemeName } from "@schoolquest/domain";
 import { explainBlockKind, explainDayLoad, plainDayLoad } from "@schoolquest/theme-language";
+import { formatDueDay } from "../lib/due-time";
 import type { DayShapeView, FallbackView, SessionBriefView } from "../lib/types";
 
 /**
@@ -106,11 +107,11 @@ function weekdayOf(date: string): string {
  * more than a week out, so the calendar date rides along with it.
  */
 function formatDue(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
+  // The stored calendar day, not the instant. Rendering the instant in the reader's zone printed
+  // a different day here than the assignments table shows for the same deadline -- and a
+  // different weekday with it, which is worse in a card whose whole job is "this is the week's
+  // biggest thing".
+  return formatDueDay(iso, { weekday: "long", month: "short", day: "numeric" });
 }
 
 /** Course code appended only when the name does not already carry it (see WeekMap). */

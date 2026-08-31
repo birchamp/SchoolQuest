@@ -42,6 +42,25 @@ Dependency | Required item | Prerequisite | Prerequisite
 Recommended next action | Next move | Priority action | Recommended task
 Term | Campaign | Term | Semester
 
+### Words for declining, and what each one declines
+
+Four different refusals live in this app, and they were drifting onto the same word. "Skip" once
+meant a study block on Today and a whole assignment on the Assignments table, so the same word
+meant "not this hour" on one screen and "not this term" on another -- which is how a student
+cancels work they only meant to postpone. Each refusal gets one word, and no word does two jobs:
+
+Refusal | Visible wording | What is recorded
+---|---|---
+A study block the student will not do now | **Not now** | Session `skipped`; the plan reclaims the hour
+An assignment this term will not do | **Not doing it** (undone with **Put back**) | Work item `canceled`; the record and its grade stay
+An assignment that was never assigned | **Delete** (confirmed first) | The row and its stages, blocks and result are gone
+A question the app asked | **Skip it**, **Skip this one**, **Rather not say** | Nothing; the prompt moves on
+
+Two consequences worth keeping: nothing a student declines is ever counted or scored back at them
+(§1 of `docs/01-product-brief.md`), and `skipped` as a *stored* status only ever describes a
+session -- the Assignments table prints `canceled` for work, which is the word its own controls
+use.
+
 ## 4. Onboarding flow
 
 ### Screen 1: Promise

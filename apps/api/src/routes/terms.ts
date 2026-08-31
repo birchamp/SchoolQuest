@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   COURSE_COLOR_TOKENS,
@@ -41,7 +41,6 @@ import {
   sourceDocuments,
   terms,
   workItems,
-  workSessions,
 } from "../db/schema.js";
 import {
   assertTermOwner,
@@ -50,7 +49,9 @@ import {
   loadTermSnapshot,
   serializeDays,
 } from "../db/repo.js";
+import { collectSubtreeIds, deleteWorkItems } from "../db/delete-work.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
+import { isoInstant } from "../iso-instant.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import type { AppBindings } from "../env.js";
 
@@ -904,8 +905,8 @@ const workItemBody = z.object({
   title: z.string().min(1),
   description: z.string().nullable().optional(),
   workType: z.string(),
-  dueAt: z.string().datetime({ offset: true }).nullable().optional(),
-  availableAt: z.string().datetime({ offset: true }).nullable().optional(),
+  dueAt: isoInstant.nullable().optional(),
+  availableAt: isoInstant.nullable().optional(),
   pointsPossible: z.number().nonnegative().nullable().optional(),
   gradingCategoryId: z.string().nullable().optional(),
   estimatedMinutes: z.number().int().positive().nullable().optional(),
@@ -938,6 +939,38 @@ async function assertCourseOwner(
   return Boolean(row);
 }
 
+/**
+ * A parent has to be a real item in the same course, or absent.
+ *
+ * Nothing checked this. `parentWorkItemId` arrived as a plain string and was written straight to
+ * the row, so it could name any work item in the database -- including another account's. Two
+ * things followed. The smaller one: deleting a project looks for its stages in its own course, so
+ * a child parked elsewhere survives as an orphan the scheduler still books. The larger one:
+ * `completeParentIfDone` looks a parent up by id and then *writes* to it, so pointing a throwaway
+ * assignment at a stranger's midterm and handing it in finished their work and released the study
+ * time held for it.
+ *
+ * Same course rather than merely same owner, because that is the invariant the rest of the code
+ * already assumes: `POST /work-items/:id/stages` copies `parent.courseId` down to every stage it
+ * creates, and the subtree delete walks one course.
+ *
+ * Both doors, checked the same way. The first version of this guarded creation alone, which
+ * review caught: `PATCH` spreads the same field out of `workItemBody.partial()`, so re-parenting
+ * an item you own reopened the identical hole. Half a check on a two-door room is no check.
+ */
+async function parentIsInCourse(
+  db: ReturnType<typeof getDb>,
+  parentWorkItemId: string | null | undefined,
+  courseId: string,
+): Promise<boolean> {
+  if (!parentWorkItemId) return true;
+  const [parent] = await db
+    .select({ id: workItems.id })
+    .from(workItems)
+    .where(and(eq(workItems.id, parentWorkItemId), eq(workItems.courseId, courseId)));
+  return Boolean(parent);
+}
+
 termsRoute.post("/work-items", async (c) => {
   const parsed = workItemBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
@@ -945,6 +978,10 @@ termsRoute.post("/work-items", async (c) => {
   const db = getDb(c.env.DB);
   if (!(await assertCourseOwner(db, parsed.data.courseId, c.get("userId")))) {
     return c.json({ error: "Course not found" }, 404);
+  }
+
+  if (!(await parentIsInCourse(db, parsed.data.parentWorkItemId, parsed.data.courseId))) {
+    return c.json({ error: "Parent work item not found in this course" }, 404);
   }
 
   const item = {
@@ -988,6 +1025,18 @@ termsRoute.patch("/work-items/:id", async (c) => {
 
   const parsed = workItemBody.partial().safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  // The same check creation makes, because this is the same field and the same consequence.
+  // An item may not become its own parent either: that is a cycle, and the subtree walk and the
+  // completion rule both have to reason about it forever after.
+  if (parsed.data.parentWorkItemId !== undefined) {
+    if (parsed.data.parentWorkItemId === id) {
+      return c.json({ error: "A work item cannot be its own parent." }, 400);
+    }
+    if (!(await parentIsInCourse(db, parsed.data.parentWorkItemId, existing.item.courseId))) {
+      return c.json({ error: "Parent work item not found in this course" }, 404);
+    }
+  }
 
   const patch: Record<string, unknown> = { ...parsed.data };
   delete patch["courseId"]; // Moving an item between courses is not a PATCH.
@@ -1056,6 +1105,49 @@ termsRoute.patch("/work-items/:id", async (c) => {
     await completeParentIfDone(db, existing.item);
   }
   return c.json({ workItem: updated, releasedSessions });
+});
+
+/**
+ * Removes a piece of work for good, with its stages, its blocks and its result.
+ *
+ * Distinct from cancelling, which the table offers alongside it. `canceled` is the right answer to
+ * "we are not doing chapter 7": the assignment was real, and what it was worth and what was
+ * already done against it is part of the term's record. This is the answer to work that was never
+ * assigned at all -- a line the extractor read out of a syllabus table that was not one, the same
+ * midterm confirmed twice under two names, a row typed into the wrong course. Those cannot be left
+ * as cancelled rows: a list that keeps everything anyone ever typed is a list nobody scans.
+ *
+ * Irreversible, so the UI confirms first and names what goes with it.
+ */
+termsRoute.delete("/work-items/:id", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param("id");
+
+  const [existing] = await db
+    .select({ item: workItems })
+    .from(workItems)
+    .innerJoin(courses, eq(courses.id, workItems.courseId))
+    .innerJoin(terms, eq(terms.id, courses.termId))
+    .where(and(eq(workItems.id, id), eq(terms.userId, c.get("userId"))));
+  if (!existing) return c.json({ error: "Work item not found" }, 404);
+
+  // Stages live in the same course as the project they belong to, so the course is the whole
+  // search space -- and it is a few dozen rows, not the term's several hundred.
+  const inCourse = await db
+    .select({ id: workItems.id, parentWorkItemId: workItems.parentWorkItemId })
+    .from(workItems)
+    .where(eq(workItems.courseId, existing.item.courseId));
+
+  const ids = collectSubtreeIds(id, inCourse);
+  await deleteWorkItems(db, ids);
+
+  // Deleting a stage can be what finishes its project: a paper whose last open stage turns out
+  // never to have been assigned is done, and the same rule closes it here as when a stage is
+  // handed in. A project whose every stage was deleted has no stages left to judge it by, and
+  // `completeParentIfDone` leaves it open rather than banking credit for nothing.
+  await completeParentIfDone(db, existing.item);
+
+  return c.json({ ok: true, deleted: ids.length });
 });
 
 const dependencyBody = z.object({
@@ -1151,7 +1243,7 @@ const stagesBody = z.object({
       z.object({
         title: z.string().min(1),
         estimatedMinutes: z.number().int().positive(),
-        dueAt: z.string().datetime({ offset: true }).nullable().default(null),
+        dueAt: isoInstant.nullable().default(null),
         cognitiveDemand: z.enum(["low", "medium", "high"]).default("medium"),
       }),
     )
@@ -1530,22 +1622,14 @@ async function deleteCourseAcademics(
     .where(eq(workItems.courseId, courseId));
   const itemIds = items.map((i) => i.id);
 
-  const CHUNK = 100;
-  for (let i = 0; i < itemIds.length; i += CHUNK) {
-    const batch = itemIds.slice(i, i + CHUNK);
-    await db.delete(gradeResults).where(inArray(gradeResults.workItemId, batch));
-    await db.delete(workSessions).where(inArray(workSessions.workItemId, batch));
-    await db
-      .delete(dependencies)
-      .where(
-        or(
-          inArray(dependencies.predecessorWorkItemId, batch),
-          inArray(dependencies.successorWorkItemId, batch),
-        ),
-      );
-  }
+  // One implementation of "remove these work items and everything hanging off them", shared with
+  // the single-item delete. It had been copied, and the copy carried the bug review found in the
+  // original: a batch of 100 ids bound twice by the dependency statement's two `IN` clauses is
+  // 200 bound parameters against D1's ceiling of about 100. A course with fifty-odd assignments
+  // is ordinary, so this was reachable -- and it failed midway, after the grade and session rows
+  // were already gone.
+  await deleteWorkItems(db, itemIds);
 
-  await db.delete(workItems).where(eq(workItems.courseId, courseId));
   await db.delete(gradingCategories).where(eq(gradingCategories.courseId, courseId));
   await db.delete(meetingPatterns).where(eq(meetingPatterns.courseId, courseId));
   return itemIds.length;

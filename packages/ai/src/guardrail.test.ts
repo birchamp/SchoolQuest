@@ -2,14 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 import { guardMessage, prefilter, type GuardVerdict } from "./guardrail.js";
 import type { AiProvider } from "./provider.js";
 
-/** A provider that always returns the label it was constructed with. */
-function stubProvider(label: GuardVerdict): AiProvider & { calls: number } {
+/** A provider that always returns the label it was constructed with, and remembers what it was asked. */
+function stubProvider(label: GuardVerdict): AiProvider & { calls: number; systemPrompt: string } {
   const provider = {
     calls: 0,
+    /** The classifier instructions of the last call, so a test can assert what the gate was told. */
+    systemPrompt: "",
     name: "stub",
     defaultModel: "stub",
-    async complete() {
+    async complete(request: { messages: { role: string; content: string }[] }) {
       provider.calls++;
+      provider.systemPrompt =
+        request.messages.find((m) => m.role === "system")?.content ?? "";
       return {
         text: JSON.stringify({ label }),
         model: "stub",
@@ -171,5 +175,114 @@ describe("gaps found by end-to-end testing", () => {
 
   it("still refuses the imperative form with a deadline attached", () => {
     expect(prefilter("write my essay, it's due Friday")?.verdict).toBe("DO_MY_WORK");
+  });
+});
+
+/**
+ * The bug these guard: a student asking what a button does was refused twice over. The
+ * classifier read an app question as OFF_TOPIC ("anything else", and "when torn, choose
+ * OFF_TOPIC"), and "explain the difference between skip and delete" never reached it at all --
+ * `explain the` is one of the do-my-work patterns, so the prefilter refused a question about two
+ * buttons as a request to explain a reading.
+ *
+ * It matters more here than the usual help-text case: four controls decline four different
+ * things, and "Not doing it" on work the student meant to postpone drops it from the term while
+ * "Delete" cannot be undone at all. The coach is the only place in the product that can answer.
+ */
+describe("prefilter: questions about the app are answered, not refused", () => {
+  const named = [
+    "where do I put back something I marked not doing it",
+    "what does not doing it do",
+    "what does show finished and canceled too do",
+    "what does this app do with a skipped block",
+  ];
+
+  for (const message of named) {
+    it(`allows without a model call: "${message}"`, () => {
+      // Each names something only this app has -- a control, or the app itself -- so no
+      // classifier is needed to know what is being asked about.
+      expect(prefilter(message)?.verdict).toBe("ALLOW");
+    });
+  }
+
+  const ambiguous = [
+    "what does skip mean?",
+    "what's the difference between skip and delete?",
+    "explain the difference between skip and delete",
+    "explain the assignments tab",
+    "what does the delete button do",
+    "how do I delete an assignment",
+    "can I undo a delete",
+  ];
+
+  for (const message of ambiguous) {
+    it(`sends to the classifier rather than refusing: "${message}"`, () => {
+      // The point is what does NOT happen. `explain the` is a do-my-work pattern, so before this
+      // path existed the third of these was refused as a request to explain a reading and never
+      // reached a model at all.
+      expect(prefilter(message)).toBeNull();
+    });
+  }
+
+  it("does not hand a coursework question a deterministic allow", () => {
+    // Two review passes fed this list: the first three borrow an action word, the last two borrow
+    // a whole control name. Neither kind may settle the question on its own.
+    // Review's finding, and not a contrived one: this is how a computing student talks. Treating
+    // "delete" and "skip" as app words outright answered these with instructions for the
+    // assignments table.
+    for (const message of [
+      "How do I delete a node from a binary tree?",
+      "What does delete mean in C++?",
+      "how do i skip a line in python",
+      "How do I put back an item I popped from a stack?",
+      "How do I mark done a node in my traversal?",
+      "What is a tab character in Python?",
+      "What does click mean in JavaScript?",
+      "How do I remove a button in React?",
+      "how do i delete a tab in my swing app",
+    ]) {
+      expect(prefilter(message)?.verdict).not.toBe("ALLOW");
+    }
+  });
+
+  it("lets the classifier refuse coursework that borrows an app word", () => {
+    // The prefilter holding its verdict is only half of it; the gate still has to close.
+    const provider = stubProvider("DO_MY_WORK");
+    return guardMessage("How do I delete a node from a binary tree?", provider).then((decision) => {
+      expect(decision.verdict).toBe("DO_MY_WORK");
+      expect(decision.refusal).toBeTruthy();
+    });
+  });
+
+  it("does not become a door for the coursework", () => {
+    // No app word at all: every one of these still lands on DO_MY_WORK exactly as before.
+    for (const message of [
+      "explain the chapter to me",
+      "summarize this reading",
+      "check my answers",
+      "solve these problems for me",
+      "explain the reading and tell me what it means",
+    ]) {
+      expect(prefilter(message)?.verdict).toBe("DO_MY_WORK");
+    }
+  });
+
+  it("still refuses a do-my-work request that only mentions coursework nouns", () => {
+    expect(prefilter("write my essay question response")?.verdict).toBe("DO_MY_WORK");
+  });
+});
+
+describe("classifier: the app is in scope", () => {
+  it("tells the classifier that how-the-app-works is ALLOW, not OFF_TOPIC", async () => {
+    // The classifier prompt is the layer that catches phrasings the prefilter has no pattern
+    // for ("is there a way to get rid of an assignment I typed in twice?"). Without this line
+    // its own instruction -- "when torn between ALLOW and OFF_TOPIC, choose OFF_TOPIC" -- sends
+    // every such question to a refusal.
+    const provider = stubProvider("ALLOW");
+    await guardMessage("is there a way to get rid of an assignment I typed twice", provider);
+
+    expect(provider.calls).toBe(1);
+    expect(provider.systemPrompt).toMatch(/about the planning app itself/i);
+    expect(provider.systemPrompt).toMatch(/not off-topic; it is ALLOW/i);
   });
 });
