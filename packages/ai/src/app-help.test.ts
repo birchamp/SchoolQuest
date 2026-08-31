@@ -126,8 +126,21 @@ describe("the coach carries it, in every theme", () => {
 });
 
 describe("appHelpSignal", () => {
+  it("is unsure when coursework supplies both an action and an interface word", () => {
+    // Fifth review pass, and the end of the tiering: requiring two signals still allowed these,
+    // because programming coursework hands over both as a matter of course.
+    expect(appHelpSignal("How do I remove a button in React?")).toBe("ambiguous");
+    expect(appHelpSignal("how do i delete a tab in my swing app")).toBe("ambiguous");
+  });
+
+  it("is unsure even for a real app question phrased in ordinary words", () => {
+    // "What does the delete button do" is a genuine question about this app, and it still costs
+    // a classifier call. That is the deal: certainty is reserved for strings that exist nowhere
+    // else, and every ordinary phrasing gets read rather than guessed at.
+    expect(appHelpSignal("what does the delete button do")).toBe("ambiguous");
+  });
+
   it("is certain when the message names something only this app has", () => {
-    expect(appHelpSignal("what does the delete button do")).toBe("app");
     expect(appHelpSignal("what does not doing it do")).toBe("app");
     expect(appHelpSignal("what does end of day assumed mean")).toBe("app");
   });
@@ -140,10 +153,10 @@ describe("appHelpSignal", () => {
     expect(appHelpSignal("what does handed in mean in my rubric")).toBe("ambiguous");
   });
 
-  it("is certain again once the message says it is about the interface", () => {
-    // Pressing, clicking and naming a button are what make those same phrases unambiguous.
-    expect(appHelpSignal("what happens if I press handed in")).toBe("app");
+  it("is certain again once a uniquely app phrase appears", () => {
+    // "not doing it" is the part no course says; "put back" and "press" are not.
     expect(appHelpSignal("where do I put back something I marked not doing it")).toBe("app");
+    expect(appHelpSignal("what happens if I press handed in")).toBe("ambiguous");
   });
 
   it("is unsure when only the interface word is there", () => {

@@ -65,3 +65,39 @@ describe("shouldCompleteParent", () => {
     expect(shouldCompleteParent(open, [])).toBe(false);
   });
 });
+
+/**
+ * The second half of a review finding, and the reason the parent lookup is scoped to the child's
+ * course.
+ *
+ * `POST /work-items` took `parentWorkItemId` as a plain string and wrote it through unchecked, so
+ * it could name any row in the database. Handing in such a child called this helper, which looked
+ * the parent up by id alone and then wrote to it -- status completed, blocks released. Pointing a
+ * throwaway assignment at a stranger's midterm was enough to finish their work and give away the
+ * time held for it.
+ *
+ * Creation now refuses a parent outside the course, and the lookup is scoped as a second lock.
+ * These cases pin the decision itself, which is what the two locks protect: nothing about a
+ * sibling set may talk this into completing a parent that should be left alone.
+ */
+describe("shouldCompleteParent cannot tell a foreign child from a real stage", () => {
+  it("needs the parent's own status to permit it, not just the siblings", () => {
+    // Both locks are about *reaching* the wrong parent. If one were ever bypassed, the decision
+    // still has to hold on its own terms.
+    const finishedSiblings = [{ status: "completed" }, { status: "submitted" }];
+
+    expect(shouldCompleteParent({ status: "canceled" }, finishedSiblings)).toBe(false);
+    expect(shouldCompleteParent({ status: "optional" }, finishedSiblings)).toBe(false);
+    expect(shouldCompleteParent({ status: "completed" }, finishedSiblings)).toBe(false);
+    expect(shouldCompleteParent({ status: "not_started" }, finishedSiblings)).toBe(true);
+  });
+
+  it("says yes to a lone handed-in child, which is exactly why the locks are elsewhere", () => {
+    // The shape of the attack: one item, submitted, claiming to be the only stage of a project it
+    // has nothing to do with. From statuses alone that is indistinguishable from a real one-stage
+    // project being finished -- and it should be, since a real one must still complete. So this
+    // is documentation of where the protection is *not*: it is in the scoped lookup above and in
+    // the check at creation, never here.
+    expect(shouldCompleteParent({ status: "not_started" }, [{ status: "submitted" }])).toBe(true);
+  });
+});

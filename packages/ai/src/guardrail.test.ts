@@ -191,10 +191,8 @@ describe("gaps found by end-to-end testing", () => {
  */
 describe("prefilter: questions about the app are answered, not refused", () => {
   const named = [
-    "what does the delete button do",
     "where do I put back something I marked not doing it",
     "what does not doing it do",
-    "what happens if I press handed in",
     "what does end of day assumed mean",
     "what does this app do with a skipped block",
   ];
@@ -212,6 +210,7 @@ describe("prefilter: questions about the app are answered, not refused", () => {
     "what's the difference between skip and delete?",
     "explain the difference between skip and delete",
     "explain the assignments tab",
+    "what does the delete button do",
     "how do I delete an assignment",
     "can I undo a delete",
   ];
@@ -239,6 +238,8 @@ describe("prefilter: questions about the app are answered, not refused", () => {
       "How do I mark done a node in my traversal?",
       "What is a tab character in Python?",
       "What does click mean in JavaScript?",
+      "How do I remove a button in React?",
+      "how do i delete a tab in my swing app",
     ]) {
       expect(prefilter(message)?.verdict).not.toBe("ALLOW");
     }

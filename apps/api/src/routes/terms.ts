@@ -948,6 +948,35 @@ termsRoute.post("/work-items", async (c) => {
     return c.json({ error: "Course not found" }, 404);
   }
 
+  /**
+   * A parent has to be a real item in the same course.
+   *
+   * Nothing checked this. `parentWorkItemId` arrived as a plain string and was written straight
+   * to the row, so it could name any work item in the database -- including another account's.
+   * Two things followed. The smaller one, which review found: deleting a project looks for its
+   * stages in its own course, so a child parked in a different course survives as an orphan the
+   * scheduler still books. The larger one: `completeParentIfDone` looks a parent up by id, and
+   * on handing in such a child it would mark *that* item completed and release the blocks held
+   * for it. Pointing a throwaway assignment at a stranger's midterm was enough to finish their
+   * work for them and give their study time away.
+   *
+   * Same course rather than merely same owner, because that is the invariant the rest of the
+   * code already assumes: `POST /work-items/:id/stages` copies `parent.courseId` down to every
+   * stage it creates, and the delete walks the tree within one course.
+   */
+  if (parsed.data.parentWorkItemId) {
+    const [parent] = await db
+      .select({ id: workItems.id })
+      .from(workItems)
+      .where(
+        and(
+          eq(workItems.id, parsed.data.parentWorkItemId),
+          eq(workItems.courseId, parsed.data.courseId),
+        ),
+      );
+    if (!parent) return c.json({ error: "Parent work item not found in this course" }, 404);
+  }
+
   const item = {
     id: newId("workItem"),
     courseId: parsed.data.courseId,

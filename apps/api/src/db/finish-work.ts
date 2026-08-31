@@ -82,7 +82,7 @@ export function shouldCompleteParent(
 
 export async function completeParentIfDone(
   db: Db,
-  item: { id: string; parentWorkItemId: string | null },
+  item: { id: string; courseId: string; parentWorkItemId: string | null },
 ): Promise<boolean> {
   if (!item.parentWorkItemId) return false;
 
@@ -91,10 +91,14 @@ export async function completeParentIfDone(
     .from(workItems)
     .where(eq(workItems.parentWorkItemId, item.parentWorkItemId));
 
+  // Scoped to the child's own course, so this can never reach an item belonging to someone else.
+  // Creation now refuses a parent outside the course, and that is the fix; this is the second
+  // lock, because what stands behind it is a blind write -- a status set and blocks released on
+  // whatever row the id names. A stale link from before that check existed must fail closed.
   const [parent] = await db
     .select({ id: workItems.id, status: workItems.status })
     .from(workItems)
-    .where(eq(workItems.id, item.parentWorkItemId));
+    .where(and(eq(workItems.id, item.parentWorkItemId), eq(workItems.courseId, item.courseId)));
   if (!parent || !shouldCompleteParent(parent, siblings)) return false;
 
   await db

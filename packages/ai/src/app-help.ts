@@ -33,32 +33,32 @@
  * student talks, and the answer they would have got is instructions for the assignments table.
  *
  *  - **Labels** name something only this app has. Nothing else is "not doing it" or
- *    "end of day assumed", so these settle the question on their own.
- *  - **Phrases** are real controls whose names are ordinary English -- "put back", "handed in".
- *    Buttons here, sentences anywhere else, so they settle nothing alone either.
- *  - **Context** words say the student is asking about an interface -- a button, a tab, pressing
- *    something, the app.
- *  - **Generic** words are actions this app has *and so does half the syllabus*. Alone they
- *    settle nothing.
+ *    "end of day assumed", so these are the only words that settle anything on their own.
+ *  - **Everything else** -- controls whose names are plain English, actions a course could own,
+ *    and the interface nouns themselves -- buys a message a reading by the classifier, never an
+ *    answer without one.
  */
 const APP_LABEL =
   /\b(not doing it|end of day assumed|show finished|add an assignment|schoolquest|this app|the app)\b/i;
 
 /**
- * Real controls whose names are also ordinary English.
+ * Every other word that might mean the interface -- controls whose names are ordinary English,
+ * actions a course could own, and the interface nouns themselves.
  *
- * A second review pass caught these sitting with the labels above: "how do I put back an item I
- * popped from a stack?" names no part of this app, and neither does "how do I mark done a node in
- * my traversal?". The same lesson as `delete` and `skip`, one layer up -- a phrase being a button
- * here does not stop it being a sentence anywhere else -- so they need context too.
+ * Kept as one list rather than three tiers, after five review passes taught the lesson three
+ * different ways. First `delete` and `skip` alone allowed "how do I delete a node from a binary
+ * tree?". Then `put back` and `mark done` alone allowed "how do I put back an item I popped from
+ * a stack?". Then `tab` and `click` alone allowed "what is a tab character in Python?". Then
+ * requiring *two* of them allowed "how do I remove a button in React?", because programming
+ * coursework supplies both halves as a matter of course.
+ *
+ * The pattern is not that the line was in the wrong place four times. It is that no combination
+ * of ordinary words can settle this, because the words are ordinary -- reading the sentence is
+ * the job, and the classifier is the thing that reads sentences. These words earn a message the
+ * right to be *read* rather than regex-refused; they never earn it an answer.
  */
-const APP_PHRASE = /\b(put back|handed in|not yet|mark done|needs more time|not now)\b/i;
-
-const APP_CONTEXT =
-  /\b(button|buttons|tab|tabs|checkbox|press|presses|click|clicks|tap|this app|the app|schoolquest)\b/i;
-
-const GENERIC_ACTION =
-  /\b(skip|skipped|skipping|delete|deleted|deleting|undo|remove|toggle|screen)\b/i;
+const APP_ISH =
+  /\b(skip|skipped|skipping|delete|deleted|deleting|undo|remove|toggle|screen|put back|handed in|not yet|mark done|needs more time|not now|button|buttons|tab|tabs|checkbox|press|presses|click|clicks|tap)\b/i;
 
 /** Shapes that ask how something works, as opposed to asking for it to be done. */
 const QUESTION_SHAPES: RegExp[] = [
@@ -87,20 +87,13 @@ export type AppHelpSignal = "app" | "ambiguous" | "none";
 
 export function appHelpSignal(message: string): AppHelpSignal {
   if (!QUESTION_SHAPES.some((shape) => shape.test(message))) return "none";
+
+  // Certain only for a string that exists nowhere but this app. Anything else app-ish is enough
+  // to keep the do-my-work regexes off it -- that is the bug this path exists for, since `explain
+  // the` refused "explain the difference between skip and delete" as a request to explain a
+  // reading -- and not enough to answer it without a model.
   if (APP_LABEL.test(message)) return "app";
-
-  // Certain only when two things point the same way: a control's name *and* something saying this
-  // is about an interface. Either alone is a word a course can own -- a third review pass caught
-  // context standing on its own, where "what is a tab character in Python?" and "what does click
-  // mean in JavaScript?" were being allowed without a model ever seeing them.
-  const named = APP_PHRASE.test(message) || GENERIC_ACTION.test(message);
-  const context = APP_CONTEXT.test(message);
-  if (named && context) return "app";
-
-  // One signal is still enough to hold back the do-my-work regexes, which is the other half of
-  // the same bug: "explain the assignments tab" was being refused as a request to explain a
-  // reading, because `explain the` is one of those patterns and nothing here spoke for the tab.
-  return named || context ? "ambiguous" : "none";
+  return APP_ISH.test(message) ? "ambiguous" : "none";
 }
 
 /**
