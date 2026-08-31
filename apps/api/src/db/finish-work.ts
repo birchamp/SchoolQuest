@@ -50,9 +50,36 @@ export async function releaseFutureSessions(
  *    must not leave the paper officially unfinished forever after every real stage is in.
  *  - At least one stage must actually be finished. A project whose stages were all canceled
  *    was abandoned, not completed, and marking it done would bank credit for it.
+ *  - The parent itself must be open. A project the student canceled stays canceled, whatever
+ *    happens to its stages afterwards -- see `shouldCompleteParent`.
  *
  * Returns true when the parent was completed by this call.
  */
+const finished = (status: string) => status === "completed" || status === "submitted";
+/** Neither done nor waiting to be done: it will not happen, and it does not block the parent. */
+const inert = (status: string) => status === "canceled" || status === "optional";
+
+/**
+ * The decision, as a function of statuses, so the three callers can be reasoned about without a
+ * database.
+ *
+ * The parent has to be *open*. Checking only for "not already finished" quietly reopened work the
+ * student had put away: a canceled project with one finished stage and one open one became
+ * `completed` the moment that open stage went away -- by being handed in, or, once deleting was
+ * possible, by being deleted as a row that should never have existed. Either way the app
+ * announced a project done that the student had explicitly said they were not doing, and no
+ * screen shows why it came back.
+ */
+export function shouldCompleteParent(
+  parent: { status: string },
+  siblings: { status: string }[],
+): boolean {
+  // An abandoned project is not a finished one: every stage canceled must not bank credit.
+  if (!siblings.some((s) => finished(s.status))) return false;
+  if (!siblings.every((s) => finished(s.status) || inert(s.status))) return false;
+  return !finished(parent.status) && !inert(parent.status);
+}
+
 export async function completeParentIfDone(
   db: Db,
   item: { id: string; parentWorkItemId: string | null },
@@ -64,18 +91,11 @@ export async function completeParentIfDone(
     .from(workItems)
     .where(eq(workItems.parentWorkItemId, item.parentWorkItemId));
 
-  const finished = (status: string) => status === "completed" || status === "submitted";
-  const inert = (status: string) => status === "canceled" || status === "optional";
-
-  const noneOpen = siblings.every((s) => finished(s.status) || inert(s.status));
-  const anyFinished = siblings.some((s) => finished(s.status));
-  if (!noneOpen || !anyFinished) return false;
-
   const [parent] = await db
     .select({ id: workItems.id, status: workItems.status })
     .from(workItems)
     .where(eq(workItems.id, item.parentWorkItemId));
-  if (!parent || finished(parent.status)) return false;
+  if (!parent || !shouldCompleteParent(parent, siblings)) return false;
 
   await db
     .update(workItems)
