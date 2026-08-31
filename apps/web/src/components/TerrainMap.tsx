@@ -7,6 +7,7 @@ import {
   type HeightField,
   type TerrainMarker,
 } from "@schoolquest/planning-engine";
+import { formatDueDay } from "../lib/due-time";
 import { courseChipFill } from "../lib/course-colour";
 import type { PlanResponse } from "../lib/types";
 
@@ -247,7 +248,9 @@ function surfaceAt(field: HeightField, u: number, v: number): number {
 
 function formatDue(iso: string | null, daysAway: number | null): string {
   if (!iso || daysAway === null) return "no date known";
-  const when = new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  // The stored calendar day, not the instant: rendering the instant in the browser's zone prints
+  // a different day here than the assignments table shows for the same deadline.
+  const when = formatDueDay(iso);
   if (daysAway < 0) return `${when} · ${Math.abs(daysAway)}d ago`;
   if (daysAway === 0) return `${when} · today`;
   return `${when} · in ${daysAway}d`;

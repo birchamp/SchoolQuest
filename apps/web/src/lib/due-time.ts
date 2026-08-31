@@ -51,3 +51,26 @@ export function composeDueAt(date: string, time: string): string | null {
 export function isDefaultDueTime(dueAt: string | null | undefined): boolean {
   return dueTimePart(dueAt) === DEFAULT_DUE_TIME;
 }
+
+/**
+ * A due date as a short day, from the stored calendar day rather than the instant.
+ *
+ * Review found the views this was missing from. `new Date(dueAt).toLocaleDateString(...)` renders
+ * in the browser's zone, so the printed day slides off the ten characters every other view shows:
+ * a deadline stored at 01:00 reads as the day before in Los Angeles, and one at 23:59 as the day
+ * after in Tokyo -- while the assignments table, formatting from `slice(0, 10)`, shows the day the
+ * student typed. One assignment, two dates, on two screens of the same app.
+ *
+ * Being able to set a time is what exposed it: while every deadline sat at 23:59Z the western
+ * half of the world happened to round the right way. Noon anchors the formatting far enough from
+ * both midnights that no zone can shift it.
+ */
+export function formatDueDay(
+  dueAt: string,
+  options: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" },
+): string {
+  return new Date(`${dueDatePart(dueAt)}T12:00:00Z`).toLocaleDateString(undefined, {
+    ...options,
+    timeZone: "UTC",
+  });
+}

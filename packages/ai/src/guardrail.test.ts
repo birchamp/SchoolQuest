@@ -193,6 +193,7 @@ describe("prefilter: questions about the app are answered, not refused", () => {
   const named = [
     "what does the delete button do",
     "where do I put back something I marked not doing it",
+    "what does not doing it do",
     "what happens if I press handed in",
     "what does end of day assumed mean",
     "what does this app do with a skipped block",
@@ -224,6 +225,8 @@ describe("prefilter: questions about the app are answered, not refused", () => {
   }
 
   it("does not hand a coursework question a deterministic allow", () => {
+    // Two review passes fed this list: the first three borrow an action word, the last two borrow
+    // a whole control name. Neither kind may settle the question on its own.
     // Review's finding, and not a contrived one: this is how a computing student talks. Treating
     // "delete" and "skip" as app words outright answered these with instructions for the
     // assignments table.
@@ -231,6 +234,8 @@ describe("prefilter: questions about the app are answered, not refused", () => {
       "How do I delete a node from a binary tree?",
       "What does delete mean in C++?",
       "how do i skip a line in python",
+      "How do I put back an item I popped from a stack?",
+      "How do I mark done a node in my traversal?",
     ]) {
       expect(prefilter(message)?.verdict).not.toBe("ALLOW");
     }

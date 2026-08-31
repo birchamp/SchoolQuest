@@ -128,8 +128,22 @@ describe("the coach carries it, in every theme", () => {
 describe("appHelpSignal", () => {
   it("is certain when the message names something only this app has", () => {
     expect(appHelpSignal("what does the delete button do")).toBe("app");
+    expect(appHelpSignal("what does not doing it do")).toBe("app");
+    expect(appHelpSignal("what does end of day assumed mean")).toBe("app");
+  });
+
+  it("is unsure when a control's name is also ordinary English", () => {
+    // Second review pass: "put back" and "mark done" are buttons here and sentences everywhere
+    // else, so on their own they were allowing coursework questions deterministically.
+    expect(appHelpSignal("How do I put back an item I popped from a stack?")).toBe("ambiguous");
+    expect(appHelpSignal("How do I mark done a node in my traversal?")).toBe("ambiguous");
+    expect(appHelpSignal("what does handed in mean in my rubric")).toBe("ambiguous");
+  });
+
+  it("is certain again once the message says it is about the interface", () => {
+    // Pressing, clicking and naming a button are what make those same phrases unambiguous.
     expect(appHelpSignal("what happens if I press handed in")).toBe("app");
-    expect(appHelpSignal("how do I put back an assignment")).toBe("app");
+    expect(appHelpSignal("where do I put back something I marked not doing it")).toBe("app");
   });
 
   it("is unsure when the only app word is one a course could own", () => {

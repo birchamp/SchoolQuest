@@ -7,6 +7,7 @@ import {
   composeDueAt,
   DEFAULT_DUE_TIME,
   dueDatePart,
+  formatDueDay,
   dueTimePart,
   isDefaultDueTime,
 } from "../lib/due-time";
@@ -1035,10 +1036,7 @@ export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: The
                 <td>
                   {row.due ? (
                     <>
-                      {new Date(row.due).toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                      })}
+                      {formatDueDay(row.due)}
                       {!row.confirmed && (
                         <span className="muted" style={{ fontSize: "0.74rem" }}>
                           {" "}
@@ -1157,10 +1155,7 @@ export function CoursesTable({ plan, theme }: { plan: PlanResponse; theme: Theme
                 <td>
                   {row.due ? (
                     <>
-                      {new Date(row.due).toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                      })}
+                      {formatDueDay(row.due)}
                       {row.dueTitle && (
                         <span className="muted" style={{ display: "block", fontSize: "0.76rem" }}>
                           {row.dueTitle}

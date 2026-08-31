@@ -4,6 +4,7 @@ import {
   DEFAULT_DUE_TIME,
   dueDatePart,
   dueTimePart,
+  formatDueDay,
   isDefaultDueTime,
 } from "./due-time";
 
@@ -59,5 +60,35 @@ describe("due time", () => {
     expect(isDefaultDueTime("2026-10-05T23:59:00.000Z")).toBe(true);
     expect(isDefaultDueTime("2026-10-05T09:00:00.000Z")).toBe(false);
     expect(isDefaultDueTime(null)).toBe(true);
+  });
+
+  /**
+   * The bug these guard, found in review: `CoursesTable`, `LookaheadTable` and `TerrainMap`
+   * rendered the instant through `new Date(...).toLocaleDateString()`, which resolves in the
+   * browser's zone. While every deadline was 23:59Z that happened to print the right day for the
+   * Americas; the moment a time could be set, 01:00 printed as the day before there -- against an
+   * assignments table, formatting the same ten characters, that showed the day the student typed.
+   */
+  it("prints the day that was typed, whatever hour is stored in it", () => {
+    // Both ends of the same calendar day have to format identically. Any formatter that resolves
+    // in the reader's zone splits these two apart for someone.
+    expect(formatDueDay("2026-10-05T01:00:00.000Z")).toBe(formatDueDay("2026-10-05T23:59:00.000Z"));
+  });
+
+  it("agrees with the date the editor puts in its own input", () => {
+    const stored = "2026-10-05T01:00:00.000Z";
+    expect(formatDueDay(stored, { year: "numeric", month: "2-digit", day: "2-digit" })).toContain(
+      "05",
+    );
+    expect(dueDatePart(stored)).toBe("2026-10-05");
+  });
+
+  it("never lands on a neighbouring day for a reader far from UTC", () => {
+    // Anchoring at noon leaves 12 hours of headroom either way, which covers every real zone.
+    for (const hour of ["00:00", "12:00", "23:59"]) {
+      expect(formatDueDay(`2026-10-05T${hour}:00.000Z`)).toBe(
+        formatDueDay("2026-10-05T12:00:00.000Z"),
+      );
+    }
   });
 });

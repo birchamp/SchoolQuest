@@ -34,14 +34,28 @@
  *
  *  - **Labels** name something only this app has. Nothing else is "not doing it" or
  *    "end of day assumed", so these settle the question on their own.
- *  - **Context** words say the student is asking about an interface -- a button, a tab, the app.
+ *  - **Phrases** are real controls whose names are ordinary English -- "put back", "handed in".
+ *    Buttons here, sentences anywhere else, so they settle nothing alone either.
+ *  - **Context** words say the student is asking about an interface -- a button, a tab, pressing
+ *    something, the app.
  *  - **Generic** words are actions this app has *and so does half the syllabus*. Alone they
  *    settle nothing.
  */
 const APP_LABEL =
-  /\b(not doing it|put back|handed in|mark done|needs more time|end of day assumed|add an assignment|show finished|not now|schoolquest)\b/i;
+  /\b(not doing it|end of day assumed|show finished|add an assignment|schoolquest|this app|the app)\b/i;
 
-const APP_CONTEXT = /\b(button|buttons|tab|tabs|checkbox|this app|the app|schoolquest)\b/i;
+/**
+ * Real controls whose names are also ordinary English.
+ *
+ * A second review pass caught these sitting with the labels above: "how do I put back an item I
+ * popped from a stack?" names no part of this app, and neither does "how do I mark done a node in
+ * my traversal?". The same lesson as `delete` and `skip`, one layer up -- a phrase being a button
+ * here does not stop it being a sentence anywhere else -- so they need context too.
+ */
+const APP_PHRASE = /\b(put back|handed in|not yet|mark done|needs more time|not now)\b/i;
+
+const APP_CONTEXT =
+  /\b(button|buttons|tab|tabs|checkbox|press|presses|click|clicks|tap|this app|the app|schoolquest)\b/i;
 
 const GENERIC_ACTION =
   /\b(skip|skipped|skipping|delete|deleted|deleting|undo|remove|toggle|screen)\b/i;
@@ -71,10 +85,12 @@ export function appHelpSignal(message: string): AppHelpSignal {
   if (!QUESTION_SHAPES.some((shape) => shape.test(message))) return "none";
   if (APP_LABEL.test(message)) return "app";
 
-  const generic = GENERIC_ACTION.test(message);
-  if (generic && APP_CONTEXT.test(message)) return "app";
+  // A control whose name is plain English, or an action a course could own, counts only when the
+  // message also says it is about an interface -- a button, a tab, pressing something, the app.
+  const named = APP_PHRASE.test(message) || GENERIC_ACTION.test(message);
+  if (named && APP_CONTEXT.test(message)) return "app";
   if (APP_CONTEXT.test(message)) return "app";
-  return generic ? "ambiguous" : "none";
+  return named ? "ambiguous" : "none";
 }
 
 /**
