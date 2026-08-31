@@ -190,27 +190,63 @@ describe("gaps found by end-to-end testing", () => {
  * "Delete" cannot be undone at all. The coach is the only place in the product that can answer.
  */
 describe("prefilter: questions about the app are answered, not refused", () => {
-  const appQuestions = [
-    "what does skip mean?",
+  const named = [
     "what does the delete button do",
-    "what's the difference between skip and delete?",
-    "explain the difference between skip and delete",
-    "how do I delete an assignment",
     "where do I put back something I marked not doing it",
-    "can I undo a delete",
     "what happens if I press handed in",
     "what does end of day assumed mean",
+    "what does this app do with a skipped block",
   ];
 
-  for (const message of appQuestions) {
-    it(`allows: "${message}"`, () => {
+  for (const message of named) {
+    it(`allows without a model call: "${message}"`, () => {
+      // Each names something only this app has -- a control, or the app itself -- so no
+      // classifier is needed to know what is being asked about.
       expect(prefilter(message)?.verdict).toBe("ALLOW");
     });
   }
 
+  const ambiguous = [
+    "what does skip mean?",
+    "what's the difference between skip and delete?",
+    "explain the difference between skip and delete",
+    "how do I delete an assignment",
+    "can I undo a delete",
+  ];
+
+  for (const message of ambiguous) {
+    it(`sends to the classifier rather than refusing: "${message}"`, () => {
+      // The point is what does NOT happen. `explain the` is a do-my-work pattern, so before this
+      // path existed the third of these was refused as a request to explain a reading and never
+      // reached a model at all.
+      expect(prefilter(message)).toBeNull();
+    });
+  }
+
+  it("does not hand a coursework question a deterministic allow", () => {
+    // Review's finding, and not a contrived one: this is how a computing student talks. Treating
+    // "delete" and "skip" as app words outright answered these with instructions for the
+    // assignments table.
+    for (const message of [
+      "How do I delete a node from a binary tree?",
+      "What does delete mean in C++?",
+      "how do i skip a line in python",
+    ]) {
+      expect(prefilter(message)?.verdict).not.toBe("ALLOW");
+    }
+  });
+
+  it("lets the classifier refuse coursework that borrows an app word", () => {
+    // The prefilter holding its verdict is only half of it; the gate still has to close.
+    const provider = stubProvider("DO_MY_WORK");
+    return guardMessage("How do I delete a node from a binary tree?", provider).then((decision) => {
+      expect(decision.verdict).toBe("DO_MY_WORK");
+      expect(decision.refusal).toBeTruthy();
+    });
+  });
+
   it("does not become a door for the coursework", () => {
-    // The app words are app words: a reading, a chapter and a problem set are not on that list,
-    // so every one of these still lands on DO_MY_WORK exactly as before.
+    // No app word at all: every one of these still lands on DO_MY_WORK exactly as before.
     for (const message of [
       "explain the chapter to me",
       "summarize this reading",
@@ -223,7 +259,6 @@ describe("prefilter: questions about the app are answered, not refused", () => {
   });
 
   it("still refuses a do-my-work request that only mentions coursework nouns", () => {
-    // "essay question" is not a control, so nothing here opens the app-help door.
     expect(prefilter("write my essay question response")?.verdict).toBe("DO_MY_WORK");
   });
 });

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { APP_HELP_PROMPT, isAppHelp } from "./app-help.js";
+import { APP_HELP_PROMPT, appHelpSignal } from "./app-help.js";
 import { buildCoachSystemPrompt } from "./coach.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -125,15 +125,28 @@ describe("the coach carries it, in every theme", () => {
   });
 });
 
-describe("isAppHelp", () => {
-  it("recognises the question this exists for", () => {
-    expect(isAppHelp("what does skip mean?")).toBe(true);
-    expect(isAppHelp("explain the difference between skip and delete")).toBe(true);
+describe("appHelpSignal", () => {
+  it("is certain when the message names something only this app has", () => {
+    expect(appHelpSignal("what does the delete button do")).toBe("app");
+    expect(appHelpSignal("what happens if I press handed in")).toBe("app");
+    expect(appHelpSignal("how do I put back an assignment")).toBe("app");
+  });
+
+  it("is unsure when the only app word is one a course could own", () => {
+    // Still app-shaped, so the do-my-work regexes are held back and a model decides.
+    expect(appHelpSignal("what does skip mean?")).toBe("ambiguous");
+    expect(appHelpSignal("explain the difference between skip and delete")).toBe("ambiguous");
+    expect(appHelpSignal("How do I delete a node from a binary tree?")).toBe("ambiguous");
   });
 
   it("does not claim a coursework question", () => {
-    expect(isAppHelp("explain the chapter to me")).toBe(false);
-    expect(isAppHelp("what does this passage mean")).toBe(false);
-    expect(isAppHelp("summarize the reading")).toBe(false);
+    expect(appHelpSignal("explain the chapter to me")).toBe("none");
+    expect(appHelpSignal("what does this passage mean")).toBe("none");
+    expect(appHelpSignal("summarize the reading")).toBe("none");
+  });
+
+  it("ignores an app word outside a question", () => {
+    // A statement, not a question about the interface: the planner should handle it as planning.
+    expect(appHelpSignal("I skipped my reading yesterday")).toBe("none");
   });
 });

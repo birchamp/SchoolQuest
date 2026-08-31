@@ -25,42 +25,56 @@
  */
 
 /**
- * Words that mark a question as being about the app rather than about coursework.
+ * The three vocabularies, kept apart because they carry different weight.
  *
- * Deliberately app-specific: "the reading", "the chapter" and "this problem" are absent, so
- * "explain the chapter" is still a request to do the coursework. Matching here only ever *opens*
- * a door that was otherwise closed -- see the prefilter's ordering.
+ * Review caught the cost of running them together: with `delete` and `skip` treated as app words
+ * outright, "how do I delete a node from a binary tree?" and "what does skip mean in Python?" were
+ * deterministically allowed as app help. Those are not edge cases, they are how a computing
+ * student talks, and the answer they would have got is instructions for the assignments table.
+ *
+ *  - **Labels** name something only this app has. Nothing else is "not doing it" or
+ *    "end of day assumed", so these settle the question on their own.
+ *  - **Context** words say the student is asking about an interface -- a button, a tab, the app.
+ *  - **Generic** words are actions this app has *and so does half the syllabus*. Alone they
+ *    settle nothing.
  */
-export const APP_NOUN = String.raw`skip|skipped|skipping|delete|deleted|deleting|not doing it|put back|handed in|not yet|not now|mark done|needs more time|add an assignment|show finished|end of day assumed|button|buttons|tab|tabs|screen|checkbox|toggle|this app|the app|schoolquest`;
+const APP_LABEL =
+  /\b(not doing it|put back|handed in|mark done|needs more time|end of day assumed|add an assignment|show finished|not now|schoolquest)\b/i;
 
-/**
- * Question shapes that, combined with an app word, are asking how the app works.
- *
- * Kept to interrogatives and "difference between": a bare mention of a button inside a sentence
- * about coursework must not become a bypass.
- */
-export const APP_HELP_PATTERNS: RegExp[] = [
-  // "what does skip mean", "what does the delete button do", "what is 'not doing it'"
-  new RegExp(
-    String.raw`\b(what|which)\b[^.?!]{0,40}\b(${APP_NOUN})\b[^.?!]{0,40}\b(mean|means|do|does|is|are|for)\b`,
-    "i",
-  ),
-  // "what does the skip button do" with the verb before the noun, and "what happens if I skip"
-  new RegExp(String.raw`\bwhat\s+(happens|will happen)\b[^.?!]{0,40}\b(${APP_NOUN})\b`, "i"),
-  // "how do I delete an assignment", "where do I change the due time"
-  new RegExp(String.raw`\b(how|where)\s+(do|can|would)\s+i\b[^.?!]{0,40}\b(${APP_NOUN})\b`, "i"),
-  // "difference between skip and delete" -- the question this whole module exists for.
-  new RegExp(String.raw`\bdifference between\b[^.?!]{0,60}\b(${APP_NOUN})\b`, "i"),
-  // "can I undo delete", "does skip delete it"
-  new RegExp(
-    String.raw`\b(can|does|will|is)\s+(i|it|this|that|skip|delete)\b[^.?!]{0,40}\b(undo|undone|reversible|permanent|delete|remove|lose|lost)\b`,
-    "i",
-  ),
+const APP_CONTEXT = /\b(button|buttons|tab|tabs|checkbox|this app|the app|schoolquest)\b/i;
+
+const GENERIC_ACTION =
+  /\b(skip|skipped|skipping|delete|deleted|deleting|undo|remove|toggle|screen)\b/i;
+
+/** Shapes that ask how something works, as opposed to asking for it to be done. */
+const QUESTION_SHAPES: RegExp[] = [
+  /\bwhat\s+(does|do|is|are|happens|will happen)\b/i,
+  /\bwhat('?s)\b/i,
+  /\b(how|where)\s+(do|can|would)\s+i\b/i,
+  /\bdifference between\b/i,
+  /\b(can|does|will)\s+(i|it|this|that)\b[^.?!]{0,40}\b(undo|undone|reversed|reversible|permanent)\b/i,
 ];
 
-/** True when the message is asking how the app itself works. */
-export function isAppHelp(message: string): boolean {
-  return APP_HELP_PATTERNS.some((pattern) => pattern.test(message));
+/**
+ * How confident the gate can be that this is a question about the app.
+ *
+ *  - `"app"` -- certain enough to allow without asking a model.
+ *  - `"ambiguous"` -- app-shaped, but the only app word in it is one a course could own. The
+ *    classifier decides, and the deterministic do-my-work refusal is held back for these, since
+ *    it is the reason "explain the difference between skip and delete" was refused as a request
+ *    to explain a reading.
+ *  - `"none"` -- not about the app; nothing changes.
+ */
+export type AppHelpSignal = "app" | "ambiguous" | "none";
+
+export function appHelpSignal(message: string): AppHelpSignal {
+  if (!QUESTION_SHAPES.some((shape) => shape.test(message))) return "none";
+  if (APP_LABEL.test(message)) return "app";
+
+  const generic = GENERIC_ACTION.test(message);
+  if (generic && APP_CONTEXT.test(message)) return "app";
+  if (APP_CONTEXT.test(message)) return "app";
+  return generic ? "ambiguous" : "none";
 }
 
 /**

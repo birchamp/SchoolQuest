@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   COURSE_COLOR_TOKENS,
@@ -41,7 +41,6 @@ import {
   sourceDocuments,
   terms,
   workItems,
-  workSessions,
 } from "../db/schema.js";
 import {
   assertTermOwner,
@@ -1574,22 +1573,14 @@ async function deleteCourseAcademics(
     .where(eq(workItems.courseId, courseId));
   const itemIds = items.map((i) => i.id);
 
-  const CHUNK = 100;
-  for (let i = 0; i < itemIds.length; i += CHUNK) {
-    const batch = itemIds.slice(i, i + CHUNK);
-    await db.delete(gradeResults).where(inArray(gradeResults.workItemId, batch));
-    await db.delete(workSessions).where(inArray(workSessions.workItemId, batch));
-    await db
-      .delete(dependencies)
-      .where(
-        or(
-          inArray(dependencies.predecessorWorkItemId, batch),
-          inArray(dependencies.successorWorkItemId, batch),
-        ),
-      );
-  }
+  // One implementation of "remove these work items and everything hanging off them", shared with
+  // the single-item delete. It had been copied, and the copy carried the bug review found in the
+  // original: a batch of 100 ids bound twice by the dependency statement's two `IN` clauses is
+  // 200 bound parameters against D1's ceiling of about 100. A course with fifty-odd assignments
+  // is ordinary, so this was reachable -- and it failed midway, after the grade and session rows
+  // were already gone.
+  await deleteWorkItems(db, itemIds);
 
-  await db.delete(workItems).where(eq(workItems.courseId, courseId));
   await db.delete(gradingCategories).where(eq(gradingCategories.courseId, courseId));
   await db.delete(meetingPatterns).where(eq(meetingPatterns.courseId, courseId));
   return itemIds.length;

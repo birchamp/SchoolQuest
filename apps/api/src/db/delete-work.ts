@@ -1,6 +1,6 @@
-import { inArray, or } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { dependencies, gradeResults, workItems, workSessions } from "./schema.js";
-import type { Db } from "./repo.js";
+import { ID_IN_CLAUSE_CHUNK, type Db } from "./repo.js";
 
 /**
  * Removing a piece of work for good, rather than taking it out of the plan.
@@ -48,6 +48,12 @@ export function collectSubtreeIds(
 }
 
 /**
+ * Ids per statement, and the batches themselves.
+ *
+ * Split out so the parameter budget can be checked without a database: every statement below
+ * binds one id per row of its batch, so one batch must stay inside `ID_IN_CLAUSE_CHUNK`.
+ */
+/**
  * Deletes work items and everything hanging off them: their blocks, their results, and any
  * dependency naming them at either end.
  *
@@ -57,20 +63,25 @@ export function collectSubtreeIds(
  * dependency left pointing at a deleted item is a scheduler input that blocks work forever on a
  * predecessor that can never finish.
  */
+export function idBatches(ids: string[]): string[][] {
+  const batches: string[][] = [];
+  for (let i = 0; i < ids.length; i += ID_IN_CLAUSE_CHUNK) {
+    batches.push(ids.slice(i, i + ID_IN_CLAUSE_CHUNK));
+  }
+  return batches;
+}
+
 export async function deleteWorkItems(db: Db, ids: string[]): Promise<void> {
-  const CHUNK = 100; // D1's bound-parameter ceiling, matching deleteCourseAcademics.
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const batch = ids.slice(i, i + CHUNK);
+  for (const batch of idBatches(ids)) {
     await db.delete(gradeResults).where(inArray(gradeResults.workItemId, batch));
     await db.delete(workSessions).where(inArray(workSessions.workItemId, batch));
-    await db
-      .delete(dependencies)
-      .where(
-        or(
-          inArray(dependencies.predecessorWorkItemId, batch),
-          inArray(dependencies.successorWorkItemId, batch),
-        ),
-      );
+    // Two statements rather than one `or(inArray(pred), inArray(succ))`, which binds every id
+    // twice and so doubles the parameter count for the same batch. Found in review: at the old
+    // batch size of 100 a project of 51 stages already exceeded D1's ceiling, and it failed
+    // *after* the grade and session deletes had committed -- leaving the work item in place with
+    // its history stripped, which is worse than either finishing or failing.
+    await db.delete(dependencies).where(inArray(dependencies.predecessorWorkItemId, batch));
+    await db.delete(dependencies).where(inArray(dependencies.successorWorkItemId, batch));
     await db.delete(workItems).where(inArray(workItems.id, batch));
   }
 }

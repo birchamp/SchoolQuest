@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isAppHelp } from "./app-help.js";
+import { appHelpSignal } from "./app-help.js";
 import type { AiProvider } from "./provider.js";
 import { MODELS } from "./provider.js";
 
@@ -22,7 +22,7 @@ import { MODELS } from "./provider.js";
  * read it as off-topic, and "explain the difference between skip and delete" tripped the
  * do-my-work prefilter on the word *explain*. Four controls in this app decline four different
  * things and two of them are hard to undo, so the coach is the wrong place to be coy — see
- * `app-help.ts`.
+ * `app-help.ts`, which also says why half those words cannot be trusted on their own.
  *
  * Three layers enforce this, cheapest first:
  *   a deterministic prefilter, then a cheap classifier call, then the coach's own system
@@ -135,19 +135,29 @@ export function prefilter(message: string): GuardDecision | null {
     return { verdict: "DISTRESS", source: "prefilter", refusal: DISTRESS_RESPONSE };
   }
 
-  // Questions about the app come before the do-my-work patterns, and only these: "explain the
-  // difference between skip and delete" is a question about two buttons, but `explain the` is
-  // also how a student asks for the chapter explained. The app-help patterns require an app
-  // word -- "the reading", "this problem" and "the chapter" are not on that list -- so the
-  // narrower reading wins where it applies and nothing else changes.
+  // Questions about the app come before the do-my-work patterns, in two strengths.
   //
-  // A message contrived to be both ("how do I delete my essay and write a new intro for me")
-  // gets allowed through here, and layer three refuses the coursework half: the coach's own
-  // prompt is the backstop for exactly that. That is the right way round. A do-work request
-  // reaching the coach still gets refused; an app question refused here reaches nothing, and
-  // the student has no other place to ask what a button does.
-  if (isAppHelp(text)) {
+  // "app" is an unambiguous one -- it names a control only this app has ("what does not doing it
+  // do?") or says it is asking about the interface ("what does the delete button do?"). Those are
+  // allowed outright.
+  //
+  // "ambiguous" is app-shaped but leans on a word a course could own just as easily: skip,
+  // delete, remove, toggle. Review caught what treating those as app words cost -- "how do I
+  // delete a node from a binary tree?" and "what does skip mean in Python?" were being allowed
+  // deterministically, and a computing student asking an ordinary coursework question would have
+  // been answered with instructions for the assignments table. They fall through to the
+  // classifier, which reads the whole message and can tell a binary tree from a button.
+  //
+  // What they do *not* get is the deterministic do-my-work refusal, which is the bug this whole
+  // path exists for: `explain the` is one of those patterns, so "explain the difference between
+  // skip and delete" was refused as a request to explain a reading and never reached a model at
+  // all. Held back here, judged there.
+  const appHelp = appHelpSignal(text);
+  if (appHelp === "app") {
     return { verdict: "ALLOW", source: "prefilter" };
+  }
+  if (appHelp === "ambiguous") {
+    return null;
   }
 
   // "Do my work" is checked before planning vocabulary: "write my essay, it's due Friday"

@@ -71,11 +71,15 @@ export async function selectByIdsInChunks<Row>(
 }
 
 /**
- * Ids per `IN (...)` read. D1 caps a statement near 100 bound parameters; 90 leaves headroom for
+ * Ids per `IN (...)` clause. D1 caps a statement near 100 bound parameters; 90 leaves headroom for
  * the odd extra bound value in the same query (the sessions read also binds a start-date lower
  * bound) while keeping the number of round trips low.
+ *
+ * Per *clause*, not per statement: a statement with two `IN (...)` clauses over the same ids binds
+ * each id twice, so it has to split into two statements rather than raise this number. Deleting
+ * work items is the case -- see `delete-work.ts`.
  */
-const ID_IN_CLAUSE_CHUNK = 90;
+export const ID_IN_CLAUSE_CHUNK = 90;
 
 /** SQLite has no arrays; day lists are stored as "1,3". */
 function parseDays(value: string): number[] {
