@@ -2,14 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import {
-  composeDueAt,
-  DEFAULT_DUE_TIME,
-  dueDatePart,
-  dueTimePart,
-  formatDueDay,
-  isDefaultDueTime,
-} from "./due-time";
+import { composeDueAt, DEFAULT_DUE_TIME, dueDatePart, dueTimePart, formatDueDay } from "./due-time";
 
 /**
  * The bug these guard: the due cell wrote `${date}T23:59:00.000Z` unconditionally, so no student
@@ -57,12 +50,6 @@ describe("due time", () => {
   it("never accepts an impossible clock into the stored instant", () => {
     expect(composeDueAt("2026-10-05", "24:00")).toBe("2026-10-05T23:59:00.000Z");
     expect(composeDueAt("2026-10-05", "9:00")).toBe("2026-10-05T23:59:00.000Z");
-  });
-
-  it("knows a stated time from the one nobody has changed", () => {
-    expect(isDefaultDueTime("2026-10-05T23:59:00.000Z")).toBe(true);
-    expect(isDefaultDueTime("2026-10-05T09:00:00.000Z")).toBe(false);
-    expect(isDefaultDueTime(null)).toBe(true);
   });
 
   /**

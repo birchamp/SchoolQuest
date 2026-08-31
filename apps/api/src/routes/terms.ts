@@ -939,6 +939,38 @@ async function assertCourseOwner(
   return Boolean(row);
 }
 
+/**
+ * A parent has to be a real item in the same course, or absent.
+ *
+ * Nothing checked this. `parentWorkItemId` arrived as a plain string and was written straight to
+ * the row, so it could name any work item in the database -- including another account's. Two
+ * things followed. The smaller one: deleting a project looks for its stages in its own course, so
+ * a child parked elsewhere survives as an orphan the scheduler still books. The larger one:
+ * `completeParentIfDone` looks a parent up by id and then *writes* to it, so pointing a throwaway
+ * assignment at a stranger's midterm and handing it in finished their work and released the study
+ * time held for it.
+ *
+ * Same course rather than merely same owner, because that is the invariant the rest of the code
+ * already assumes: `POST /work-items/:id/stages` copies `parent.courseId` down to every stage it
+ * creates, and the subtree delete walks one course.
+ *
+ * Both doors, checked the same way. The first version of this guarded creation alone, which
+ * review caught: `PATCH` spreads the same field out of `workItemBody.partial()`, so re-parenting
+ * an item you own reopened the identical hole. Half a check on a two-door room is no check.
+ */
+async function parentIsInCourse(
+  db: ReturnType<typeof getDb>,
+  parentWorkItemId: string | null | undefined,
+  courseId: string,
+): Promise<boolean> {
+  if (!parentWorkItemId) return true;
+  const [parent] = await db
+    .select({ id: workItems.id })
+    .from(workItems)
+    .where(and(eq(workItems.id, parentWorkItemId), eq(workItems.courseId, courseId)));
+  return Boolean(parent);
+}
+
 termsRoute.post("/work-items", async (c) => {
   const parsed = workItemBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
@@ -948,33 +980,8 @@ termsRoute.post("/work-items", async (c) => {
     return c.json({ error: "Course not found" }, 404);
   }
 
-  /**
-   * A parent has to be a real item in the same course.
-   *
-   * Nothing checked this. `parentWorkItemId` arrived as a plain string and was written straight
-   * to the row, so it could name any work item in the database -- including another account's.
-   * Two things followed. The smaller one, which review found: deleting a project looks for its
-   * stages in its own course, so a child parked in a different course survives as an orphan the
-   * scheduler still books. The larger one: `completeParentIfDone` looks a parent up by id, and
-   * on handing in such a child it would mark *that* item completed and release the blocks held
-   * for it. Pointing a throwaway assignment at a stranger's midterm was enough to finish their
-   * work for them and give their study time away.
-   *
-   * Same course rather than merely same owner, because that is the invariant the rest of the
-   * code already assumes: `POST /work-items/:id/stages` copies `parent.courseId` down to every
-   * stage it creates, and the delete walks the tree within one course.
-   */
-  if (parsed.data.parentWorkItemId) {
-    const [parent] = await db
-      .select({ id: workItems.id })
-      .from(workItems)
-      .where(
-        and(
-          eq(workItems.id, parsed.data.parentWorkItemId),
-          eq(workItems.courseId, parsed.data.courseId),
-        ),
-      );
-    if (!parent) return c.json({ error: "Parent work item not found in this course" }, 404);
+  if (!(await parentIsInCourse(db, parsed.data.parentWorkItemId, parsed.data.courseId))) {
+    return c.json({ error: "Parent work item not found in this course" }, 404);
   }
 
   const item = {
@@ -1018,6 +1025,18 @@ termsRoute.patch("/work-items/:id", async (c) => {
 
   const parsed = workItemBody.partial().safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  // The same check creation makes, because this is the same field and the same consequence.
+  // An item may not become its own parent either: that is a cycle, and the subtree walk and the
+  // completion rule both have to reason about it forever after.
+  if (parsed.data.parentWorkItemId !== undefined) {
+    if (parsed.data.parentWorkItemId === id) {
+      return c.json({ error: "A work item cannot be its own parent." }, 400);
+    }
+    if (!(await parentIsInCourse(db, parsed.data.parentWorkItemId, existing.item.courseId))) {
+      return c.json({ error: "Parent work item not found in this course" }, 404);
+    }
+  }
 
   const patch: Record<string, unknown> = { ...parsed.data };
   delete patch["courseId"]; // Moving an item between courses is not a PATCH.

@@ -193,7 +193,7 @@ describe("prefilter: questions about the app are answered, not refused", () => {
   const named = [
     "where do I put back something I marked not doing it",
     "what does not doing it do",
-    "what does end of day assumed mean",
+    "what does show finished and canceled too do",
     "what does this app do with a skipped block",
   ];
 

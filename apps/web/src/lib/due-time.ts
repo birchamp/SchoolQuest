@@ -47,11 +47,6 @@ export function composeDueAt(date: string, time: string): string | null {
   return `${date}T${clock}:00.000Z`;
 }
 
-/** True when the item is due at the end of its day, i.e. nobody has said otherwise. */
-export function isDefaultDueTime(dueAt: string | null | undefined): boolean {
-  return dueTimePart(dueAt) === DEFAULT_DUE_TIME;
-}
-
 /**
  * A due date as a short day, from the stored calendar day rather than the instant.
  *

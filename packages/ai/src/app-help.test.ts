@@ -49,7 +49,6 @@ describe("what the coach says about the app is actually on screen", () => {
         "Not yet",
         "Show finished and canceled too",
         "Add an assignment",
-        "end of day assumed",
       ],
     },
     {
@@ -92,9 +91,11 @@ describe("what the coach says about the app is actually on screen", () => {
     expect(APP_HELP_PROMPT).toMatch(/never an assignment or a block/i);
   });
 
-  it("says a due date carries a time of day", () => {
+  it("says a due date carries a time of day, without claiming to know where it came from", () => {
     expect(APP_HELP_PROMPT).toMatch(/time of day/i);
-    expect(APP_HELP_PROMPT).toMatch(/end of day assumed/);
+    // Review found the row's own note claiming an explicitly chosen 11:59pm had been assumed.
+    // The note is gone; the coach must not reintroduce the claim in prose.
+    expect(APP_HELP_PROMPT).toMatch(/never tell a student\s+their deadline time was assumed/i);
   });
 
   it("repeats the promise that nothing declined is counted", () => {
@@ -142,7 +143,7 @@ describe("appHelpSignal", () => {
 
   it("is certain when the message names something only this app has", () => {
     expect(appHelpSignal("what does not doing it do")).toBe("app");
-    expect(appHelpSignal("what does end of day assumed mean")).toBe("app");
+    expect(appHelpSignal("what does show finished and canceled too do")).toBe("app");
   });
 
   it("is unsure when a control's name is also ordinary English", () => {

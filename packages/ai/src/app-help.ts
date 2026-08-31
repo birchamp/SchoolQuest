@@ -33,13 +33,13 @@
  * student talks, and the answer they would have got is instructions for the assignments table.
  *
  *  - **Labels** name something only this app has. Nothing else is "not doing it" or
- *    "end of day assumed", so these are the only words that settle anything on their own.
+ *    "show finished and canceled too", so these are the only words that settle anything alone.
  *  - **Everything else** -- controls whose names are plain English, actions a course could own,
  *    and the interface nouns themselves -- buys a message a reading by the classifier, never an
  *    answer without one.
  */
 const APP_LABEL =
-  /\b(not doing it|end of day assumed|show finished|add an assignment|schoolquest|this app|the app)\b/i;
+  /\b(not doing it|show finished|add an assignment|schoolquest|this app|the app)\b/i;
 
 /**
  * Every other word that might mean the interface -- controls whose names are ordinary English,
@@ -135,9 +135,10 @@ Other controls worth knowing:
 - On Assignments: **"Handed in"** means it has gone to the instructor with a grade still owed --
   it frees the study time still booked for it, and **"Not yet"** reverses it. A score can be
   written down on the row whenever it comes back.
-- Each assignment carries a due date **and a time of day**. A deadline with no stated hour is
-  taken as the end of that day, which is what "end of day assumed" under a row means; setting a
-  real time changes when the planner books the work.
+- Each assignment carries a due date **and a time of day**. A deadline whose hour nobody has set
+  reads as 11:59pm, the end of that day; setting a real time changes when the planner books the
+  work. The app does not record whether an hour was stated or filled in, so never tell a student
+  their deadline time was assumed -- it may be the one their instructor gave.
 - The effort and worth boxes on each row are editable, and **"Add an assignment"** is for work an
   instructor set that is not in the syllabus.
 

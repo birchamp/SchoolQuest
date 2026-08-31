@@ -7,9 +7,8 @@ import {
   composeDueAt,
   DEFAULT_DUE_TIME,
   dueDatePart,
-  formatDueDay,
   dueTimePart,
-  isDefaultDueTime,
+  formatDueDay,
 } from "../lib/due-time";
 import type { PlanResponse } from "../lib/types";
 
@@ -557,13 +556,16 @@ export function AssignmentsTable({
                         />
                       </label>
                     </div>
-                    {/* Says out loud that nobody has stated a time, so end of day reads as the
-                        assumption it is rather than as something the syllabus said. */}
-                    {item.dueAt !== null && isDefaultDueTime(item.dueAt) && (
-                      <span className="muted" style={{ fontSize: "0.72rem", display: "block" }}>
-                        end of day assumed
-                      </span>
-                    )}
+                    {/* No note under the clock, deliberately.
+                        It used to say "end of day assumed" whenever the time read 23:59, meaning
+                        to present the default as an assumption worth correcting. But 11:59pm is
+                        the commonest deadline a syllabus actually states, and the app cannot tell
+                        a stated one from a filled-in one -- both are the same five characters --
+                        so on a great many rows it was telling the student their own confirmed
+                        answer had been guessed. A note that is wrong that often is worse than no
+                        note: the box beside it already says 23:59, which is the true part.
+                        Saying it honestly would take remembering where the time came from, which
+                        is a stored fact nobody records yet. */}
                   </td>
                   {/* Both editable, because both are instructor announcements. "The quiz is
                       now worth 50" moves this assignment's size on the radar and its pull on
