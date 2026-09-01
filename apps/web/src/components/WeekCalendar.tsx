@@ -1,6 +1,12 @@
 import type { Course, ThemeName } from "@schoolquest/domain";
-import { buildWeekCalendar, type CalendarSlot, type SlotKind } from "@schoolquest/planning-engine";
+import {
+  buildWeekCalendar,
+  type CalendarDeadline,
+  type CalendarSlot,
+  type SlotKind,
+} from "@schoolquest/planning-engine";
 import { courseTincture } from "../lib/course-colour";
+import { openDeadlines } from "../lib/deadlines";
 import type { PlanResponse } from "../lib/types";
 import { CalendarLegend } from "./CalendarLegend";
 
@@ -20,6 +26,21 @@ import { CalendarLegend } from "./CalendarLegend";
  *
  * Colour is never the only signal: every band carries its own word, and the legend states
  * the totals in figures.
+ *
+ * ## Deadlines, and why they were the bug
+ *
+ * Hours were the only thing this drew, and a deadline costs no hours. So a paper due Thursday
+ * with its block booked on Monday put a green band on Monday and left Thursday empty, and
+ * anything the week could not fit at all appeared on no day whatsoever -- while both sat in
+ * plain sight on the assignments board one tab away. Reported exactly that way, by a student:
+ * work on the board that is not on the calendar.
+ *
+ * The fix is not a filter, it is a second kind of mark. Every open dated row on the board is
+ * now drawn on the day it is owed, above the hours rather than among them, because a deadline
+ * is a fact about a day and not a claim on any minute in it. A stated clock time also gets a
+ * line across the grid at its hour, so "due at nine" is legible as a position and not only as
+ * text. `nothing booked` is called out where it is true: a deadline with no time set aside
+ * behind it anywhere this week is the one the student most needs to see.
  */
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -133,7 +154,16 @@ export function WeekCalendar({
       title: itemsById.get(s.workItemId)?.title ?? "Study",
     })),
     meals: plan.meals ?? [],
+    // Every open dated row the assignments board holds. Not "the ones the planner touched" --
+    // the row with nothing booked behind it is the one that used to vanish.
+    deadlines: openDeadlines(plan.workItems),
   });
+
+  const dueCount = calendar.days.reduce((sum, d) => sum + d.due.length, 0);
+  const unbookedDue = calendar.days.reduce(
+    (sum, d) => sum + d.due.filter((x) => x.nothingBooked).length,
+    0,
+  );
 
   const windowMinutes = calendar.windowEndMinute - calendar.windowStartMinute;
   const height = windowMinutes * PIXELS_PER_MINUTE;
@@ -168,6 +198,23 @@ export function WeekCalendar({
           leaves uncoloured is not one of them. */}
       <CalendarLegend kinds={["class", "study", "meal", "commitment"]} />
 
+      {/* Said plainly, because the promise is the point: what is on the assignments board is
+          on this screen. A student who has been bitten once by a deadline the calendar did
+          not carry will not take that on trust from an unexplained row of chips. */}
+      {dueCount > 0 && (
+        <p className="muted" style={{ margin: "0.4rem 0 0.8rem", fontSize: "0.82rem" }}>
+          Deadlines sit above each day, whether or not time is booked for them --- every dated
+          assignment on your list is here on the day it is due.
+          {unbookedDue > 0 && (
+            <>
+              {" "}
+              {unbookedDue === 1 ? "One has" : `${unbookedDue} have`} no time set aside this
+              week, and {unbookedDue === 1 ? "says" : "say"} so.
+            </>
+          )}
+        </p>
+      )}
+
       <div style={{ overflowX: "auto" }}>
         <div
           style={{
@@ -194,6 +241,29 @@ export function WeekCalendar({
               {day.date === today && <span className="sr-only"> (today)</span>}
             </h3>
           ))}
+
+          {/* The deadline rail: one cell per day, above the hours.
+              Above rather than among them on purpose. A deadline claims no minutes, so a band
+              for it would either invent time the student does not owe or be buried under
+              whatever really holds that hour. Here it is unmissable and it costs the grid
+              nothing. The rail is drawn for the whole week whenever anything at all is due, so
+              a day with nothing due reads as an empty cell in a rail rather than as a rail
+              that is not there. */}
+          {dueCount > 0 && <div />}
+          {dueCount > 0 &&
+            calendar.days.map((day) => (
+              <div key={`due-${day.date}`} style={{ display: "grid", gap: "0.15rem", alignContent: "start" }}>
+                {day.due.map((deadline) => (
+                  <DueChip
+                    key={deadline.workItemId}
+                    deadline={deadline}
+                    quest={quest}
+                    course={coursesById.get(deadline.courseId)}
+                    receded={hiddenCourseIds?.has(deadline.courseId) ?? false}
+                  />
+                ))}
+              </div>
+            ))}
 
           {/* The hour rail. */}
           <div style={{ position: "relative", height }}>
@@ -253,12 +323,128 @@ export function WeekCalendar({
                     receded={slot.courseId !== null && (hiddenCourseIds?.has(slot.courseId) ?? false)}
                   />
                 ))}
+
+                {/* A stated deadline, at its hour.
+                    Only when a time was actually stated and it falls inside the drawn window:
+                    a line at 23:59 would sit under the grid for most weeks, and "due Friday"
+                    has no hour to point at in the first place. The chip above carries the
+                    fact either way, so this is precision added to a statement already made
+                    rather than the only place it appears -- which is what lets it be a hairline
+                    and stay out of the way of the bands it crosses. */}
+                {day.due
+                  .filter(
+                    (deadline) =>
+                      deadline.timeStated &&
+                      deadline.minuteOfDay >= calendar.windowStartMinute &&
+                      deadline.minuteOfDay <= calendar.windowEndMinute,
+                  )
+                  .map((deadline) => (
+                    <span
+                      key={`line-${deadline.workItemId}`}
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        right: 0,
+                        top:
+                          (deadline.minuteOfDay - calendar.windowStartMinute) * PIXELS_PER_MINUTE,
+                        borderTop: "2px dashed var(--text)",
+                      }}
+                    />
+                  ))}
               </div>
             );
           })}
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * One deadline, on the day it is owed.
+ *
+ * Reads as a different object from a band and has to: a band is an hour you will spend, this
+ * is a moment work is taken off you. So it is an outlined chip rather than a filled one, it
+ * carries the word "due", and it sits outside the grid rather than inside it.
+ *
+ * Colour is never the only signal. The course tincture is an edge, the course code is printed
+ * beside the title, and "nothing booked" is a *word* rather than a shade -- a student who
+ * cannot tell two hues apart still reads the whole fact.
+ */
+function DueChip({
+  deadline,
+  quest,
+  course,
+  receded,
+}: {
+  deadline: CalendarDeadline;
+  quest: boolean;
+  course: Course | undefined;
+  /**
+   * A switched-off class. Recedes, exactly as its bands do, and for the same reason: a
+   * deadline that disappeared with a layer toggle would hand the student back a Thursday they
+   * do not actually have free. Switching a class off is allowed to quieten the week. It is not
+   * allowed to delete a date.
+   */
+  receded: boolean;
+}) {
+  const edge = receded
+    ? "var(--border)"
+    : course
+      ? courseTincture(course.id, course.colorToken, quest)
+      : "var(--text-dim)";
+  const clock = deadline.timeStated ? clockOf(deadline.minuteOfDay) : null;
+
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        // The course's own colour on the edge, the same place a study block carries it, so the
+        // chip and the block for one assignment agree about which class they belong to.
+        borderLeft: `3px solid ${edge}`,
+        borderRadius: 4,
+        /*
+         * Outlined, never filled. `--surface-2` is the obvious chip ground and it is the wrong
+         * one: the quest theme points it at dark leather for the page, and a card flips the
+         * ground to parchment underneath it -- measured at 1.06:1 there, which is a fill nobody
+         * can see and dark ink sitting on top of it. The codebase has already paid for that
+         * once (see the note on `.question-course` in styles.css) and reached the same
+         * conclusion: a border is the same separation and it survives every theme.
+         */
+        background: "transparent",
+        color: receded ? "var(--text-dim)" : "var(--text)",
+        padding: "0.12rem 0.3rem",
+        fontSize: "0.66rem",
+        lineHeight: 1.25,
+      }}
+    >
+      {/*
+        The whole fact in one sentence for a screen reader, because the visual version is
+        split across three lines and a chip read out as "Due 9am Response paper HIS 210 nothing
+        booked" is a list of fragments rather than a statement.
+      */}
+      <span className="sr-only">
+        Due{clock ? ` at ${clock}` : ""}: {deadline.title}
+        {course ? `, ${course.code ?? course.name}` : ""}
+        {deadline.nothingBooked ? ", with no study time booked this week" : ""}
+      </span>
+      <span aria-hidden="true">
+        <span style={{ textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>
+          {/* No hour is printed when none was stated. The stored 23:59 is the *absence* of a
+              time, and rendering it as one invites a student to work until half past eleven on
+              a paper their instructor collects in a 9am lecture. */}
+          Due{clock ? ` ${clock}` : ""}
+        </span>
+        <span style={{ display: "block", fontWeight: 600 }}>{deadline.title}</span>
+        {course && <span style={{ display: "block" }}>{course.code ?? course.name}</span>}
+        {deadline.nothingBooked && (
+          <span style={{ display: "block", color: "var(--watch)", fontWeight: 700 }}>
+            nothing booked
+          </span>
+        )}
+      </span>
+    </div>
   );
 }
 
