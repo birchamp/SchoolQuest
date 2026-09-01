@@ -1,4 +1,5 @@
 import { type Course, type ThemeName } from "@schoolquest/domain";
+import { deadlinesByDay, type CalendarDeadline } from "@schoolquest/planning-engine";
 import { explainBlockKind, explainDayLoad, label, plainDayLoad } from "@schoolquest/theme-language";
 import type {
   EncounterGroupView,
@@ -7,6 +8,7 @@ import type {
   SessionBriefView,
 } from "../lib/types";
 import { courseLabelInk } from "../lib/course-colour";
+import { openDeadlines } from "../lib/deadlines";
 import { CalendarLegend } from "./CalendarLegend";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -111,6 +113,23 @@ export function WeekMap({
   const days = brief?.days ?? fallbackDays(start);
   const beats = brief?.encounters ?? fallbackEncounters(plan);
   const encountersByDate = groupByDate(beats);
+  /**
+   * What is *due* each day, as against what is being worked on.
+   *
+   * The day flag underneath used to be the whole of it, and it said only "Major work due",
+   * named nothing, and fired for four work types out of thirteen -- so a problem set, a quiz,
+   * a lab or a reading due on Wednesday put nothing whatever on Wednesday. Combined with the
+   * beats being *blocks* rather than deadlines, that is how a student ends up reading their
+   * assignments list and their week and finding two different terms.
+   *
+   * Derived by the engine, from the same function the hour-by-hour grid uses, so the two week
+   * views cannot come to different conclusions about which day a thing is due on.
+   */
+  const dueByDate = deadlinesByDay(openDeadlines(plan.workItems), {
+    horizonStart: start,
+    horizonDays: days.length,
+    sessions: plan.sessions,
+  });
   const mealsByDate = groupMealsByDate(plan.meals ?? []);
   // Time the engine held on the student's behalf has to be visible somewhere, or it is
   // indistinguishable from time the engine lost. The note appears only when there is
@@ -229,8 +248,15 @@ export function WeekMap({
                 )}
               </p>
 
-              {/* Something major is due today. Stated whether or not time is booked for it. */}
-              {day.carriesAssessment && (
+              {/* Something major is due today. Stated whether or not time is booked for it.
+                  Suppressed once the lines below are naming the day's deadlines, because then
+                  it is the same sentence twice in adjacent rows -- "MAJOR WORK DUE" over "DUE
+                  Childhood Education Field Project" -- and the line is the better of the two:
+                  it says which piece of work, at what hour, and whether anything is booked
+                  behind it. The flag still stands on the rare day whose milestone is not one of
+                  the rows (work already handed in, say), so nothing is lost, and the day's load
+                  word and border carry the same weight either way. */}
+              {day.carriesAssessment && (dueByDate.get(day.date) ?? []).length === 0 && (
                 <p className="day-flag">
                   <span aria-hidden="true">{quest ? "◈ Set piece due" : "◈ Major work due"}</span>
                   <span className="sr-only">Major work is due today</span>
@@ -258,6 +284,24 @@ export function WeekMap({
                   </span>
                 </p>
               )}
+
+              {/* And *what* is due, named.
+                  Below the day's own flags and above its beats, which is where it belongs in
+                  the reading: the flags say what kind of day this is, this says what the day is
+                  *for*, and the tiles under it are how that is being met.
+
+                  Never receded. Every other mark on this board steps back when its class is
+                  switched off, and a deadline must not, for the same reason the unclaimed list
+                  does not: a student who quietens Chemistry and then reads the resulting
+                  Thursday as free has been told something false about a date. Switching a class
+                  off is allowed to quieten the week; it is not allowed to soften a deadline. */}
+              {(dueByDate.get(day.date) ?? []).map((deadline) => (
+                <DueLine
+                  key={deadline.workItemId}
+                  deadline={deadline}
+                  course={coursesById.get(deadline.courseId)}
+                />
+              ))}
 
               {/* The load line above already reads "Clear road" (or "Clear") on a day with
                   nothing on it, so an empty-state line underneath repeated it verbatim. It
@@ -504,6 +548,50 @@ function fallbackDays(start: string): SessionBriefView["days"] {
       carriesAssessment: false,
     };
   });
+}
+
+/**
+ * One deadline, under the day it falls on.
+ *
+ * A line rather than a tile, because it is not a block of time and must not read as one --
+ * the tiles below it are hours the student will spend, and a deadline drawn as a fifth tile
+ * would be counted by eye into a day that is already full.
+ *
+ * "nothing booked" is a word, not a colour, so it survives being read aloud and being read by
+ * someone who cannot tell the warning hue from the ordinary one.
+ */
+function DueLine({
+  deadline,
+  course,
+}: {
+  deadline: CalendarDeadline;
+  course: Course | undefined;
+}) {
+  // No hour is printed unless one was actually stated: the stored 23:59 means "some time that
+  // day", and printing it as a time is how a student plans to finish at 23:30 for a deadline
+  // their instructor holds at 9am.
+  const clock = deadline.timeStated
+    ? new Date(Date.UTC(2000, 0, 1, Math.floor(deadline.minuteOfDay / 60), deadline.minuteOfDay % 60))
+        .toLocaleTimeString(undefined, {
+          hour: "numeric",
+          minute: deadline.minuteOfDay % 60 === 0 ? undefined : "2-digit",
+          timeZone: "UTC",
+        })
+    : null;
+
+  return (
+    <p className="due-line">
+      <span className="sr-only">
+        Due{clock ? ` at ${clock}` : ""}: {deadline.title}
+        {course ? `, ${courseLabel(course)}` : ""}
+        {deadline.nothingBooked ? ", with no study time booked this week" : ""}
+      </span>
+      <span aria-hidden="true">
+        <span className="due-line-tag">Due{clock ? ` ${clock}` : ""}</span> {deadline.title}
+        {deadline.nothingBooked && <span className="due-line-bare"> · nothing booked</span>}
+      </span>
+    </p>
+  );
 }
 
 /**

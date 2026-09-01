@@ -28,6 +28,20 @@ import type { MealBreak } from "./meals.js";
  * prettier agenda — it is being able to see, without counting, that Tuesday has ninety
  * minutes in it and Sunday has seven hours.
  *
+ * ## Deadlines are drawn, not only the hours spent on them
+ *
+ * A block is time; a deadline is a fact about a day, and until now only the first was here.
+ * That is how work ends up on the assignments board and nowhere on the calendar: the planner
+ * books Monday for a paper due Thursday, so Monday carries a green band and Thursday --- the
+ * day the thing is actually owed --- draws exactly nothing. Worse for anything the week could
+ * not fit at all, which then appears on no day of the calendar whatsoever while sitting in
+ * plain sight one tab away.
+ *
+ * So every open piece of work with a due date inside the seven days is returned on its day,
+ * whether or not a single minute was booked for it, carrying whether a clock time was ever
+ * stated and whether anything is booked for it this week. `day.due` is a complete list, which
+ * is the property that lets a view promise the board and the calendar hold the same work.
+ *
  * Pure and deterministic, like the rest of the engine. Overlaps are resolved by a fixed
  * precedence rather than by draw order, so two things claiming 14:00 always produce the same
  * answer and the answer is the one that is actually true of the student's body: a class they
@@ -64,10 +78,51 @@ export interface CalendarSlot {
   commitmentType: string | null;
 }
 
+/**
+ * One deadline landing on one day.
+ *
+ * Not a slot, and deliberately not one: a deadline occupies no minutes, so folding it into the
+ * band partition would either invent time the student does not owe or lose the fact entirely
+ * behind whatever claims that minute. It rides alongside the slots instead, so the day can say
+ * "three hours of History, and the response paper is due at nine" without the two contradicting
+ * each other.
+ */
+export interface CalendarDeadline {
+  workItemId: string;
+  courseId: string;
+  title: string;
+  workType: string;
+  /** Epoch minutes of the deadline itself. */
+  at: number;
+  /** Where it falls in the day, 0..1439. */
+  minuteOfDay: number;
+  /**
+   * False when the stored instant carries the end-of-day default, which is what "due Friday"
+   * has always meant here and what extraction writes when a syllabus states no clock time.
+   *
+   * A view must not print "23:59" for one of these. It is not a deadline anybody stated; it is
+   * the absence of one, and showing it as a time invites a student to work until 23:30 on a
+   * paper the instructor collects in a 9am lecture.
+   */
+  timeStated: boolean;
+  /**
+   * True when not one minute is booked toward this item anywhere in the drawn week.
+   *
+   * The number the calendar exists to expose. Work with a deadline on Thursday and no block
+   * behind it is the case that used to render as an empty Thursday.
+   */
+  nothingBooked: boolean;
+}
+
 export interface CalendarDay {
   date: string;
   dayOfWeek: number;
   slots: CalendarSlot[];
+  /**
+   * Everything due this day, booked or not, earliest first. Complete by construction: this is
+   * what lets a view state that the calendar holds every dated row the assignments board does.
+   */
+  due: CalendarDeadline[];
   /** Totals for the day, in minutes. Every kind, so the row always adds up. */
   totals: Record<SlotKind, number>;
   /** Earliest and latest minute-of-day the day has anything in it. */
@@ -81,6 +136,16 @@ export interface WeekCalendar {
   /** The window worth drawing: the earliest start and latest end across the week. */
   windowStartMinute: number;
   windowEndMinute: number;
+}
+
+/** The minimum a piece of work must expose for its deadline to be drawn. */
+export interface DeadlineInput {
+  workItemId: string;
+  courseId: string;
+  title: string;
+  workType: string;
+  /** The stored instant. Items with no due date are simply not passed. */
+  dueAt: string;
 }
 
 export interface WeekCalendarInput {
@@ -97,6 +162,13 @@ export interface WeekCalendarInput {
     title?: string;
   }[];
   meals: readonly MealBreak[];
+  /**
+   * Open work carrying a due date. Omitted, the calendar draws hours only, exactly as before.
+   *
+   * Deliberately every open item rather than only the ones the planner touched: the whole point
+   * is the row the plan has nothing to say about.
+   */
+  deadlines?: readonly DeadlineInput[];
 }
 
 /**
@@ -119,9 +191,20 @@ const PRECEDENCE: Record<SlotKind, number> = {
 /** Rounds the drawn window out to whole hours so the grid has honest gridlines. */
 const HOUR = 60;
 
+/**
+ * What "due Friday" resolves to when nobody stated a time -- the same default the deadline
+ * editor writes, kept here as the one value that decides whether a clock time is real.
+ */
+const END_OF_DAY_MINUTE = 23 * HOUR + 59;
+
 export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
   const horizonStart = dateToEpochMinutes(input.horizonStart);
   const days: CalendarDay[] = [];
+  const due = deadlinesByDay(input.deadlines ?? [], {
+    horizonStart: input.horizonStart,
+    horizonDays: input.horizonDays,
+    sessions: input.sessions,
+  });
 
   for (let day = 0; day < input.horizonDays; day++) {
     const dayStart = horizonStart + day * MINUTES_PER_DAY;
@@ -164,6 +247,7 @@ export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
       date,
       dayOfWeek: dow,
       slots,
+      due: due.get(date) ?? [],
       totals: totalsOf(slots),
       firstMinute: slots.length > 0 ? slots[0]!.start - dayStart : null,
       lastMinute: slots.length > 0 ? Math.max(...slots.map((s) => s.end)) - dayStart : null,
@@ -184,6 +268,82 @@ export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
     // A window with no height would divide by zero downstream; an empty week still draws.
     windowEndMinute: Math.max(windowEndMinute, windowStartMinute + HOUR),
   };
+}
+
+/**
+ * Every deadline in the drawn week, keyed by the day it falls on.
+ *
+ * Exported because two views need the same answer. The hour grid draws them as marks against
+ * the clock; the week map lists them under the day. Deriving that twice is how the two screens
+ * end up disagreeing about whether a quiz is on Wednesday, and this codebase has already paid
+ * for one colour map kept in seven copies.
+ *
+ * ## The day comes from the characters, never from the epoch
+ *
+ * `dueAt.slice(0, 10)` is the day, and `dueAt.slice(11, 16)` is the clock, exactly as the
+ * assignments board reads them. Re-deriving either through a `Date` renders in the reader's
+ * zone: a deadline stored at 23:59 shows as the *next* day in Tokyo and one stored at 01:00 as
+ * the previous day in Los Angeles, while the board -- formatting from the same ten characters
+ * this does -- goes on showing the day the student typed. One assignment, two dates, two
+ * screens of one app. `packages/domain/src/time.ts` states the convention; this obeys it.
+ */
+export function deadlinesByDay(
+  deadlines: readonly DeadlineInput[],
+  window: {
+    horizonStart: string;
+    horizonDays: number;
+    /** This week's blocks, so a deadline can say whether anything is booked behind it. */
+    sessions: readonly { workItemId: string; startAt: string; endAt: string }[];
+  },
+): Map<string, CalendarDeadline[]> {
+  const horizonStart = dateToEpochMinutes(window.horizonStart);
+  const horizonEnd = horizonStart + window.horizonDays * MINUTES_PER_DAY;
+
+  // Booked *in the drawn week*. A block last month is history, not preparation the student can
+  // see on this screen, and counting it would mark a bare Thursday as covered.
+  const booked = new Set<string>();
+  for (const session of window.sessions) {
+    if (toEpochMinutes(session.endAt) <= horizonStart) continue;
+    if (toEpochMinutes(session.startAt) >= horizonEnd) continue;
+    booked.add(session.workItemId);
+  }
+
+  const dates = new Set<string>();
+  for (let day = 0; day < window.horizonDays; day++) {
+    dates.add(epochMinutesToDate(horizonStart + day * MINUTES_PER_DAY));
+  }
+
+  const byDay = new Map<string, CalendarDeadline[]>();
+  for (const item of deadlines) {
+    const date = item.dueAt.slice(0, 10);
+    if (!dates.has(date)) continue;
+
+    const clock = item.dueAt.slice(11, 16);
+    const timeStated = /^([01]\d|2[0-3]):[0-5]\d$/.test(clock)
+      ? parseTimeOfDay(clock) !== END_OF_DAY_MINUTE
+      : false;
+    const minuteOfDay = timeStated ? parseTimeOfDay(clock) : END_OF_DAY_MINUTE;
+
+    const list = byDay.get(date) ?? [];
+    list.push({
+      workItemId: item.workItemId,
+      courseId: item.courseId,
+      title: item.title,
+      workType: item.workType,
+      at: dateToEpochMinutes(date) + minuteOfDay,
+      minuteOfDay,
+      timeStated,
+      nothingBooked: !booked.has(item.workItemId),
+    });
+    byDay.set(date, list);
+  }
+
+  // Earliest first, and stable on the title where two things are due at the same minute --
+  // which is the norm, since most of a term is due at the end of its day.
+  for (const list of byDay.values()) {
+    list.sort((a, b) => a.minuteOfDay - b.minuteOfDay || a.title.localeCompare(b.title));
+  }
+  return byDay;
 }
 
 function classSlots(

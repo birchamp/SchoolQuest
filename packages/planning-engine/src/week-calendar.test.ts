@@ -221,3 +221,91 @@ describe("the drawn window", () => {
     expect(c.totals.free).toBe(8 * 60);
   });
 });
+
+/**
+ * The board-and-calendar agreement.
+ *
+ * Reported from use: work was showing on the assignments board and nowhere on the calendar.
+ * It was not a dropped record -- the calendar drew only *hours*, and a deadline costs no
+ * hours, so the day a thing was owed drew nothing at all unless the planner happened to book
+ * that same day. A paper due Thursday with its block on Monday made Thursday look empty, and
+ * anything the week could not fit made every day look empty.
+ */
+describe("deadlines on the calendar", () => {
+  const paper = {
+    workItemId: "wk_paper",
+    courseId: "crs_his",
+    title: "Response paper",
+    workType: "paper",
+  };
+
+  it("draws work due on a day the plan booked nothing for", () => {
+    const c = build({ deadlines: [{ ...paper, dueAt: iso("23:59") }] });
+    expect(day(c).due.map((d) => d.title)).toEqual(["Response paper"]);
+    expect(day(c).due[0]!.nothingBooked).toBe(true);
+  });
+
+  it("keeps the deadline on its own day when the block for it sits on another", () => {
+    const c = buildWeekCalendar({
+      horizonStart: MONDAY,
+      horizonDays: 7,
+      meetingPatterns: [],
+      commitments: [],
+      availability: [{ dayOfWeek: 1, startTime: "08:00", endTime: "22:00" }],
+      // Booked Monday; owed Thursday. The case that made Thursday render blank.
+      sessions: [
+        {
+          workItemId: "wk_paper",
+          courseId: "crs_his",
+          startAt: `${MONDAY}T13:00:00.000Z`,
+          endAt: `${MONDAY}T14:00:00.000Z`,
+        },
+      ],
+      meals: [],
+      deadlines: [{ ...paper, dueAt: "2026-09-10T23:59:00.000Z" }],
+    });
+
+    expect(c.days.map((d) => d.due.length)).toEqual([0, 0, 0, 1, 0, 0, 0]);
+    // Booked this week, just not on the day it is due -- so the day says "due", not "due and
+    // nothing set aside", which is a different and much louder claim.
+    expect(c.days[3]!.due[0]!.nothingBooked).toBe(false);
+  });
+
+  it("tells a stated clock time apart from the end-of-day default", () => {
+    const stated = build({ deadlines: [{ ...paper, dueAt: iso("09:00") }] });
+    expect(day(stated).due[0]).toMatchObject({ timeStated: true, minuteOfDay: 9 * 60 });
+
+    const silent = build({ deadlines: [{ ...paper, dueAt: iso("23:59") }] });
+    expect(day(silent).due[0]).toMatchObject({ timeStated: false, minuteOfDay: 23 * 60 + 59 });
+  });
+
+  it("reads the day and the clock off the stored characters, never through a Date", () => {
+    // A deadline one minute before midnight is the case a zone-sensitive reading slides into
+    // the next day. Both halves have to come from the same ten-and-five characters the
+    // assignments board formats from.
+    const c = build({ deadlines: [{ ...paper, dueAt: `${MONDAY}T23:59:00.000Z` }] });
+    expect(day(c).date).toBe(MONDAY);
+    expect(day(c).due).toHaveLength(1);
+    expect(day(c).due[0]!.at).toBe(at("23:59"));
+  });
+
+  it("orders a day's deadlines by the clock, then by title", () => {
+    const c = build({
+      deadlines: [
+        { ...paper, workItemId: "wk_b", title: "Beta", dueAt: iso("23:59") },
+        { ...paper, workItemId: "wk_a", title: "Alpha", dueAt: iso("23:59") },
+        { ...paper, workItemId: "wk_q", title: "Quiz closes", dueAt: iso("09:00") },
+      ],
+    });
+    expect(day(c).due.map((d) => d.title)).toEqual(["Quiz closes", "Alpha", "Beta"]);
+  });
+
+  it("ignores deadlines outside the drawn week", () => {
+    const c = build({ deadlines: [{ ...paper, dueAt: "2026-12-01T23:59:00.000Z" }] });
+    expect(day(c).due).toEqual([]);
+  });
+
+  it("draws hours only when no deadlines are passed", () => {
+    expect(day(build()).due).toEqual([]);
+  });
+});

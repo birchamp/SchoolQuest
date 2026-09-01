@@ -375,8 +375,21 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     // here rather than on its own screen because the answer changes the plan, and a question
     // the student has to go looking for is a question nobody answers.
     review: await loadReview(db, termId),
+    /**
+     * Blocks, each carrying the course it belongs to.
+     *
+     * `work_sessions` has no course column -- a block points at a work item and the work item
+     * points at the course -- so a plain row spread sent `courseId: undefined` under a type
+     * that promised a string. Nothing failed loudly. The hour-by-hour calendar simply drew
+     * every study block in the default edge instead of its class's colour, printed no course
+     * code under any of them, and left the class switches with nothing to recede, on every
+     * read of a saved plan: which is every read except the moment just after a plan is
+     * generated, when the engine's own objects are returned and the field is there. That is
+     * why it looked right in the one place anyone ever checked it.
+     */
     sessions: sessions.map((s) => ({
       ...s,
+      courseId: itemsById.get(s.workItemId)?.courseId ?? "",
       reasonCodes: JSON.parse(s.reasonCodesJson) as string[],
     })),
     courses: snapshot.courses,

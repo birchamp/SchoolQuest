@@ -639,6 +639,37 @@ button.action:disabled {
   color: var(--watch);
 }
 
+/*
+ * A deadline under the day it falls on.
+ *
+ * Deliberately not a `.block`. The blocks below are hours the student will spend and are
+ * counted by eye into the day's weight; a deadline costs no hours, and drawing it as a fifth
+ * tile makes a day look fuller than it is -- which on this screen is the failure, not the
+ * feature. So: no left spine, no surface fill, tighter than a tile, and set off by the tag
+ * word rather than by a box.
+ */
+.due-line {
+  margin: 0 0 0.3rem;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.due-line-tag {
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 0.64rem;
+  font-weight: 800;
+  color: var(--at-risk);
+}
+
+/* A word, never only a colour: a reader who cannot separate the warning hue from the ordinary
+   one still reads "nothing booked", and so does a screen reader. */
+.due-line-bare {
+  color: var(--watch);
+  font-weight: 700;
+}
+
 /* --- Coach --- */
 
 .chat {

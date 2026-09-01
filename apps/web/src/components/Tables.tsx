@@ -3,6 +3,7 @@ import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
 import { buildWeekCalendar, DEFAULT_EFFORT_MINUTES, type SlotKind } from "@schoolquest/planning-engine";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
+import { openDeadlines } from "../lib/deadlines";
 import {
   composeDueAt,
   DEFAULT_DUE_TIME,
@@ -858,6 +859,11 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
         title: itemsById.get(s.workItemId)?.title ?? "Study",
       })),
       meals: plan.meals ?? [],
+      // The same deadlines the grid draws. The rule at the top of this file is that the table
+      // and the visual view are two renderings of one set of facts; a "Due" mark the grid
+      // carries and the ledger does not is that rule broken in the direction the ledger reader
+      // notices last, because a missing row looks like a week with nothing due in it.
+      deadlines: openDeadlines(plan.workItems),
     });
 
     const KIND_WORD: Record<SlotKind, string> = {
@@ -869,7 +875,14 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
       off: "Off",
     };
 
-    const list = calendar.days.flatMap((day) =>
+    const clock = (epochMinutes: number) =>
+      new Date(epochMinutes * 60_000).toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "UTC",
+      });
+
+    const blocks = calendar.days.flatMap((day) =>
       day.slots
         // Free time is real and shown on the calendar, but as rows it is dozens of lines
         // saying nothing. The totals line carries it instead.
@@ -881,19 +894,43 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
             day: day.date,
             dayOfWeek: day.dayOfWeek,
             start: slot.start,
-            startLabel: new Date(slot.start * 60_000).toLocaleTimeString(undefined, {
-              hour: "numeric",
-              minute: "2-digit",
-              timeZone: "UTC",
-            }),
+            startLabel: clock(slot.start),
             minuteOfDay: slot.start - base,
             title: slot.title ?? KIND_WORD[slot.kind],
             course: slot.courseId ? courseLabel(coursesById.get(slot.courseId)) : "—",
-            minutes: slot.minutes,
+            minutes: slot.minutes as number | null,
             kind: KIND_WORD[slot.kind],
           };
         }),
     );
+
+    /**
+     * A deadline is a row here too, with no length.
+     *
+     * `Length` is deliberately blank rather than zero: the column is minutes of the week
+     * spent, and a deadline spends none of them, so a 0 would be added into a total by a
+     * reader scanning the column and a dash would not. Sorting by Starts still puts it where
+     * it belongs in the day, because a deadline does happen at a time even when it takes none.
+     */
+    const due = calendar.days.flatMap((day) =>
+      day.due.map((deadline) => ({
+        id: `${day.date}-due-${deadline.workItemId}`,
+        day: day.date,
+        dayOfWeek: day.dayOfWeek,
+        start: deadline.at,
+        // No hour printed unless one was stated: the stored 23:59 is the absence of a time,
+        // and a ledger that prints it as one is the reason to work until 23:30 on something
+        // collected at 9am.
+        startLabel: deadline.timeStated ? clock(deadline.at) : "—",
+        minuteOfDay: deadline.minuteOfDay,
+        title: deadline.nothingBooked ? `${deadline.title} — nothing booked` : deadline.title,
+        course: courseLabel(coursesById.get(deadline.courseId)),
+        minutes: null as number | null,
+        kind: "Due",
+      })),
+    );
+
+    const list = [...blocks, ...due];
     const key = sort.key;
     list.sort((a, b) => {
       const r = compare(a[key === "day" ? "day" : key], b[key === "day" ? "day" : key]);
@@ -938,7 +975,9 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
                   {row.title}
                 </th>
                 <td>{row.course}</td>
-                <td style={{ textAlign: "right" }}>{formatMinutes(row.minutes)}</td>
+                <td style={{ textAlign: "right" }}>
+                  {row.minutes === null ? <span className="muted">—</span> : formatMinutes(row.minutes)}
+                </td>
               </tr>
             ))}
           </tbody>
