@@ -81,9 +81,7 @@ describe("the week as hours", () => {
     const c = build({
       meetingPatterns: [meeting()],
       commitments: [commitment()],
-      sessions: [
-        { workItemId: "wi_1", courseId: "crs_bio", startAt: iso("13:00"), endAt: iso("14:30") },
-      ],
+      sessions: [{ workItemId: "wi_1", courseId: "crs_bio", startAt: iso("13:00"), endAt: iso("14:30") }],
       meals: [meal("12:00", "12:40")],
     });
     const slots = day(c).slots;
@@ -98,9 +96,7 @@ describe("the week as hours", () => {
   it("totals every kind so a day's figures add up to the day", () => {
     const c = build({
       meetingPatterns: [meeting()],
-      sessions: [
-        { workItemId: "wi_1", courseId: "crs_bio", startAt: iso("13:00"), endAt: iso("14:00") },
-      ],
+      sessions: [{ workItemId: "wi_1", courseId: "crs_bio", startAt: iso("13:00"), endAt: iso("14:00") }],
     });
     const t = day(c).totals;
     expect(t.class).toBe(75);
@@ -125,9 +121,7 @@ describe("who wins a contested minute", () => {
   it("gives a class the time a study block also claims", () => {
     const c = build({
       meetingPatterns: [meeting({ startTime: "09:00", endTime: "10:00" })],
-      sessions: [
-        { workItemId: "wi_1", courseId: "crs_bio", startAt: iso("09:30"), endAt: iso("11:00") },
-      ],
+      sessions: [{ workItemId: "wi_1", courseId: "crs_bio", startAt: iso("09:30"), endAt: iso("11:00") }],
     });
     const slots = day(c).slots.filter((s) => s.kind !== "free");
     expect(slots.map((s) => [s.kind, s.start - BASE, s.end - BASE])).toEqual([
@@ -139,9 +133,7 @@ describe("who wins a contested minute", () => {
   it("gives a shift the time a class does not want", () => {
     const c = build({
       commitments: [commitment({ startTime: "17:00", endTime: "21:00" })],
-      sessions: [
-        { workItemId: "wi_1", courseId: "crs_bio", startAt: iso("16:00"), endAt: iso("18:00") },
-      ],
+      sessions: [{ workItemId: "wi_1", courseId: "crs_bio", startAt: iso("16:00"), endAt: iso("18:00") }],
     });
     const study = day(c).slots.find((s) => s.kind === "study")!;
     expect(study.end).toBe(at("17:00"));
@@ -150,16 +142,14 @@ describe("who wins a contested minute", () => {
 
   it("keeps held meal time out of a study block that overlaps it", () => {
     const c = build({
-      sessions: [
-        { workItemId: "wi_1", courseId: "crs_bio", startAt: iso("11:30"), endAt: iso("13:00") },
-      ],
+      sessions: [{ workItemId: "wi_1", courseId: "crs_bio", startAt: iso("11:30"), endAt: iso("13:00") }],
       meals: [meal("12:00", "12:40")],
     });
-    expect(
-      day(c)
-        .slots.filter((s) => s.kind !== "free")
-        .map((s) => s.kind),
-    ).toEqual(["study", "meal", "study"]);
+    expect(day(c).slots.filter((s) => s.kind !== "free").map((s) => s.kind)).toEqual([
+      "study",
+      "meal",
+      "study",
+    ]);
   });
 
   it("is the same calendar whichever order the claims arrive in", () => {
@@ -167,9 +157,7 @@ describe("who wins a contested minute", () => {
     const parts = {
       meetingPatterns: [meeting({ startTime: "09:00", endTime: "12:00" })],
       commitments: [commitment({ startTime: "11:00", endTime: "13:00" })],
-      sessions: [
-        { workItemId: "wi_1", courseId: "crs_bio", startAt: iso("10:00"), endAt: iso("14:00") },
-      ],
+      sessions: [{ workItemId: "wi_1", courseId: "crs_bio", startAt: iso("10:00"), endAt: iso("14:00") }],
       meals: [meal("12:30", "13:10")],
     };
     const forwards = build(parts);
@@ -198,9 +186,7 @@ describe("who wins a contested minute", () => {
     // come back as two adjacent boxes with the same label.
     const c = build({
       meetingPatterns: [meeting({ startTime: "09:00", endTime: "12:00" })],
-      sessions: [
-        { workItemId: "wi_1", courseId: "crs_bio", startAt: iso("10:00"), endAt: iso("10:30") },
-      ],
+      sessions: [{ workItemId: "wi_1", courseId: "crs_bio", startAt: iso("10:00"), endAt: iso("10:30") }],
     });
     expect(day(c).slots.filter((s) => s.kind === "class")).toHaveLength(1);
   });
@@ -254,9 +240,7 @@ describe("deadlines on the calendar", () => {
   };
 
   it("draws work due on a day the plan booked nothing for", () => {
-    const c = build({
-      deadlines: [{ ...paper, dueAt: iso("23:59") }],
-    });
+    const c = build({ deadlines: [{ ...paper, dueAt: iso("23:59") }] });
     expect(day(c).due.map((d) => d.title)).toEqual(["Response paper"]);
     expect(day(c).due[0]!.nothingBooked).toBe(true);
   });

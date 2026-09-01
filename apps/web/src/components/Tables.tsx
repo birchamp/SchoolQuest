@@ -1,10 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
 import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
-import {
-  buildWeekCalendar,
-  DEFAULT_EFFORT_MINUTES,
-  type SlotKind,
-} from "@schoolquest/planning-engine";
+import { buildWeekCalendar, DEFAULT_EFFORT_MINUTES, type SlotKind } from "@schoolquest/planning-engine";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
@@ -436,11 +432,11 @@ export function AssignmentsTable({
         <span className="sr-only">All assignments</span>
       </h2>
       <p className="muted" style={{ margin: "0 0 0.6rem" }}>
-        When an instructor moves a date, sets something new, or drops a task, change it here and the
-        week is replanned around it. A date the syllabus never stated is shown empty rather than
-        guessed, and a deadline with no stated hour is taken as the end of that day until you say
-        otherwise. &ldquo;Not doing it&rdquo; keeps the record; Delete is for work that was never
-        really there.
+        When an instructor moves a date, sets something new, or drops a task, change it here and
+        the week is replanned around it. A date the syllabus never stated is shown empty rather
+        than guessed, and a deadline with no stated hour is taken as the end of that day until
+        you say otherwise. &ldquo;Not doing it&rdquo; keeps the record; Delete is for work that
+        was never really there.
       </p>
 
       <div className="button-row" style={{ marginBottom: "0.6rem" }}>
@@ -588,11 +584,7 @@ export function AssignmentsTable({
                         inputMode="numeric"
                         placeholder="?"
                         style={{ width: "4.5rem", textAlign: "right" }}
-                        disabled={
-                          busy === item.id ||
-                          item.status === "completed" ||
-                          item.status === "submitted"
-                        }
+                        disabled={busy === item.id || item.status === "completed" || item.status === "submitted"}
                         value={efforts[item.id] ?? (effort === null ? "" : String(effort))}
                         onChange={(e) => setEfforts((s) => ({ ...s, [item.id]: e.target.value }))}
                         onBlur={(e) => void saveEffort(item, e.target.value)}
@@ -600,13 +592,11 @@ export function AssignmentsTable({
                     </label>
                     {/* Blank does not mean zero: the planner is already using a per-type assumption.
                         Showing it makes the "?" a number to confirm rather than a hole to fill. */}
-                    {effort === null &&
-                      item.status !== "completed" &&
-                      item.status !== "submitted" && (
-                        <span className="muted" style={{ fontSize: "0.72rem", display: "block" }}>
-                          ~{assumedEffortLabel(item.workType)} assumed
-                        </span>
-                      )}
+                    {effort === null && item.status !== "completed" && item.status !== "submitted" && (
+                      <span className="muted" style={{ fontSize: "0.72rem", display: "block" }}>
+                        ~{assumedEffortLabel(item.workType)} assumed
+                      </span>
+                    )}
                   </td>
                   <td style={{ textAlign: "right" }}>
                     <label>
@@ -619,10 +609,7 @@ export function AssignmentsTable({
                         placeholder="?"
                         style={{ width: "4.5rem", textAlign: "right" }}
                         disabled={busy === item.id}
-                        value={
-                          worths[item.id] ??
-                          (item.pointsPossible === null ? "" : String(item.pointsPossible))
-                        }
+                        value={worths[item.id] ?? (item.pointsPossible === null ? "" : String(item.pointsPossible))}
                         onChange={(e) => setWorths((s) => ({ ...s, [item.id]: e.target.value }))}
                         onBlur={(e) => void saveWorth(item, e.target.value)}
                       />
@@ -631,9 +618,7 @@ export function AssignmentsTable({
                         that weight so the cell says what the item is worth rather than nothing. */}
                     {item.pointsPossible === null &&
                       (() => {
-                        const cat = item.gradingCategoryId
-                          ? categoryById.get(item.gradingCategoryId)
-                          : null;
+                        const cat = item.gradingCategoryId ? categoryById.get(item.gradingCategoryId) : null;
                         return cat && cat.weightPercent !== null ? (
                           <span className="muted" style={{ fontSize: "0.72rem", display: "block" }}>
                             {cat.weightPercent}% &middot; {cat.name}
@@ -696,9 +681,7 @@ export function AssignmentsTable({
                             step="any"
                             min="0"
                             inputMode="decimal"
-                            placeholder={
-                              item.pointsPossible ? String(item.pointsPossible) : "total"
-                            }
+                            placeholder={item.pointsPossible ? String(item.pointsPossible) : "total"}
                             style={{ width: "4.5rem" }}
                             disabled={busy === item.id}
                             value={scores[item.id]?.outOf ?? ""}
@@ -915,7 +898,7 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
             minuteOfDay: slot.start - base,
             title: slot.title ?? KIND_WORD[slot.kind],
             course: slot.courseId ? courseLabel(coursesById.get(slot.courseId)) : "—",
-            minutes: slot.minutes,
+            minutes: slot.minutes as number | null,
             kind: KIND_WORD[slot.kind],
           };
         }),
@@ -925,9 +908,9 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
      * A deadline is a row here too, with no length.
      *
      * `Length` is deliberately blank rather than zero: the column is minutes of the week
-     * spent, and a deadline spends none of them, so a 0 would be added up by a reader
-     * scanning the column and a dash would not. Sorting by Starts still puts it where it
-     * belongs in the day, because a deadline does happen at a time even when it takes none.
+     * spent, and a deadline spends none of them, so a 0 would be added into a total by a
+     * reader scanning the column and a dash would not. Sorting by Starts still puts it where
+     * it belongs in the day, because a deadline does happen at a time even when it takes none.
      */
     const due = calendar.days.flatMap((day) =>
       day.due.map((deadline) => ({
@@ -964,8 +947,8 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
       </h2>
       <p className="muted" style={{ margin: "0 0 0.6rem", fontSize: "0.85rem" }}>
         study {formatMinutes(rows.totals.study)} · class {formatMinutes(rows.totals.class)} ·
-        committed {formatMinutes(rows.totals.commitment)} · meals {formatMinutes(rows.totals.meal)}{" "}
-        · free {formatMinutes(rows.totals.free)}
+        committed {formatMinutes(rows.totals.commitment)} · meals{" "}
+        {formatMinutes(rows.totals.meal)} · free {formatMinutes(rows.totals.free)}
       </p>
 
       <div className="table-scroll">
@@ -993,11 +976,7 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
                 </th>
                 <td>{row.course}</td>
                 <td style={{ textAlign: "right" }}>
-                  {row.minutes === null ? (
-                    <span className="muted">—</span>
-                  ) : (
-                    formatMinutes(row.minutes)
-                  )}
+                  {row.minutes === null ? <span className="muted">—</span> : formatMinutes(row.minutes)}
                 </td>
               </tr>
             ))}
@@ -1058,8 +1037,8 @@ export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: The
         <span className="sr-only">What is coming</span>
       </h2>
       <p className="muted" style={{ margin: "0 0 0.6rem" }}>
-        Every major piece of work in the term. Prep is the time already booked toward it — zero
-        means nothing has been set aside yet.
+        Every major piece of work in the term. Prep is the time already booked toward it —
+        zero means nothing has been set aside yet.
       </p>
 
       <div className="table-scroll">
@@ -1233,7 +1212,8 @@ export function CoursesTable({ plan, theme }: { plan: PlanResponse; theme: Theme
                     <span className="muted">no grades yet</span>
                   ) : (
                     <>
-                      {Math.round(row.grade)}%{/* Never a percentage without its basis. */}
+                      {Math.round(row.grade)}%
+                      {/* Never a percentage without its basis. */}
                       <span className="muted" style={{ display: "block", fontSize: "0.74rem" }}>
                         {row.gradedWeightFraction > 0
                           ? `${Math.round(row.gradedWeightFraction * 100)}% graded`
@@ -1327,9 +1307,7 @@ function AddAssignmentForm({
       }}
     >
       <label style={{ display: "grid", gap: "0.2rem" }}>
-        <span className="muted" style={{ fontSize: "0.78rem" }}>
-          Class
-        </span>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>Class</span>
         <select value={courseId} onChange={(e) => setCourseId(e.target.value)}>
           {courses.map((course) => (
             <option key={course.id} value={course.id}>
@@ -1340,9 +1318,7 @@ function AddAssignmentForm({
       </label>
 
       <label style={{ display: "grid", gap: "0.2rem", flex: "1 1 14rem" }}>
-        <span className="muted" style={{ fontSize: "0.78rem" }}>
-          What is it
-        </span>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>What is it</span>
         <input
           type="text"
           value={title}
@@ -1352,9 +1328,7 @@ function AddAssignmentForm({
       </label>
 
       <label style={{ display: "grid", gap: "0.2rem" }}>
-        <span className="muted" style={{ fontSize: "0.78rem" }}>
-          Type
-        </span>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>Type</span>
         <select value={workType} onChange={(e) => setWorkType(e.target.value)}>
           {["assignment", "reading", "quiz", "exam", "paper", "project", "lab", "discussion"].map(
             (type) => (
@@ -1367,16 +1341,12 @@ function AddAssignmentForm({
       </label>
 
       <label style={{ display: "grid", gap: "0.2rem" }}>
-        <span className="muted" style={{ fontSize: "0.78rem" }}>
-          Due
-        </span>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>Due</span>
         <input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
       </label>
 
       <label style={{ display: "grid", gap: "0.2rem" }}>
-        <span className="muted" style={{ fontSize: "0.78rem" }}>
-          By
-        </span>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>By</span>
         <input
           type="time"
           value={dueTime}
@@ -1387,9 +1357,7 @@ function AddAssignmentForm({
       </label>
 
       <label style={{ display: "grid", gap: "0.2rem" }}>
-        <span className="muted" style={{ fontSize: "0.78rem" }}>
-          Worth (pts)
-        </span>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>Worth (pts)</span>
         <input
           type="number"
           min={0}
@@ -1402,9 +1370,7 @@ function AddAssignmentForm({
       </label>
 
       <label style={{ display: "grid", gap: "0.2rem" }}>
-        <span className="muted" style={{ fontSize: "0.78rem" }}>
-          Minutes
-        </span>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>Minutes</span>
         <input
           type="number"
           min={5}
@@ -1416,11 +1382,7 @@ function AddAssignmentForm({
         />
       </label>
 
-      <button
-        className="action primary"
-        disabled={busy || title.trim().length === 0}
-        onClick={() => void add()}
-      >
+      <button className="action primary" disabled={busy || title.trim().length === 0} onClick={() => void add()}>
         {busy ? "Adding…" : "Add it"}
       </button>
     </div>

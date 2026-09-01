@@ -203,8 +203,8 @@ export function WeekCalendar({
           not carry will not take that on trust from an unexplained row of chips. */}
       {dueCount > 0 && (
         <p className="muted" style={{ margin: "0.4rem 0 0.8rem", fontSize: "0.82rem" }}>
-          Deadlines sit above each day, whether or not time is booked for them --- every dated
-          assignment on your list is here on the day it is due.
+          Deadlines sit above each day, whether or not time is booked for them --- every
+          assignment on your list that is due this week is here, on the day it is due.
           {unbookedDue > 0 && (
             <>
               {" "}
@@ -253,13 +253,18 @@ export function WeekCalendar({
           {dueCount > 0 &&
             calendar.days.map((day) => (
               <div key={`due-${day.date}`} style={{ display: "grid", gap: "0.15rem", alignContent: "start" }}>
+                {/* Never receded, unlike the bands below.
+                    A band steps back when its class is switched off because it is an hour, and
+                    the lens is about which hours to attend to. A deadline is a date, and a date
+                    softened is a date half-hidden -- which is the failure this rail exists to
+                    end. The week map leaves its unclaimed list at full strength for the same
+                    reason, and the two views have to agree. */}
                 {day.due.map((deadline) => (
                   <DueChip
                     key={deadline.workItemId}
                     deadline={deadline}
                     quest={quest}
                     course={coursesById.get(deadline.courseId)}
-                    receded={hiddenCourseIds?.has(deadline.courseId) ?? false}
                   />
                 ))}
               </div>
@@ -376,24 +381,12 @@ function DueChip({
   deadline,
   quest,
   course,
-  receded,
 }: {
   deadline: CalendarDeadline;
   quest: boolean;
   course: Course | undefined;
-  /**
-   * A switched-off class. Recedes, exactly as its bands do, and for the same reason: a
-   * deadline that disappeared with a layer toggle would hand the student back a Thursday they
-   * do not actually have free. Switching a class off is allowed to quieten the week. It is not
-   * allowed to delete a date.
-   */
-  receded: boolean;
 }) {
-  const edge = receded
-    ? "var(--border)"
-    : course
-      ? courseTincture(course.id, course.colorToken, quest)
-      : "var(--text-dim)";
+  const edge = course ? courseTincture(course.id, course.colorToken, quest) : "var(--text-dim)";
   const clock = deadline.timeStated ? clockOf(deadline.minuteOfDay) : null;
 
   return (
@@ -413,7 +406,7 @@ function DueChip({
          * conclusion: a border is the same separation and it survives every theme.
          */
         background: "transparent",
-        color: receded ? "var(--text-dim)" : "var(--text)",
+        color: "var(--text)",
         padding: "0.12rem 0.3rem",
         fontSize: "0.66rem",
         lineHeight: 1.25,

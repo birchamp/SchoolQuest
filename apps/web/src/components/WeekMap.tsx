@@ -263,21 +263,6 @@ export function WeekMap({
                 </p>
               )}
 
-              {/* And *what* is due, named.
-                  The flag above says a category; this says the assignment. It is deliberately
-                  outside the lens for the same reason the unclaimed list is: a deadline that
-                  faded when a class was switched off would let a student clear their board of
-                  Chemistry and read the resulting Thursday as free. Kept above the beats
-                  because the deadline is what the day is *for*; the blocks are how it is being
-                  met. */}
-              {(dueByDate.get(day.date) ?? []).map((deadline) => (
-                <DueLine
-                  key={deadline.workItemId}
-                  deadline={deadline}
-                  course={coursesById.get(deadline.courseId)}
-                />
-              ))}
-
               {isCrux && !day.carriesAssessment && (
                 <p className="day-flag day-flag-crux">
                   <span aria-hidden="true">{quest ? "The crux" : "Busiest day"}</span>
@@ -299,6 +284,24 @@ export function WeekMap({
                   </span>
                 </p>
               )}
+
+              {/* And *what* is due, named.
+                  Below the day's own flags and above its beats, which is where it belongs in
+                  the reading: the flags say what kind of day this is, this says what the day is
+                  *for*, and the tiles under it are how that is being met.
+
+                  Never receded. Every other mark on this board steps back when its class is
+                  switched off, and a deadline must not, for the same reason the unclaimed list
+                  does not: a student who quietens Chemistry and then reads the resulting
+                  Thursday as free has been told something false about a date. Switching a class
+                  off is allowed to quieten the week; it is not allowed to soften a deadline. */}
+              {(dueByDate.get(day.date) ?? []).map((deadline) => (
+                <DueLine
+                  key={deadline.workItemId}
+                  deadline={deadline}
+                  course={coursesById.get(deadline.courseId)}
+                />
+              ))}
 
               {/* The load line above already reads "Clear road" (or "Clear") on a day with
                   nothing on it, so an empty-state line underneath repeated it verbatim. It
