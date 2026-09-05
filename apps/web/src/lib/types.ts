@@ -40,6 +40,8 @@ export interface PlannedSession {
   startAt: string;
   endAt: string;
   minutes: number;
+  /** Present on saved-plan reads (a row's status); absent on a freshly generated plan. */
+  status?: string;
   locked: boolean;
   acceptedByUser: boolean;
   reasonCodes: string[];

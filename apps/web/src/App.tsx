@@ -365,7 +365,7 @@ export function App() {
    * correctly and then left the student looking at a stripped page with the rest of their
    * questions gone. One extra read costs a request and keeps every screen whole.
    */
-  const regenerate = useCallback(async () => {
+  const regenerate = useCallback(async (options?: { from?: string }) => {
     if (!term) return;
     // The simulated clock has to reach the *write* side too, or a replan issued while
     // looking at week nine plans week one: the horizon lands seven weeks behind everything
@@ -373,9 +373,14 @@ export function App() {
     // not a subtle failure and it made an end-to-end check of the radar's own action
     // measure nothing at all. Ignored by the server in production, exactly as on the read.
     const when = devNow();
+    // Some callers hand this to an event handler, so only a real option object counts.
+    const from = typeof options?.from === "string" ? options.from : undefined;
     const generated = await api.post<PlanResponse>(`/api/terms/${term.id}/plans/generate`, {
       reason: "manual_refresh",
-      ...(when ? { now: when, horizonStart: when.slice(0, 10) } : {}),
+      ...(when ? { now: when } : {}),
+      // A day given up is planned from the next one: the hours left in it are still "free"
+      // by the availability rules, and a replan from now simply books them again.
+      ...(from ? { horizonStart: from } : when ? { horizonStart: when.slice(0, 10) } : {}),
     });
     // The diff rides on the generate response only; the read that follows is the plan as
     // every screen sees it. Held here so Today and the week can both say what just changed.
@@ -598,8 +603,10 @@ export function App() {
           {tab === "today" && (
             <Today
               plan={plan}
+              termId={term.id}
               theme={theme}
               onChanged={refreshPlan}
+              onReplan={regenerate}
               onGoToSetup={goToEffortSurvey}
               onOpenWork={openWorkItem}
             />
@@ -885,7 +892,7 @@ export function App() {
               <section className="card">
                 <h2>Account</h2>
                 <div className="button-row">
-                  <button className="action" onClick={regenerate}>
+                  <button className="action" onClick={() => void regenerate()}>
                     Rebuild this week&apos;s plan
                   </button>
                   <button className="action" onClick={() => setConfirmNewTerm((v) => !v)}>

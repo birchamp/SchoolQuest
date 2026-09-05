@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ThemeName } from "@schoolquest/domain";
 import { explainRisk, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
+import { addDays } from "@schoolquest/domain";
 import { clearSessionStarted, minutesSinceStarted, noteSessionStarted } from "../lib/session-clock";
 import type { PlanResponse } from "../lib/types";
 
@@ -31,14 +32,22 @@ interface CompleteResult {
  */
 export function Today({
   plan,
+  termId,
   theme,
   onChanged,
+  onReplan,
   onGoToSetup,
   onOpenWork,
 }: {
   plan: PlanResponse;
+  termId: string;
   theme: ThemeName;
   onChanged: () => void;
+  /**
+   * Rebuilds the week and shows what moved. Used after a whole day is given up, and then
+   * from the next day, so the hours left in the lost one are not simply booked again.
+   */
+  onReplan: (options?: { from?: string }) => Promise<void>;
   /** Takes the student to Setup, where the effort survey lives. */
   onGoToSetup: () => void;
   /**
@@ -59,6 +68,22 @@ export function Today({
   >(null);
 
   const [primary, ...alternatives] = plan.recommendations;
+  /** Whether the "today is lost" confirmation is open. */
+  const [losingDay, setLosingDay] = useState(false);
+  async function loseDay() {
+    setBusy("lost-day");
+    setError(null);
+    try {
+      await api.post(`/api/terms/${termId}/days/${today}/lost`, {});
+      for (const s of openToday) clearSessionStarted(s.id);
+      setLosingDay(false);
+      await onReplan({ from: addDays(today, 1) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not work.");
+    } finally {
+      setBusy(null);
+    }
+  }
   const underway = primary?.status === "started";
   /**
    * Re-renders the "started N minutes ago" line once a minute while a block is underway. The
@@ -75,6 +100,16 @@ export function Today({
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
   const today = new Date().toISOString().slice(0, 10);
+  /**
+   * Blocks still open today, which is what giving the day up costs. Rows carry a status on a
+   * saved-plan read; a freshly generated plan's blocks are all still open.
+   */
+  const openToday = plan.sessions.filter(
+    (s) =>
+      s.startAt.slice(0, 10) === today &&
+      (s.status === undefined || s.status === "planned" || s.status === "started"),
+  );
+
 
   /**
    * "Revelation (REL 101)" -- the class an assignment belongs to, with its code when the
@@ -610,6 +645,43 @@ export function Today({
             Nothing is scheduled for the rest of today. That is a real answer, not an error — the
             week ahead is still planned.
           </p>
+        </section>
+      )}
+
+      {/* The whole day, given up in one place. "Not now" handles one block; a day that is
+          not going to happen used to mean skipping each block in turn from a card that only
+          ever showed the first. Nothing is deleted: the work moves, and the replan says
+          where. */}
+      {openToday.length > 0 && (
+        <section className="card" data-testid="lost-day">
+          {!losingDay ? (
+            <p style={{ margin: 0, display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+              <span className="muted">
+                {quest ? "The day is lost?" : "Today is not going to happen?"}
+              </span>
+              <button className="action" disabled={busy !== null} onClick={() => setLosingDay(true)}>
+                {quest ? "Retreat and redraw the map" : "Skip today and replan"}
+              </button>
+            </p>
+          ) : (
+            <div>
+              <p style={{ margin: "0 0 0.5rem" }}>
+                {openToday.length === 1
+                  ? "The one block still planned for today"
+                  : `The ${openToday.length} blocks still planned for today`}{" "}
+                will be marked as not done, and the week redrawn around what is left. Nothing is
+                deleted, and you will see what moved.
+              </p>
+              <div className="button-row">
+                <button className="action primary" disabled={busy !== null} onClick={() => void loseDay()}>
+                  {busy === "lost-day" ? "Replanning…" : "Yes, skip today"}
+                </button>
+                <button className="action" disabled={busy !== null} onClick={() => setLosingDay(false)}>
+                  Keep today
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       )}
 
