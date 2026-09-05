@@ -210,6 +210,27 @@ body[data-reduced-motion="true"] *::before {
   flex-wrap: wrap;
 }
 
+/* A block that is underway says so, in words; the dot is a second signal, never the only one.
+   The global reduced-motion rules stop the pulse. */
+.session-underway {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+.session-underway-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: session-underway-pulse 2s ease-in-out infinite;
+}
+@keyframes session-underway-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 button.action,
 label.action {
   background: var(--surface-2);

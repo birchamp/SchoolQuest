@@ -900,6 +900,8 @@ function buildRecommendations(
 export interface RecommendableSession {
   workItemId: string;
   startAt: string;
+  /** Live rows carry a status; a block marked "started" is underway whatever the clock says. */
+  status?: string;
 }
 
 /**
@@ -923,10 +925,17 @@ export function selectRecommendedSessions<T extends RecommendableSession>(
 ): T[] {
   const endOfToday = dateToEpochMinutes(epochMinutesToDate(now)) + MINUTES_PER_DAY;
 
+  // A block the student has started stays on Today until its outcome is recorded, however long
+  // ago it was booked. The 30-minute grace below used to be the only thing keeping it there, so
+  // a block started and then forgotten dropped off the screen with its status stuck at
+  // "started" and nowhere left to finish it.
+  const underway = sessions.filter((s) => s.status === "started").sort(compare);
   // A 30-minute grace period keeps a block that just started from vanishing from Today.
-  const upcoming = sessions.filter((s) => toEpochMinutes(s.startAt) >= now - 30).sort(compare);
+  const upcoming = sessions
+    .filter((s) => s.status !== "started" && toEpochMinutes(s.startAt) >= now - 30)
+    .sort(compare);
   const todays = upcoming.filter((s) => toEpochMinutes(s.startAt) < endOfToday);
-  const chosen = todays.length > 0 ? todays : nextScheduledDay(upcoming);
+  const chosen = [...underway, ...(todays.length > 0 ? todays : nextScheduledDay(upcoming))];
 
   // One session per work item. Long assignments are split into several blocks on the same
   // day, which made Today offer "Lab Notebook" as the next action and then again as both

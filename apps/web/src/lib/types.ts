@@ -21,6 +21,8 @@ export type CampaignRadarView = CampaignRadar;
 export interface Recommendation {
   rank: number;
   sessionId: string;
+  /** "planned" or "started". Absent from a freshly generated plan, whose blocks are all planned. */
+  status?: string;
   workItemId: string;
   title: string;
   courseId: string;

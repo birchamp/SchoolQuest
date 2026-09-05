@@ -227,6 +227,10 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
       return {
         rank: index,
         sessionId: session.id,
+        // A started block is still the recommendation until its outcome is recorded, and the
+        // screen has to be able to say so -- "Start" on a block already underway is the bug
+        // that made Today's primary button look dead.
+        status: session.status,
         workItemId: session.workItemId,
         title,
         courseId: item?.courseId ?? "",

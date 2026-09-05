@@ -23,6 +23,7 @@ export type LabelKey =
   | "grade"
   | "coach"
   | "startSession"
+  | "inProgress"
   | "planRisk"
   | "progress"
   | "statsPage"
@@ -57,6 +58,7 @@ export const LABELS: Record<LabelKey, LabelSet> = {
   grade: { quest: "Outcome", mission: "Readout", plain: "Grade" },
   coach: { quest: "Guide", mission: "Handler", plain: "Coach" },
   startSession: { quest: "Begin encounter", mission: "Begin sortie", plain: "Start session" },
+  inProgress: { quest: "Encounter underway", mission: "Sortie underway", plain: "In progress" },
   planRisk: { quest: "Hazard", mission: "Risk", plain: "Planning risk" },
   progress: { quest: "Progress", mission: "Status", plain: "Progress" },
   statsPage: { quest: "Chronicle", mission: "Readiness", plain: "Progress" },
