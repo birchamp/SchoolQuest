@@ -1,13 +1,16 @@
+import { useEffect, useRef, useState } from "react";
 import type { Course, ThemeName } from "@schoolquest/domain";
+import { toEpochMinutes } from "@schoolquest/domain";
 import {
   buildWeekCalendar,
   type CalendarDeadline,
   type CalendarSlot,
   type SlotKind,
 } from "@schoolquest/planning-engine";
+import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
-import type { PlanResponse } from "../lib/types";
+import type { PlanResponse, PlannedSession } from "../lib/types";
 import { CalendarLegend } from "./CalendarLegend";
 
 /**
@@ -116,13 +119,22 @@ function clockOf(minuteOfDay: number): string {
   });
 }
 
+/** A study band is moved in these steps: a quarter hour up or down, a whole day across. */
+const NUDGE_MINUTES = 15;
+
 export function WeekCalendar({
   plan,
   theme,
   hiddenCourseIds,
+  onChanged,
 }: {
   plan: PlanResponse;
   theme: ThemeName;
+  /**
+   * Called after a block is moved or locked, so the plan is read back. When absent the grid is
+   * read-only, which is how the screenshot tools use it.
+   */
+  onChanged?: () => void;
   /**
    * Classes switched off at the tab level.
    *
@@ -138,6 +150,88 @@ export function WeekCalendar({
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
   const today = new Date().toISOString().slice(0, 10);
+
+  /**
+   * Editing a block from the grid.
+   *
+   * Every band here used to be inert: the server has had move and lock routes for as long as
+   * it has had blocks, and no screen called them (the coach could lock one, if the model
+   * happened to propose it). Keyboard first, because a grid a screen-reader user can operate
+   * is the PRD's own criterion (FR-10) and it is the version that can be tested; dragging is
+   * the same two calls with a different gesture and can come later.
+   *
+   * The slot knows its work item and start minute; that pair finds the session row, which is
+   * what the routes address.
+   */
+  const sessionsByKey = new Map<string, PlannedSession>(
+    plan.sessions.map((s) => [`${s.workItemId}:${toEpochMinutes(s.startAt)}`, s]),
+  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const selected = selectedId ? plan.sessions.find((s) => s.id === selectedId) ?? null : null;
+  const editable = onChanged !== undefined;
+
+  /**
+   * Keeps the keyboard on the block it was moving.
+   *
+   * A moved band is drawn as a new element (its key is its start minute), so focus fell to
+   * the page after every arrow press and the second press went nowhere. Only after an edit
+   * from this grid, never on an unrelated refresh.
+   */
+  const refocus = useRef<string | null>(null);
+  useEffect(() => {
+    if (!refocus.current) return;
+    const target = document.querySelector<HTMLElement>(`[data-session-id="${refocus.current}"]`);
+    refocus.current = null;
+    target?.focus();
+  }, [plan]);
+
+  async function moveBy(session: PlannedSession, deltaMinutes: number) {
+    const startAt = new Date(Date.parse(session.startAt) + deltaMinutes * 60_000).toISOString();
+    const endAt = new Date(Date.parse(session.endAt) + deltaMinutes * 60_000).toISOString();
+    await edit(session.id, () => api.post(`/api/work-sessions/${session.id}/move`, { startAt, endAt }));
+  }
+
+  async function toggleLock(session: PlannedSession) {
+    await edit(session.id, () => api.post(`/api/work-sessions/${session.id}/lock`, { locked: !session.locked }));
+  }
+
+  async function edit(sessionId: string, call: () => Promise<unknown>) {
+    if (!editable || busy) return;
+    setBusy(true);
+    setEditError(null);
+    try {
+      await call();
+      refocus.current = sessionId;
+      onChanged?.();
+    } catch (e) {
+      // The server says exactly what is in the way -- another block, a class, a fixed
+      // commitment -- and that sentence is the whole feedback.
+      setEditError(e instanceof Error ? e.message : "That did not work.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onBandKey(session: PlannedSession, e: React.KeyboardEvent) {
+    if (e.key !== "Escape") setSelectedId(session.id);
+    const handlers: Record<string, () => void> = {
+      ArrowUp: () => void moveBy(session, -NUDGE_MINUTES),
+      ArrowDown: () => void moveBy(session, NUDGE_MINUTES),
+      ArrowLeft: () => void moveBy(session, -24 * 60),
+      ArrowRight: () => void moveBy(session, 24 * 60),
+      l: () => void toggleLock(session),
+      L: () => void toggleLock(session),
+      Enter: () => setSelectedId(session.id),
+      " ": () => setSelectedId(session.id),
+      Escape: () => setSelectedId(null),
+    };
+    const handler = handlers[e.key];
+    if (!handler) return;
+    e.preventDefault();
+    handler();
+  }
   const horizonStart = plan.horizonStart ?? plan.planVersion?.horizonStart ?? today;
 
   const calendar = buildWeekCalendar({
@@ -317,17 +411,27 @@ export function WeekCalendar({
                   />
                 ))}
 
-                {day.slots.map((slot) => (
-                  <Band
-                    key={`${slot.kind}-${slot.start}`}
-                    slot={slot}
-                    base={base}
-                    windowStart={calendar.windowStartMinute}
-                    quest={quest}
-                    course={slot.courseId ? coursesById.get(slot.courseId) : undefined}
-                    receded={slot.courseId !== null && (hiddenCourseIds?.has(slot.courseId) ?? false)}
-                  />
-                ))}
+                {day.slots.map((slot) => {
+                  const session =
+                    editable && slot.kind === "study" && slot.workItemId
+                      ? sessionsByKey.get(`${slot.workItemId}:${slot.start}`) ?? null
+                      : null;
+                  return (
+                    <Band
+                      key={`${slot.kind}-${slot.start}`}
+                      slot={slot}
+                      base={base}
+                      windowStart={calendar.windowStartMinute}
+                      quest={quest}
+                      course={slot.courseId ? coursesById.get(slot.courseId) : undefined}
+                      receded={slot.courseId !== null && (hiddenCourseIds?.has(slot.courseId) ?? false)}
+                      session={session}
+                      selected={session !== null && session.id === selectedId}
+                      onSelect={session ? () => setSelectedId(session.id) : undefined}
+                      onKey={session ? (e) => onBandKey(session, e) : undefined}
+                    />
+                  );
+                })}
 
                 {/* A stated deadline, at its hour.
                     Only when a time was actually stated and it falls inside the drawn window:
@@ -362,8 +466,68 @@ export function WeekCalendar({
           })}
         </div>
       </div>
+
+      {editable && (
+        <p id="calendar-block-help" className="muted" style={{ margin: "0.6rem 0 0", fontSize: "0.82rem" }}>
+          Study blocks can be moved: pick one, then use the buttons, or the arrow keys on the
+          block itself (up and down by a quarter hour, left and right by a day; L locks it in
+          place so a replan leaves it alone).
+        </p>
+      )}
+
+      {editable && selected && (
+        <div
+          className="calendar-block-tools"
+          role="group"
+          aria-label="Move or lock the selected study block"
+          data-testid="calendar-block-tools"
+        >
+          <p style={{ margin: "0 0 0.4rem" }}>
+            <strong>{itemsById.get(selected.workItemId)?.title ?? "Study"}</strong>
+            <span className="muted">
+              {" "}
+              &middot; {describeWhen(selected)} &middot; {formatMinutes(selected.minutes)}
+              {selected.locked && " · locked"}
+            </span>
+          </p>
+          <div className="button-row">
+            <button className="action" disabled={busy} onClick={() => void moveBy(selected, -NUDGE_MINUTES)}>
+              Earlier
+            </button>
+            <button className="action" disabled={busy} onClick={() => void moveBy(selected, NUDGE_MINUTES)}>
+              Later
+            </button>
+            <button className="action" disabled={busy} onClick={() => void moveBy(selected, -24 * 60)}>
+              Previous day
+            </button>
+            <button className="action" disabled={busy} onClick={() => void moveBy(selected, 24 * 60)}>
+              Next day
+            </button>
+            <button className="action" disabled={busy} onClick={() => void toggleLock(selected)} aria-pressed={selected.locked}>
+              {selected.locked ? "Unlock" : "Lock in place"}
+            </button>
+            <button className="action" disabled={busy} onClick={() => setSelectedId(null)}>
+              Done
+            </button>
+          </div>
+          {editError && (
+            <p className="error" role="alert" style={{ marginTop: "0.5rem" }}>
+              {editError}
+            </p>
+          )}
+        </div>
+      )}
     </section>
   );
+}
+
+/** "Mon 9:00 AM", in the app's UTC wall clock. */
+function describeWhen(session: PlannedSession): string {
+  const d = new Date(session.startAt);
+  return `${d.toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" })} ${d.toLocaleTimeString(
+    undefined,
+    { hour: "numeric", minute: "2-digit", timeZone: "UTC" },
+  )}`;
 }
 
 /**
@@ -448,6 +612,10 @@ function Band({
   quest,
   course,
   receded,
+  session,
+  selected,
+  onSelect,
+  onKey,
 }: {
   slot: CalendarSlot;
   base: number;
@@ -455,7 +623,13 @@ function Band({
   quest: boolean;
   course: Course | undefined;
   receded: boolean;
+  /** The block behind a study band, when the grid is editable. */
+  session?: PlannedSession | null;
+  selected?: boolean;
+  onSelect?: () => void;
+  onKey?: (e: React.KeyboardEvent) => void;
 }) {
+  const interactive = Boolean(session && onSelect);
   const top = (slot.start - base - windowStart) * PIXELS_PER_MINUTE;
   const height = slot.minutes * PIXELS_PER_MINUTE;
   const own = bandStyle(slot.kind);
@@ -490,6 +664,17 @@ function Band({
 
   return (
     <div
+      {...(interactive
+        ? {
+            role: "button",
+            tabIndex: 0,
+            "aria-pressed": selected,
+            "aria-describedby": "calendar-block-help",
+            "data-session-id": session!.id,
+            onClick: onSelect,
+            onKeyDown: onKey,
+          }
+        : {})}
       style={{
         position: "absolute",
         left: 2,
@@ -499,6 +684,9 @@ function Band({
         background: style.background,
         color: style.color,
         borderLeft: `3px solid ${receded ? "var(--border)" : edge}`,
+        outline: selected ? "2px solid var(--accent)" : undefined,
+        outlineOffset: selected ? 1 : undefined,
+        cursor: interactive ? "pointer" : undefined,
         border: slot.kind === "free" ? "none" : undefined,
         borderRadius: 4,
         padding: height > 26 ? "0.15rem 0.3rem" : "0 0.3rem",
@@ -515,6 +703,8 @@ function Band({
       <span className="sr-only">
         {KIND_WORD[slot.kind]}: {label}, {formatMinutes(slot.minutes)} from{" "}
         {clockOf(slot.start - base)}
+        {session?.locked ? ", locked in place" : ""}
+        {interactive ? ". Press Enter to select, arrow keys to move, L to lock." : ""}
       </span>
       {worthNaming && (
         <span aria-hidden="true">
@@ -523,6 +713,7 @@ function Band({
               de-emphasis and measured below the floor for it. The band's own colour is
               already the quiet one; the prefix simply shares it. */}
           {slot.kind !== "free" && <span>{clockOf(slot.start - base)} </span>}
+          {session?.locked && <span title="Locked in place">&#9646; </span>}
           {label}
           {course && height > 40 && (
             <span style={{ display: "block" }}>{course.code ?? course.name}</span>

@@ -21,6 +21,8 @@ export type CampaignRadarView = CampaignRadar;
 export interface Recommendation {
   rank: number;
   sessionId: string;
+  /** "planned" or "started". Absent from a freshly generated plan, whose blocks are all planned. */
+  status?: string;
   workItemId: string;
   title: string;
   courseId: string;
@@ -38,6 +40,8 @@ export interface PlannedSession {
   startAt: string;
   endAt: string;
   minutes: number;
+  /** Present on saved-plan reads (a row's status); absent on a freshly generated plan. */
+  status?: string;
   locked: boolean;
   acceptedByUser: boolean;
   reasonCodes: string[];
@@ -348,8 +352,27 @@ export interface TermHealthView {
   coursesUnplanned: number;
 }
 
+/** One block as the replan diff names it. */
+export interface PlanDiffBlock {
+  sessionId: string;
+  workItemId: string;
+  startAt: string;
+  endAt: string;
+}
+
+/** What a regenerate changed. Present on the generate response only. */
+export interface PlanDiff {
+  kept: PlanDiffBlock[];
+  moved: { workItemId: string; from: PlanDiffBlock; to: PlanDiffBlock }[];
+  added: PlanDiffBlock[];
+  dropped: PlanDiffBlock[];
+  unchanged: boolean;
+}
+
 export interface PlanResponse {
   planVersionId?: string;
+  /** What this plan changed against the one it replaces. Generate responses only. */
+  diff?: PlanDiff;
   planVersion?: { id: string; versionNumber: number; horizonStart: string; horizonEnd: string } | null;
   horizonStart?: string;
   horizonEnd?: string;

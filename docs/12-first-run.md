@@ -60,7 +60,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 git clone https://github.com/birchamp/SchoolQuest
 cd SchoolQuest
 pnpm install
-pnpm setup
+pnpm run setup
 ```
 
 That first line is not optional on a default Windows install, and leaving it out fails in a way
@@ -71,8 +71,9 @@ no administrator rights and lasts only for that window.
 
 Typing `pnpm.cmd` instead of `pnpm` sidesteps it too, for a one-off.
 
-`pnpm setup` writes `apps/api/.dev.vars` with a freshly generated `AUTH_SECRET` and creates the
-local database. It is safe to run again.
+`pnpm run setup` writes `apps/api/.dev.vars` with a freshly generated `AUTH_SECRET` and creates
+the local database. It is safe to run again. The `run` matters: `pnpm setup` without it is pnpm's
+own command for installing itself, and it runs instead of ours without saying so.
 
 Then check everything before you start:
 
@@ -105,7 +106,7 @@ Ctrl-C stops both.
 
 ### A desktop shortcut, so you never type any of this again
 
-Once, after `pnpm setup`:
+Once, after `pnpm run setup`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\windows\create-shortcut.ps1
@@ -206,8 +207,8 @@ you hit something not in it, that is a genuinely new one.
 | Port 8787 or 5173 in use | An earlier run is still going: `netstat -ano \| findstr :8787` then `taskkill /pid <pid> /f` |
 | "No OpenRouter key is set" | Setup → AI and model |
 | Upload is greyed out | The semester calendar is not filled in yet — step 2 |
-| `no such table: users` | Migrations did not run: `pnpm setup` |
-| Sign-in does nothing | `AUTH_SECRET` is missing. Delete `apps/api/.dev.vars` and run `pnpm setup`. |
+| `no such table: users` | Migrations did not run: `pnpm run setup` |
+| Sign-in does nothing | `AUTH_SECRET` is missing. Delete `apps/api/.dev.vars` and run `pnpm run setup`. |
 
 The terminal running `pnpm dev` prefixes every line with `[api]` or `[web]`, so it is clear which
 half is complaining. That output is the most useful thing to keep if something needs reporting.

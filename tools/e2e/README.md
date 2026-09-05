@@ -1,3 +1,23 @@
+# End-to-end checks
+
+## The acceptance journey (runs on every push)
+
+`pnpm test:acceptance` starts both halves, drives the release acceptance list from
+`docs/02-prd.md` §7 through a real browser against the real Worker, and stops them again:
+sign in, add a course and an assignment and see them appear, start and stop a session,
+move and lock a block from the hour calendar, have a bad move refused, give up a day and
+read what moved, record a grade, switch themes, and ask the coach without a key. Every step
+is asserted from the DOM, and the job fails on any of them. `--attach` uses servers that are
+already running. `.github/workflows/ci.yml` runs it, then `contrast.mjs` per theme.
+
+It exists because the primary button on Today was dead for a month and nothing could
+notice: every other test in the repository is a pure function.
+
+It plans from nine in the morning today, whatever the clock says, so a run near midnight
+still has a today to book. Each run signs up a fresh `acceptance-<timestamp>@example.edu`
+account in whichever database the Worker is using; on a developer's machine that is the
+local one, and those accounts are harmless but do accumulate.
+
 # End-to-end semester test
 
 Drives the complete student journey through the real Worker API: fresh account,

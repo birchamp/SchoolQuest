@@ -73,3 +73,13 @@ export async function providerForUser(
 export const NO_PROVIDER_MESSAGE =
   "No OpenRouter key is set, so nothing can read your syllabus yet. Add your key under Setup → " +
   "AI and model, then try the upload again.";
+
+/**
+ * The same situation, met from the coach.
+ *
+ * The coach route used to return the syllabus message verbatim, so a student who had typed a
+ * question was told about an upload they never attempted.
+ */
+export const NO_COACH_PROVIDER_MESSAGE =
+  "No OpenRouter key is set, so the coach cannot answer yet. Add your key under Setup → " +
+  "AI and model, then ask again. Your plan works without it.";

@@ -168,6 +168,31 @@ body[data-reduced-motion="true"] *::before {
   margin-bottom: 0.85rem;
 }
 
+.calendar-block-tools {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 0.92rem;
+}
+
+.plan-changes-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.92rem;
+}
+.plan-changes-list li {
+  margin: 0.15rem 0;
+}
+.plan-changes-kind {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-right: 0.2rem;
+}
+
 .card h2 {
   font-size: 0.75rem;
   text-transform: uppercase;
@@ -208,6 +233,27 @@ body[data-reduced-motion="true"] *::before {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+/* A block that is underway says so, in words; the dot is a second signal, never the only one.
+   The global reduced-motion rules stop the pulse. */
+.session-underway {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+.session-underway-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: session-underway-pulse 2s ease-in-out infinite;
+}
+@keyframes session-underway-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 button.action,

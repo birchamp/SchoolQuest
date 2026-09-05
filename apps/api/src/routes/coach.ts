@@ -12,7 +12,7 @@ import { generatePlan } from "@schoolquest/planning-engine";
 import { coachMessages, users } from "../db/schema.js";
 import { assertTermOwner, getDb, loadTermSnapshot, toPlanningInput } from "../db/repo.js";
 import { loadReview } from "./review.js";
-import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
+import { NO_COACH_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import type { AppBindings } from "../env.js";
 
 const messageBody = z.object({
@@ -41,7 +41,7 @@ coachRoute.post("/coach/messages", async (c) => {
   }
 
   const resolved = await providerForUser(db, c.env, userId);
-  if (!resolved.apiKey) return c.json({ error: NO_PROVIDER_MESSAGE }, 503);
+  if (!resolved.apiKey) return c.json({ error: NO_COACH_PROVIDER_MESSAGE }, 503);
 
   const [user] = await db.select().from(users).where(eq(users.id, userId));
   const theme = parsed.data.theme ?? (user?.theme as "quest" | "mission" | "plain") ?? "plain";

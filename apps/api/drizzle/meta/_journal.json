@@ -43,6 +43,13 @@
       "when": 1785381565105,
       "tag": "0005_calendar_days",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785381565106,
+      "tag": "0006_provider_settings",
+      "breakpoints": true
     }
   ]
 }

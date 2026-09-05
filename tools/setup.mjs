@@ -12,7 +12,7 @@
  * something looks wrong is run the setup command again. It never overwrites an existing
  * `.dev.vars`, because that file may hold a real key.
  *
- *   node tools/setup.mjs        (or: pnpm setup)
+ *   node tools/setup.mjs        (or: pnpm run setup -- `pnpm setup` alone is pnpm's own command)
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";

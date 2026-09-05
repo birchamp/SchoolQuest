@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ThemeName } from "@schoolquest/domain";
 import { explainRisk, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
+import { addDays } from "@schoolquest/domain";
+import { clearSessionStarted, minutesSinceStarted, noteSessionStarted } from "../lib/session-clock";
 import type { PlanResponse } from "../lib/types";
 
 /** "95" -> "1h 35m". Minutes alone stop being legible somewhere past a couple of hours. */
@@ -30,14 +32,22 @@ interface CompleteResult {
  */
 export function Today({
   plan,
+  termId,
   theme,
   onChanged,
+  onReplan,
   onGoToSetup,
   onOpenWork,
 }: {
   plan: PlanResponse;
+  termId: string;
   theme: ThemeName;
   onChanged: () => void;
+  /**
+   * Rebuilds the week and shows what moved. Used after a whole day is given up, and then
+   * from the next day, so the hours left in the lost one are not simply booked again.
+   */
+  onReplan: (options?: { from?: string }) => Promise<void>;
   /** Takes the student to Setup, where the effort survey lives. */
   onGoToSetup: () => void;
   /**
@@ -58,9 +68,48 @@ export function Today({
   >(null);
 
   const [primary, ...alternatives] = plan.recommendations;
+  /** Whether the "today is lost" confirmation is open. */
+  const [losingDay, setLosingDay] = useState(false);
+  async function loseDay() {
+    setBusy("lost-day");
+    setError(null);
+    try {
+      await api.post(`/api/terms/${termId}/days/${today}/lost`, {});
+      for (const s of openToday) clearSessionStarted(s.id);
+      setLosingDay(false);
+      await onReplan({ from: addDays(today, 1) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not work.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  const underway = primary?.status === "started";
+  /**
+   * Re-renders the "started N minutes ago" line once a minute while a block is underway. The
+   * time itself comes from `minutesSinceStarted` on every render; this only makes sure a
+   * render happens.
+   */
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    if (!underway) return;
+    const timer = setInterval(() => setClockTick((n) => n + 1), 60_000);
+    return () => clearInterval(timer);
+  }, [underway]);
+  const elapsed = underway && primary ? minutesSinceStarted(primary.sessionId) : null;
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
   const today = new Date().toISOString().slice(0, 10);
+  /**
+   * Blocks still open today, which is what giving the day up costs. Rows carry a status on a
+   * saved-plan read; a freshly generated plan's blocks are all still open.
+   */
+  const openToday = plan.sessions.filter(
+    (s) =>
+      s.startAt.slice(0, 10) === today &&
+      (s.status === undefined || s.status === "planned" || s.status === "started"),
+  );
+
 
   /**
    * "Revelation (REL 101)" -- the class an assignment belongs to, with its code when the
@@ -160,6 +209,7 @@ export function Today({
     setError(null);
     try {
       await api.post(`/api/work-sessions/${sessionId}/interrupted`, body);
+      clearSessionStarted(sessionId);
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
@@ -173,6 +223,8 @@ export function Today({
     setError(null);
     try {
       await api.post(`/api/work-sessions/${sessionId}/${action}`, body);
+      if (action === "start") noteSessionStarted(sessionId);
+      if (action === "skip") clearSessionStarted(sessionId);
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
@@ -191,10 +243,16 @@ export function Today({
     setBusy(sessionId + outcome);
     setError(null);
     try {
+      // Minutes actually worked, when this device saw the block start; the planned length
+      // otherwise, which is what "Mark done" has always recorded. Zero is sent as zero: a
+      // block stopped straight after starting did not take its planned hour.
+      const worked = minutesSinceStarted(sessionId);
       const result = await api.post<CompleteResult>(
         `/api/work-sessions/${sessionId}/complete`,
-        { outcome },
+        worked === null ? { outcome } : { outcome, actualMinutes: worked },
       );
+      clearSessionStarted(sessionId);
+      if (worked !== null) minutes = worked;
       if (result.workItemStatus === "completed") {
         setFinished({
           title,
@@ -495,17 +553,37 @@ export function Today({
           <p className="rationale">{primary.explanation}</p>
           {primary.tradeoff && <p className="muted">{primary.tradeoff}</p>}
 
+          {/* A started block says so. Before this the server changed the block's status and
+              the card re-rendered identically, so the primary button looked dead (issue #5).
+              The elapsed time is this device's memory of the start and is absent when another
+              device started it; the status itself is the server's and always shows. */}
+          {underway && (
+            <p className="session-underway" role="status" data-testid="session-underway">
+              <span className="session-underway-dot" aria-hidden="true" />
+              <strong>{label("inProgress", theme)}</strong>
+              {elapsed !== null && (
+                <span className="muted">
+                  {" "}
+                  &middot; started {elapsed === 0 ? "just now" : `${formatEffort(elapsed)} ago`}
+                </span>
+              )}
+            </p>
+          )}
+
           <div className="button-row">
+            {!underway && (
+              <button
+                className="action primary"
+                disabled={busy !== null}
+                onClick={() => act(primary.sessionId, "start")}
+              >
+                {label("startSession", theme)}
+              </button>
+            )}
+            {/* Two-tap completion path (FR-12). While a block is underway, "done" is the
+                primary action and records the minutes actually spent. */}
             <button
-              className="action primary"
-              disabled={busy !== null}
-              onClick={() => act(primary.sessionId, "start")}
-            >
-              {label("startSession", theme)}
-            </button>
-            {/* Two-tap completion path (FR-12). */}
-            <button
-              className="action"
+              className={underway ? "action primary" : "action"}
               disabled={busy !== null}
               onClick={() =>
                 complete(
@@ -516,7 +594,7 @@ export function Today({
                 )
               }
             >
-              Mark done
+              {underway ? "Stop, it's done" : "Mark done"}
             </button>
             <button
               className="action"
@@ -530,7 +608,7 @@ export function Today({
                 )
               }
             >
-              Needs more time
+              {underway ? "Stop, needs more time" : "Needs more time"}
             </button>
             <button
               className="action"
@@ -570,6 +648,43 @@ export function Today({
         </section>
       )}
 
+      {/* The whole day, given up in one place. "Not now" handles one block; a day that is
+          not going to happen used to mean skipping each block in turn from a card that only
+          ever showed the first. Nothing is deleted: the work moves, and the replan says
+          where. */}
+      {openToday.length > 0 && (
+        <section className="card" data-testid="lost-day">
+          {!losingDay ? (
+            <p style={{ margin: 0, display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+              <span className="muted">
+                {quest ? "The day is lost?" : "Today is not going to happen?"}
+              </span>
+              <button className="action" disabled={busy !== null} onClick={() => setLosingDay(true)}>
+                {quest ? "Retreat and redraw the map" : "Skip today and replan"}
+              </button>
+            </p>
+          ) : (
+            <div>
+              <p style={{ margin: "0 0 0.5rem" }}>
+                {openToday.length === 1
+                  ? "The one block still planned for today"
+                  : `The ${openToday.length} blocks still planned for today`}{" "}
+                will be marked as not done, and the week redrawn around what is left. Nothing is
+                deleted, and you will see what moved.
+              </p>
+              <div className="button-row">
+                <button className="action primary" disabled={busy !== null} onClick={() => void loseDay()}>
+                  {busy === "lost-day" ? "Replanning…" : "Yes, skip today"}
+                </button>
+                <button className="action" disabled={busy !== null} onClick={() => setLosingDay(false)}>
+                  Keep today
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
       {alternatives.length > 0 && (
         <section className="card">
           <h2>{quest ? "Side quests" : "Or instead"}</h2>
@@ -588,13 +703,17 @@ export function Today({
                   </span>
                   <span className="course-line muted">{courseLabel(alt.courseId)}</span>
                 </span>
-                <button
-                  className="action"
-                  disabled={busy !== null}
-                  onClick={() => act(alt.sessionId, "start")}
-                >
-                  Start
-                </button>
+                {alt.status === "started" ? (
+                  <span className="muted">{label("inProgress", theme)}</span>
+                ) : (
+                  <button
+                    className="action"
+                    disabled={busy !== null}
+                    onClick={() => act(alt.sessionId, "start")}
+                  >
+                    Start
+                  </button>
+                )}
               </li>
             ))}
           </ul>

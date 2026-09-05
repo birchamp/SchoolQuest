@@ -1,0 +1,72 @@
+name: CI
+
+# Every push and pull request. The Windows installer workflow runs the same unit checks, but
+# only on a tag, so until this existed a commit to main was never checked by anything -- and
+# the one screen a student uses had no test that rendered it. The acceptance journey drives
+# the release list (docs/02-prd.md §7) through a real browser against the real Worker.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the older run's answer moot.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # No version here: package.json's `packageManager` field pins it, and the action refuses
+      # to be told twice.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint, typecheck, unit tests
+        run: |
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+
+      # A fresh local database and secrets file, exactly as a first run makes them.
+      - name: Set up a local install
+        run: pnpm run setup
+
+      - name: Install Chromium for Playwright
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Starts both halves itself, walks the journey, stops them. Fails the job on any step.
+      - name: Acceptance journey
+        run: pnpm test:acceptance
+
+      # WCAG AA on every rendered screen, per theme. The servers are started once for all
+      # three runs; the walker signs in on its own.
+      - name: Start the app for the contrast checks
+        run: |
+          nohup node tools/dev.mjs > /tmp/dev.log 2>&1 &
+          for i in $(seq 1 120); do
+            if curl -sf http://127.0.0.1:5173/ > /dev/null && curl -s http://127.0.0.1:8787/api/health > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          echo "servers did not start"; tail -50 /tmp/dev.log; exit 1
+
+      - name: Contrast (plain, quest, mission)
+        run: |
+          node tools/e2e/contrast.mjs plain
+          node tools/e2e/contrast.mjs quest
+          node tools/e2e/contrast.mjs mission

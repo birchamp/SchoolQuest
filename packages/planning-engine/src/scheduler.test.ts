@@ -344,6 +344,18 @@ describe("selecting today's next actions", () => {
     }
   });
 
+  it("keeps a started block on Today until its outcome is recorded, however old it is", () => {
+    // Started at the start of term, asked about a week later. Without this the block fell out
+    // of the 30-minute grace window, disappeared from Today, and stayed "started" forever.
+    const [first, ...rest] = plan.sessions;
+    const rows = [{ ...first!, status: "started" }, ...rest.map((s) => ({ ...s, status: "planned" }))];
+    const later = selectRecommendedSessions(rows, toEpochMinutes(SEED_NOW) + 7 * 24 * 60);
+    expect(later[0]?.id).toBe(first!.id);
+    // Still one entry per work item, and still capped.
+    expect(new Set(later.map((s) => s.workItemId)).size).toBe(later.length);
+    expect(later.length).toBeLessThanOrEqual(3);
+  });
+
   it("never offers a session the caller has already filtered out", () => {
     const [first] = selectRecommendedSessions(plan.sessions, toEpochMinutes(SEED_NOW));
     const remaining = plan.sessions.filter((s) => s.id !== first!.id);

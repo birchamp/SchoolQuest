@@ -4,7 +4,7 @@ import { label } from "@schoolquest/theme-language";
 import { api, API_BASE, ApiError, isDesktop, setStoredToken } from "./lib/api";
 import { connectionFault, connectionMessage, type ConnectionFault } from "./lib/connection";
 import { loginTokenFrom } from "./lib/sign-in-link";
-import type { Me, PlanResponse, Term } from "./lib/types";
+import type { Me, PlanDiff, PlanResponse, Term } from "./lib/types";
 import { SignIn } from "./components/SignIn";
 import { Onboarding } from "./components/Onboarding";
 import { CourseManager } from "./components/CourseManager";
@@ -38,6 +38,7 @@ import { StopButton } from "./components/StopButton";
 import { DiagnosticsButton } from "./components/DiagnosticsButton";
 import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 import { CampaignRadar } from "./components/CampaignRadar";
+import { PlanChanges } from "./components/PlanChanges";
 
 /**
  * App shell.
@@ -68,6 +69,15 @@ type WeekView = "map" | "calendar" | "terrain";
  * only freshly generated plans have that field. Screens render "· 45m" style summaries,
  * and a missing value showed up in the wild as the truncated string "Wed · m".
  */
+/** Distinct work items the plan flags as at risk or needing a decision. */
+function countAtRisk(plan: PlanResponse): number {
+  return new Set(
+    plan.risks
+      .filter((r) => r.level === "at_risk" || r.level === "decision_needed")
+      .map((r) => r.workItemId ?? r.code),
+  ).size;
+}
+
 function normalizePlan(plan: PlanResponse): PlanResponse {
   return {
     ...plan,
@@ -136,6 +146,8 @@ export function App() {
   /** Whether the "start a new semester" confirmation is showing. */
   const [confirmNewTerm, setConfirmNewTerm] = useState(false);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
+  /** What the most recent regenerate changed, shown until dismissed or the next one. */
+  const [lastDiff, setLastDiff] = useState<PlanDiff | null>(null);
   /**
    * The radar opens the app.
    *
@@ -353,7 +365,7 @@ export function App() {
    * correctly and then left the student looking at a stripped page with the rest of their
    * questions gone. One extra read costs a request and keeps every screen whole.
    */
-  const regenerate = useCallback(async () => {
+  const regenerate = useCallback(async (options?: { from?: string }) => {
     if (!term) return;
     // The simulated clock has to reach the *write* side too, or a replan issued while
     // looking at week nine plans week one: the horizon lands seven weeks behind everything
@@ -361,10 +373,18 @@ export function App() {
     // not a subtle failure and it made an end-to-end check of the radar's own action
     // measure nothing at all. Ignored by the server in production, exactly as on the read.
     const when = devNow();
-    await api.post<PlanResponse>(`/api/terms/${term.id}/plans/generate`, {
+    // Some callers hand this to an event handler, so only a real option object counts.
+    const from = typeof options?.from === "string" ? options.from : undefined;
+    const generated = await api.post<PlanResponse>(`/api/terms/${term.id}/plans/generate`, {
       reason: "manual_refresh",
-      ...(when ? { now: when, horizonStart: when.slice(0, 10) } : {}),
+      ...(when ? { now: when } : {}),
+      // A day given up is planned from the next one: the hours left in it are still "free"
+      // by the availability rules, and a replan from now simply books them again.
+      ...(from ? { horizonStart: from } : when ? { horizonStart: when.slice(0, 10) } : {}),
     });
+    // The diff rides on the generate response only; the read that follows is the plan as
+    // every screen sees it. Held here so Today and the week can both say what just changed.
+    setLastDiff(generated.diff ?? null);
     await loadPlan(term.id);
   }, [term, loadPlan]);
 
@@ -571,11 +591,22 @@ export function App() {
                 The radar comes up with your saved plan. Refresh, or generate a plan from Today.
               </p>
             ))}
+          {tab === "today" && lastDiff && (
+            <PlanChanges
+              diff={lastDiff}
+              plan={plan}
+              theme={theme}
+              risksNow={countAtRisk(plan)}
+              onDismiss={() => setLastDiff(null)}
+            />
+          )}
           {tab === "today" && (
             <Today
               plan={plan}
+              termId={term.id}
               theme={theme}
               onChanged={refreshPlan}
+              onReplan={regenerate}
               onGoToSetup={goToEffortSurvey}
               onOpenWork={openWorkItem}
             />
@@ -584,6 +615,15 @@ export function App() {
               landmarks, then how far each course has come. */}
           {tab === "week" && (
             <>
+              {lastDiff && (
+                <PlanChanges
+                  diff={lastDiff}
+                  plan={plan}
+                  theme={theme}
+                  risksNow={countAtRisk(plan)}
+                  onDismiss={() => setLastDiff(null)}
+                />
+              )}
               {/* Before the week ahead, what the weeks behind have to say about it. First
                   because its answers change the plan below it, and a question the student
                   has to scroll to find is a question nobody answers. It renders nothing at
@@ -674,7 +714,12 @@ export function App() {
                       hiddenCourseIds={hiddenCourseIds}
                     />
                   ) : weekView === "calendar" ? (
-                    <WeekCalendar plan={plan} theme={theme} hiddenCourseIds={hiddenCourseIds} />
+                    <WeekCalendar
+                      plan={plan}
+                      theme={theme}
+                      hiddenCourseIds={hiddenCourseIds}
+                      onChanged={refreshPlan}
+                    />
                   ) : (
                     <WeekMap
                       plan={plan}
@@ -847,7 +892,7 @@ export function App() {
               <section className="card">
                 <h2>Account</h2>
                 <div className="button-row">
-                  <button className="action" onClick={regenerate}>
+                  <button className="action" onClick={() => void regenerate()}>
                     Rebuild this week&apos;s plan
                   </button>
                   <button className="action" onClick={() => setConfirmNewTerm((v) => !v)}>

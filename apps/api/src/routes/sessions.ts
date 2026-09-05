@@ -1,10 +1,13 @@
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import { z } from "zod";
 import { newId, outcomeCode } from "@schoolquest/domain";
-import { auditEvents, courses, terms, workItems, workSessions } from "../db/schema.js";
+import { auditEvents, commitments, courses, meetingPatterns, terms, workItems, workSessions } from "../db/schema.js";
 import { getDb, type Db } from "../db/repo.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
+import { findMoveConflict } from "../db/move-check.js";
+import { isOpenOnDay } from "../db/lost-day.js";
+import { assertTermOwner } from "../db/repo.js";
 import type { AppBindings } from "../env.js";
 
 export const sessionsRoute = new Hono<AppBindings>();
@@ -18,7 +21,7 @@ export const sessionsRoute = new Hono<AppBindings>();
  */
 async function loadOwnedSession(db: Db, sessionId: string, userId: string) {
   const [row] = await db
-    .select({ session: workSessions, item: workItems })
+    .select({ session: workSessions, item: workItems, term: terms })
     .from(workSessions)
     .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
     .innerJoin(courses, eq(courses.id, workItems.courseId))
@@ -168,9 +171,51 @@ sessionsRoute.post("/work-sessions/:id/move", async (c) => {
   if (Date.parse(parsed.data.endAt) <= Date.parse(parsed.data.startAt)) {
     return c.json({ error: "A session must end after it starts." }, 400);
   }
-  if (!(await loadOwnedSession(db, c.req.param("id"), c.get("userId")))) {
-    return c.json({ error: "Session not found" }, 404);
-  }
+  const owned = await loadOwnedSession(db, c.req.param("id"), c.get("userId"));
+  if (!owned) return c.json({ error: "Session not found" }, 404);
+
+  // The same checks the scheduler applies when it places a block, applied at the one door
+  // where a person places one. Before this the route wrote whatever it was given, and the
+  // week on screen could show a block inside a class until the next replan noticed.
+  const termId = owned.term.id;
+  const termCourses = await db
+    .select({ id: courses.id, name: courses.name })
+    .from(courses)
+    .where(eq(courses.termId, termId));
+  const courseIds = termCourses.map((x) => x.id);
+  const courseNames = new Map(termCourses.map((x) => [x.id, x.name]));
+  const [others, meetings, fixed] = await Promise.all([
+    courseIds.length === 0
+      ? Promise.resolve([])
+      : db
+          .select({ id: workSessions.id, startAt: workSessions.startAt, endAt: workSessions.endAt, title: workItems.title })
+          .from(workSessions)
+          .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
+          .where(
+            and(
+              inArray(workItems.courseId, courseIds),
+              inArray(workSessions.status, ["planned", "started"]),
+              ne(workSessions.id, owned.session.id),
+            ),
+          ),
+    courseIds.length === 0
+      ? Promise.resolve([])
+      : db.select().from(meetingPatterns).where(inArray(meetingPatterns.courseId, courseIds)),
+    db.select().from(commitments).where(eq(commitments.termId, termId)),
+  ]);
+  const conflict = findMoveConflict(parsed.data, {
+    sessions: others,
+    meetings: meetings.map((m) => ({
+      daysOfWeek: m.daysOfWeek,
+      startTime: m.startTime,
+      endTime: m.endTime,
+      courseName: courseNames.get(m.courseId) ?? "a class",
+    })),
+    commitments: fixed,
+    termStartDate: owned.term.startDate,
+    termEndDate: owned.term.endDate,
+  });
+  if (conflict) return c.json({ error: conflict }, 409);
 
   const updated = await db
     .update(workSessions)
@@ -203,6 +248,56 @@ sessionsRoute.post("/work-sessions/:id/lock", async (c) => {
 
   if (updated.length === 0) return c.json({ error: "Session not found" }, 404);
   return c.json({ session: updated[0] });
+});
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/**
+ * "Today is not going to happen."
+ *
+ * Losing a day used to mean skipping its blocks one at a time from the hero card, which only
+ * ever showed the first of them. This marks every block still open on that day as skipped,
+ * exactly as the skip route does per block, and returns how many; the client then replans
+ * and shows what moved. Nothing is deleted and nothing about the day's finished blocks
+ * changes.
+ */
+sessionsRoute.post("/terms/:termId/days/:date/lost", async (c) => {
+  const db = getDb(c.env.DB);
+  const termId = c.req.param("termId");
+  const date = isoDate.safeParse(c.req.param("date"));
+  if (!date.success) return c.json({ error: "The day has to be a date like 2026-09-08." }, 400);
+  if (!(await assertTermOwner(db, termId, c.get("userId")))) {
+    return c.json({ error: "Term not found" }, 404);
+  }
+
+  const courseIds = (
+    await db.select({ id: courses.id }).from(courses).where(eq(courses.termId, termId))
+  ).map((x) => x.id);
+  if (courseIds.length === 0) return c.json({ skipped: 0 });
+
+  const dayStart = `${date.data}T00:00:00`;
+  const dayEnd = `${date.data}T23:59:59.999Z`;
+  const candidates = await db
+    .select({ id: workSessions.id, startAt: workSessions.startAt, status: workSessions.status })
+    .from(workSessions)
+    .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
+    .where(
+      and(
+        inArray(workItems.courseId, courseIds),
+        gte(workSessions.startAt, dayStart),
+        lte(workSessions.startAt, dayEnd),
+      ),
+    );
+  const ids = candidates.filter((s) => isOpenOnDay(s, date.data)).map((s) => s.id);
+
+  for (let i = 0; i < ids.length; i += 50) {
+    await db
+      .update(workSessions)
+      .set({ status: "skipped", outcomeCode: "did_not_start" })
+      .where(inArray(workSessions.id, ids.slice(i, i + 50)));
+  }
+
+  return c.json({ skipped: ids.length });
 });
 
 sessionsRoute.post("/work-sessions/:id/skip", async (c) => {
