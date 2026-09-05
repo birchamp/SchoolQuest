@@ -350,8 +350,27 @@ export interface TermHealthView {
   coursesUnplanned: number;
 }
 
+/** One block as the replan diff names it. */
+export interface PlanDiffBlock {
+  sessionId: string;
+  workItemId: string;
+  startAt: string;
+  endAt: string;
+}
+
+/** What a regenerate changed. Present on the generate response only. */
+export interface PlanDiff {
+  kept: PlanDiffBlock[];
+  moved: { workItemId: string; from: PlanDiffBlock; to: PlanDiffBlock }[];
+  added: PlanDiffBlock[];
+  dropped: PlanDiffBlock[];
+  unchanged: boolean;
+}
+
 export interface PlanResponse {
   planVersionId?: string;
+  /** What this plan changed against the one it replaces. Generate responses only. */
+  diff?: PlanDiff;
   planVersion?: { id: string; versionNumber: number; horizonStart: string; horizonEnd: string } | null;
   horizonStart?: string;
   horizonEnd?: string;

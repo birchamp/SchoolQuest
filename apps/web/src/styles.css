@@ -168,6 +168,22 @@ body[data-reduced-motion="true"] *::before {
   margin-bottom: 0.85rem;
 }
 
+.plan-changes-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.92rem;
+}
+.plan-changes-list li {
+  margin: 0.15rem 0;
+}
+.plan-changes-kind {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-right: 0.2rem;
+}
+
 .card h2 {
   font-size: 0.75rem;
   text-transform: uppercase;

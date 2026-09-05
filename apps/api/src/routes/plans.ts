@@ -5,6 +5,7 @@ import { newId, toEpochMinutes } from "@schoolquest/domain";
 import {
   buildCampaignRadar,
   buildSessionBrief,
+  diffPlans,
   computeCourseHealth,
   computeCourseLoad,
   computeProjectProgress,
@@ -155,15 +156,21 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
   // Only the future is retired. A block whose time has already passed is the record of what
   // was planned for that hour, and superseding today's plan cannot change yesterday.
   const keptIds = new Set(plan.sessions.map((s) => s.id));
-  const superseded = snapshot.existingSessions
-    .filter((s) => s.status === "planned" && s.startAt >= now && !keptIds.has(s.id))
-    .map((s) => s.id);
+  const liveBefore = snapshot.existingSessions.filter(
+    (s) => s.status === "planned" && s.startAt >= now,
+  );
+  const superseded = liveBefore.filter((s) => !keptIds.has(s.id)).map((s) => s.id);
+
+  // What this replan changed, against the blocks it retires. Computed here, where both sides
+  // are in hand, and returned rather than stored: the previous version's rows are untouched and
+  // the diff is a reading of them, not a new record.
+  const diff = diffPlans(liveBefore, plan.sessions);
 
   await insertInChunks(superseded, SUPERSEDE_BATCH, (batch) =>
     db.update(workSessions).set({ status: "moved" }).where(inArray(workSessions.id, batch)),
   );
 
-  return c.json(serializePlan(plan, snapshot, await loadEffortTotals(db, termId)), 201);
+  return c.json({ ...serializePlan(plan, snapshot, await loadEffortTotals(db, termId)), diff }, 201);
 });
 
 /** Returns the most recent plan version, generating one on first use. */
