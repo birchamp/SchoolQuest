@@ -102,7 +102,7 @@ call pnpm --filter @schoolquest/api db:migrate:local
 if errorlevel 1 (
   echo.
   echo   The database could not be updated, so the app would fail in confusing ways.
-  echo   Run this and read the output:  pnpm setup
+  echo   Run this and read the output:  pnpm run setup
   echo.
   pause
   exit /b 1
@@ -151,7 +151,7 @@ call node tools\preflight.mjs
 if errorlevel 1 (
   echo.
   echo   Fix the items marked with an X above, then run this again.
-  echo   Most of them are fixed by:  pnpm setup
+  echo   Most of them are fixed by:  pnpm run setup
   echo.
   pause
   exit /b 1

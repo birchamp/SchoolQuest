@@ -3,7 +3,7 @@ import { APP_HELP_PROMPT } from "./app-help.js";
 import { coachReply, pruneInvalidActions, COACH_REPLY_JSON_SCHEMA, type CoachReply } from "./actions.js";
 import type { CoachContext } from "./context.js";
 import { guardMessage, type GuardDecision } from "./guardrail.js";
-import { MODELS, type AiProvider, type ChatMessage } from "./provider.js";
+import type { AiProvider, ChatMessage } from "./provider.js";
 
 /**
  * The coach system prompt.
@@ -187,7 +187,10 @@ export async function runCoach(provider: AiProvider, request: CoachRequest): Pro
   ];
 
   const result = await provider.complete({
-    model: request.model ?? MODELS.COACH,
+    // Left unset unless the caller pins one, so the provider's own default -- resolved by the
+    // Worker from the student's settings and the live catalogue -- is what actually gets sent.
+    // Defaulting to the MODELS constant here silently overrode that resolution on every call.
+    ...(request.model ? { model: request.model } : {}),
     messages,
     temperature: 0.3,
     maxTokens: 700,

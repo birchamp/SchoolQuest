@@ -38,7 +38,10 @@ APP_URL = "http://localhost:5173"
 # Secrets — set with `wrangler secret put <NAME>`, never in this file:
 #   OPENROUTER_API_KEY   required, from https://openrouter.ai/keys
 #   AUTH_SECRET          required, HMAC key for magic-link tokens (openssl rand -hex 32)
-#   RESEND_API_KEY       optional; without it, magic links are logged instead of emailed
+#   RESEND_API_KEY       optional; without it, no sign-in emails are sent
+#
+# DEV_MODE is never set here. The dev scripts pass `--var DEV_MODE:true` to `wrangler dev`, and
+# that flag alone is what returns sign-in links on screen and allows a client-chosen clock.
 
 [observability]
 enabled = true

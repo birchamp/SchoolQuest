@@ -3,7 +3,7 @@
   Puts a SchoolQuest shortcut on the Desktop (and optionally the Start Menu).
 
 .DESCRIPTION
-  Run once, after `pnpm setup`:
+  Run once, after `pnpm run setup`:
 
       powershell -ExecutionPolicy Bypass -File tools\windows\create-shortcut.ps1
 

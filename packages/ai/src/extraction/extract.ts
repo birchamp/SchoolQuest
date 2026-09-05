@@ -1,5 +1,5 @@
 import type { TermCalendar } from "@schoolquest/domain";
-import { MODELS, type AiProvider } from "../provider.js";
+import type { AiProvider } from "../provider.js";
 import {
   buildExtractionUserMessage,
   EXTRACTION_PROMPT_VERSION,
@@ -167,7 +167,9 @@ async function readOnce(
   pages: DocumentPage[],
 ) {
   const completion = await provider.complete({
-    model: request.model ?? MODELS.EXTRACTION,
+    // Unset unless pinned: the provider's default is the model the Worker resolved for this
+    // student, and a constant here would override that on every call.
+    ...(request.model ? { model: request.model } : {}),
     // Extraction is a reading task; creativity here is purely a fabrication risk.
     temperature: 0,
     maxTokens: 8000,
@@ -231,7 +233,9 @@ export async function readAcademicCalendar(
   }
 
   const completion = await provider.complete({
-    model: request.model ?? MODELS.EXTRACTION,
+    // Unset unless pinned: the provider's default is the model the Worker resolved for this
+    // student, and a constant here would override that on every call.
+    ...(request.model ? { model: request.model } : {}),
     // A reading task. Creativity here is purely a fabrication risk.
     temperature: 0,
     maxTokens: 4000,
@@ -281,7 +285,9 @@ export async function readCourseList(
   }
 
   const completion = await provider.complete({
-    model: request.model ?? MODELS.EXTRACTION,
+    // Unset unless pinned: the provider's default is the model the Worker resolved for this
+    // student, and a constant here would override that on every call.
+    ...(request.model ? { model: request.model } : {}),
     // A reading task. Creativity here is purely a fabrication risk.
     temperature: 0,
     maxTokens: 4000,

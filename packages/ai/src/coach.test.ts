@@ -40,6 +40,37 @@ function scriptedProvider(options: { guard?: string; coach?: unknown }) {
   return { provider, requests };
 }
 
+describe("model selection", () => {
+  it("sends no model of its own, so the provider's resolved default is what runs", async () => {
+    // The Worker resolves the coach model per deployment and per student and hands it to the
+    // provider as its default. The coach used to override that with a pinned constant on every
+    // call, which made the settings screen and the catalogue lookup decorative.
+    const { provider, requests } = scriptedProvider({});
+    await provider.complete({ messages: [] }); // sanity: the stub accepts a model-less request
+    requests.length = 0;
+    await runCoach(provider, {
+      message: "What should I work on right now?",
+      context,
+      theme: "plain",
+    });
+    const coachCall = requests.find((r) => r.jsonSchema?.name !== "topic_verdict");
+    expect(coachCall).toBeDefined();
+    expect(coachCall!.model).toBeUndefined();
+  });
+
+  it("still honours a model the caller pins explicitly", async () => {
+    const { provider, requests } = scriptedProvider({});
+    await runCoach(provider, {
+      message: "What should I work on right now?",
+      context,
+      theme: "plain",
+      model: "pinned/model",
+    });
+    const coachCall = requests.find((r) => r.jsonSchema?.name !== "topic_verdict");
+    expect(coachCall!.model).toBe("pinned/model");
+  });
+});
+
 describe("plan context", () => {
   it("includes the recommendation, its reason, and real session ids", () => {
     expect(context.text).toContain("RECOMMENDED NEXT ACTIONS");

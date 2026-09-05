@@ -46,12 +46,12 @@ else fail("dependencies are not installed", "run: pnpm install");
 // --- Secrets.
 const devVars = join(API, ".dev.vars");
 if (!existsSync(devVars)) {
-  fail("apps/api/.dev.vars is missing", "run: pnpm setup");
+  fail("apps/api/.dev.vars is missing", "run: pnpm run setup");
 } else {
   const text = readFileSync(devVars, "utf8");
   const secret = /^AUTH_SECRET=(.+)$/m.exec(text)?.[1]?.trim() ?? "";
   if (secret.length >= 16) pass("AUTH_SECRET is set");
-  else fail("AUTH_SECRET is missing or too short", "delete apps/api/.dev.vars and run: pnpm setup");
+  else fail("AUTH_SECRET is missing or too short", "delete apps/api/.dev.vars and run: pnpm run setup");
 
   const key = /^OPENROUTER_API_KEY=(.+)$/m.exec(text)?.[1]?.trim() ?? "";
   /**
@@ -82,8 +82,8 @@ if (!existsSync(devVars)) {
   if (/^RESEND_API_KEY=re_/m.test(text)) {
     warn(
       "a mail provider is configured",
-      "sign-in links will be emailed. For a local test, comment RESEND_API_KEY out and the link " +
-        "comes back on screen instead — no email needed",
+      "sign-in links will be emailed rather than shown on screen. For a local test, comment " +
+        "RESEND_API_KEY out and the link comes back on screen instead — no email needed",
     );
   } else {
     pass("no mail provider, so sign-in links appear on screen (right for a local run)");
@@ -100,7 +100,7 @@ if (!existsSync(devVars)) {
 // --- Local database.
 const d1 = join(API, ".wrangler", "state", "v3", "d1");
 if (existsSync(d1)) pass("local database exists");
-else fail("no local database yet", "run: pnpm setup");
+else fail("no local database yet", "run: pnpm run setup");
 
 /**
  * --- Ports. Reclaimed rather than reported.

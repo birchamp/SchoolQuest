@@ -22,12 +22,12 @@ blindness, weak task initiation. The design principles behind every decision are
 | Start / complete / skip a session | ✅ | ✅ |
 | AI planning coach | ✅ | ✅ |
 | Week map | ✅ | ✅ |
-| **Syllabus upload & extraction** | ✅ | ✗ — points you to the desktop app |
-| Course & term setup | ✅ | ✗ |
+| Syllabus upload & extraction | ✅ | ✅ (works, but the PDF reader is fetched on first use, so it needs a connection) |
+| Course & term setup | ✅ | ✅ |
 
-Both shells load the same React bundle from `apps/web`. The split is one `isDesktop` check
-(`apps/web/src/lib/api.ts`), so following the plan feels identical on a phone and a laptop,
-while setup work stays where a real file picker exists.
+Both shells load the same React bundle from `apps/web`, and every screen works in both. The
+only `isDesktop` check (`apps/web/src/lib/api.ts`) changes how sign-in links are handled and how
+a connection failure is described; nothing is gated to one shell.
 
 ## Stack
 
@@ -36,8 +36,8 @@ while setup work stays where a real file picker exists.
 - **API** — Hono on Cloudflare Workers
 - **Database** — Cloudflare D1 (SQLite) with Drizzle
 - **Files** — Cloudflare R2 (syllabus PDFs, grade screenshots)
-- **AI** — OpenRouter: `x-ai/grok-4.1-fast` for coach chat, `x-ai/grok-4.5` for syllabus
-  extraction ([why the split](#which-model-runs-where))
+- **AI** — OpenRouter, chosen from its live catalogue: the strongest model under a price ceiling
+  for the coach, the strongest reader for syllabus extraction ([how](#which-model-runs-where))
 - **Auth** — passwordless email magic links, HMAC-hashed tokens in D1
 
 Everything runs on Cloudflare's **free tier**. No Queues — syllabus processing is designed
@@ -108,7 +108,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 git clone https://github.com/birchamp/SchoolQuest
 cd SchoolQuest
 pnpm install
-pnpm setup       # writes apps/api/.dev.vars with a fresh AUTH_SECRET, creates the local database
+pnpm run setup   # writes apps/api/.dev.vars with a fresh AUTH_SECRET, creates the local database
 pnpm preflight   # checks everything that would otherwise fail halfway through a session
 pnpm dev         # Worker on :8787 and the app on :5173, together
 ```
@@ -119,15 +119,19 @@ pnpm dev         # Worker on :8787 and the app on :5173, together
 > installation, which is not where the problem is. Process scope needs no administrator rights and
 > lasts only for that window. `tools\windows\SchoolQuest.cmd` avoids the question entirely.
 
-Then open **http://127.0.0.1:5173** and sign in with any email address — with no mail provider
-configured the sign-in link comes back on screen instead of being sent, which is what makes a
-local run possible with no email account at all.
+Then open **http://127.0.0.1:5173** and sign in with any email address — in a local run the
+sign-in link comes back on screen instead of being sent, which is what makes this possible with
+no email account at all.
 
-> Fine on your own machine, and **not safe on the public internet**: without a mail provider,
-> anyone who can reach it can sign in as anyone.
+What makes it a local run is the `DEV_MODE` variable, which `pnpm dev` and `pnpm dev:api` pass
+to `wrangler dev` and nothing else sets. It is what allows the on-screen link, the error detail
+in failed responses, and the time-travel `now` parameter the test tools use. A deployed Worker
+never has it unless you put it there, and you should not: with it, anyone who can reach the
+Worker can sign in as anyone.
 
-`pnpm setup` is idempotent and never overwrites an existing `.dev.vars`, since that file may hold
-a real key. `pnpm preflight` explains what to do about anything it finds — it exists because a
+It is `pnpm run setup`, with `run`: `pnpm setup` on its own is pnpm's built-in command for
+installing itself, and it runs instead of the project script without complaint. The script is
+idempotent and never overwrites an existing `.dev.vars`, since that file may hold a real key. `pnpm preflight` explains what to do about anything it finds — it exists because a
 busy port looks like the app failing to start, an unmigrated database looks like a server crash,
 and a placeholder API key looks like the model refusing to answer.
 
@@ -270,16 +274,18 @@ harder:
 
 | | Model | Runs | Why |
 |---|---|---|---|
-| Coach chat + topic guard | `x-ai/grok-4.1-fast` | many times a day | Turns are short and grounded in plan data the engine already computed. The model summarizes; it does not reason from scratch. A fraction of a cent per turn. |
-| Syllabus extraction | `x-ai/grok-4.5` | ~once per course per semester | Every date it reads becomes load-bearing for the whole plan, and extraction mistakes propagate silently into the schedule. |
+| Coach chat + topic guard | strongest model under $5 per million output tokens (`x-ai/grok-4.3` if the catalogue is unreachable) | many times a day | Turns are short and grounded in plan data the engine already computed. The model summarizes; it does not reason from scratch. A fraction of a cent per turn. |
+| Syllabus extraction | strongest reader under $15 per million (`x-ai/grok-4.5` if the catalogue is unreachable), or the model the student picked in Setup | ~once per course per semester | Every date it reads becomes load-bearing for the whole plan, and extraction mistakes propagate silently into the schedule. |
 
 Extraction on a frontier model costs roughly four cents per syllabus against half a cent
 on a cheap one — pennies per semester either way. Given that the output is the foundation
 of every plan the student sees, that is not a close call. Coach chat is the opposite: high
 frequency, low stakes per call, so cheap is right there and not a compromise.
 
-Override either with `OPENROUTER_COACH_MODEL` / `OPENROUTER_EXTRACTION_MODEL` in
-`wrangler.toml`. Defaults live in `packages/ai/src/provider.ts`.
+The choice is made from OpenRouter's live model list (`packages/ai/src/catalog.ts`), so a
+retired model never becomes the default. Override either with `OPENROUTER_COACH_MODEL` /
+`OPENROUTER_EXTRACTION_MODEL` in `wrangler.toml`; the last-resort constants live in
+`packages/ai/src/provider.ts`.
 
 ## Syllabus extraction
 
@@ -325,9 +331,10 @@ not supported yet.
 ## The planning engine
 
 `packages/planning-engine` is pure and independently tested. Its priority score is a
-weighted, inspectable combination of eight components — deadline pressure, academic value,
-project leverage, failure risk, spacing need, context fit, neglect, and explicit user
-priority — never a single opaque judgement. Every placement carries machine-readable
+weighted, inspectable combination of seven item-level components — deadline pressure, academic
+value, project leverage, failure risk, spacing need, neglect, and explicit user priority — plus
+context fit, which is judged per candidate time slot when the block is placed rather than per
+item. Never a single opaque judgement. Every placement carries machine-readable
 **reason codes** that `theme-language` renders into the "why this now?" sentence.
 
 Behaviors the test suite pins down:
@@ -348,6 +355,8 @@ guardrail, syllabus extraction with evidence-checked review, the Worker API on D
 magic-link auth, the PWA, and the Tauri shell.
 
 Not yet built — deliberately, per [`docs/07-mvp-roadmap.md`](docs/07-mvp-roadmap.md):
-milestone auto-decomposition (extracted major projects arrive as single items, not yet
-broken into steps), a standalone clarification inbox spanning courses, drag-and-drop week
-editing, grade screenshot import, OCR for scanned syllabi, and notifications.
+milestone decomposition in the app (the engine and the API can propose stages for a large
+assignment, but no screen offers it yet, so extracted major projects arrive as single items),
+a standalone clarification inbox spanning courses, drag-and-drop week editing (keyboard moving
+and locking exist on the hour calendar), grade screenshot import, OCR for scanned syllabi, and
+notifications.

@@ -111,8 +111,10 @@ export default defineConfig({
             },
             workbox: {
               globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
-              // pdf.js is only reachable from syllabus upload, which is desktop-only.
-              // Precaching ~470 KB into every phone install would be pure waste.
+              // pdf.js is only reachable from syllabus upload. Upload works in every shell,
+              // but precaching ~470 KB into every phone install for a task most phones never
+              // do would be pure waste, so the chunk loads on first use and `extractPdfText`
+              // explains itself when that load fails offline.
               globIgnores: ["**/pdf-*.js", "**/pdf.worker-*.{js,mjs}"],
               runtimeCaching: [
                 {

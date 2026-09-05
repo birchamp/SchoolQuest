@@ -24,7 +24,7 @@ import {
   toPlanningInput,
 } from "../db/repo.js";
 import { loadReview } from "./review.js";
-import type { AppBindings } from "../env.js";
+import { isDevMode, type AppBindings } from "../env.js";
 
 const generateBody = z.object({
   horizonStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -74,9 +74,8 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
   const parsed = generateBody.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  // A client may only move time when this deployment has no way to send mail, which is the
-  // definition of local development already used by the login route.
-  const timeTravelAllowed = !c.env.RESEND_API_KEY;
+  // A client may only move time in development mode, the same flag the login route uses.
+  const timeTravelAllowed = isDevMode(c.env);
   const now =
     timeTravelAllowed && parsed.data.now ? new Date(parsed.data.now).toISOString() : new Date().toISOString();
   const horizonStart = parsed.data.horizonStart ?? now.slice(0, 10);
@@ -195,7 +194,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
    * eyes, which looks like a bug in the views rather than in the clock.
    */
   const asOf =
-    !c.env.RESEND_API_KEY && c.req.query("now")
+    isDevMode(c.env) && c.req.query("now")
       ? new Date(c.req.query("now")!).toISOString()
       : new Date().toISOString();
 

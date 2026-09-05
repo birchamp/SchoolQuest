@@ -6,12 +6,11 @@
  * more than that. Fetch latency does not count toward CPU, so the Worker can happily wait
  * on the model — it just cannot do the parsing itself.
  *
- * It also fits the product: syllabus upload is a desktop task, and the desktop app has a
- * whole machine to spend. The Worker receives page text it can quote against, and never
- * has to touch the PDF bytes.
+ * The Worker receives page text it can quote against, and never has to touch the PDF bytes.
  *
- * pdf.js is loaded by dynamic import so it stays out of the main bundle — the phone PWA
- * never uploads a syllabus and should not pay ~350 KB for the privilege.
+ * pdf.js is loaded by dynamic import so it stays out of the main bundle. Upload works in any
+ * shell -- browser, PWA or desktop -- but a phone that never uploads a syllabus should not
+ * pay ~350 KB for the option, so the chunk is fetched on first use rather than precached.
  */
 
 export interface DocumentPage {
@@ -33,13 +32,23 @@ export async function extractPdfText(
   file: File,
   onProgress?: (done: number, total: number) => void,
 ): Promise<PdfExtractionResult> {
-  const pdfjs = await import("pdfjs-dist");
-
-  // Vite resolves this to a hashed asset URL at build time; pdf.js needs the worker to
-  // parse off the main thread, otherwise a long syllabus freezes the window.
-  pdfjs.GlobalWorkerOptions.workerSrc = (
-    await import("pdfjs-dist/build/pdf.worker.mjs?url")
-  ).default;
+  // The reader is a separate chunk that the installed PWA deliberately does not precache
+  // (see `globIgnores` in vite.config.ts), so offline it is simply not there. Left alone that
+  // surfaced as an unhandled chunk-load rejection behind a button that looked enabled.
+  let pdfjs: typeof import("pdfjs-dist");
+  let workerSrc: string;
+  try {
+    pdfjs = await import("pdfjs-dist");
+    // Vite resolves this to a hashed asset URL at build time; pdf.js needs the worker to
+    // parse off the main thread, otherwise a long syllabus freezes the window.
+    workerSrc = (await import("pdfjs-dist/build/pdf.worker.mjs?url")).default;
+  } catch {
+    throw new Error(
+      "The PDF reader could not be loaded. It is fetched the first time it is needed, so this " +
+        "needs a connection -- reconnect and try the upload again.",
+    );
+  }
+  pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
 
   const data = new Uint8Array(await file.arrayBuffer());
   // We only ever read text, never render, so font handling is pure overhead — and

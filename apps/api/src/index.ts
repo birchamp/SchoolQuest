@@ -16,7 +16,7 @@ import { plansRoute } from "./routes/plans.js";
 import { reviewRoute } from "./routes/review.js";
 import { sessionsRoute } from "./routes/sessions.js";
 import { termsRoute } from "./routes/terms.js";
-import type { AppBindings } from "./env.js";
+import { isDevMode, type AppBindings } from "./env.js";
 
 const app = new Hono<AppBindings>();
 
@@ -55,8 +55,10 @@ app.post("/api/auth/login", async (c) => {
   if (!body.success) return c.json({ error: "A valid email address is required." }, 400);
 
   const { url, emailed } = await requestLoginLink(c.env, body.data.email);
-  // The link is only echoed back when there is no mail provider, i.e. local development.
-  return c.json({ ok: true, emailed, ...(emailed ? {} : { devLoginUrl: url }) });
+  // The link is echoed back only in development mode (see `isDevMode`). A deployment with no
+  // mail provider and no DEV_MODE gets neither an email nor a link, which is the safe failure:
+  // handing the link to whoever posted the address is a sign-in as anyone.
+  return c.json({ ok: true, emailed, ...(!emailed && isDevMode(c.env) ? { devLoginUrl: url } : {}) });
 });
 
 app.post("/api/auth/callback", async (c) => {
@@ -180,7 +182,13 @@ app.patch("/api/me", async (c) => {
     .where(eq(users.id, c.get("userId")))
     .returning();
   const { openrouterKeyEncrypted, ...safe } = user!;
-  return c.json({ user: { ...safe, openrouterKeyHint: openrouterKeyEncrypted ? keyHint(openrouterKey ?? "") : null } });
+  // The hint comes from what is stored, not from what this request carried: a profile save
+  // that did not touch the key (a theme change, say) used to answer with a blank hint, and the
+  // settings screen then showed the key as gone.
+  const stored = openrouterKeyEncrypted
+    ? await decryptSecret(openrouterKeyEncrypted, c.env.AUTH_SECRET)
+    : null;
+  return c.json({ user: { ...safe, openrouterKeyHint: stored ? keyHint(stored) : null } });
 });
 
 app.route("/api", termsRoute);
@@ -202,7 +210,7 @@ app.onError((error, c) => {
    * message rides back with the response, where the diagnostics log picks it up and the student can
    * send it on. The stack stays server-side; a hosted deployment still says only the plain sentence.
    */
-  const localDevelopment = !c.env.RESEND_API_KEY;
+  const localDevelopment = isDevMode(c.env);
   const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
   return c.json(
     {
