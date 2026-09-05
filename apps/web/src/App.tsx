@@ -707,7 +707,12 @@ export function App() {
                       hiddenCourseIds={hiddenCourseIds}
                     />
                   ) : weekView === "calendar" ? (
-                    <WeekCalendar plan={plan} theme={theme} hiddenCourseIds={hiddenCourseIds} />
+                    <WeekCalendar
+                      plan={plan}
+                      theme={theme}
+                      hiddenCourseIds={hiddenCourseIds}
+                      onChanged={refreshPlan}
+                    />
                   ) : (
                     <WeekMap
                       plan={plan}
