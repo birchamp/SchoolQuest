@@ -118,12 +118,19 @@ export default defineConfig({
               globIgnores: ["**/pdf-*.js", "**/pdf.worker-*.{js,mjs}"],
               runtimeCaching: [
                 {
-                  // The plan is read constantly and changes rarely within a session:
-                  // serve from cache immediately, refresh in the background.
-                  urlPattern: /\/api\/(terms|plans)\//,
-                  handler: "StaleWhileRevalidate",
+                  // Network first, never stale-while-revalidate. The plan and the term are
+                  // re-read straight after every write -- add a course, the list refetches --
+                  // and a rule that answers from cache first hands back the list from before
+                  // the write. That is exactly the "saved, but not shown until reload" report
+                  // in issue #6, and it is what this rule did when the API shared the app's
+                  // origin. (Against a separate API origin it never matched at all: Workbox
+                  // applies a RegExp to a cross-origin URL only from its start.) So: the
+                  // network when it answers, the last good copy when it does not.
+                  urlPattern: ({ url }) => /\/api\/(terms|plans)\//.test(url.pathname),
+                  handler: "NetworkFirst",
                   options: {
                     cacheName: "plan-data",
+                    networkTimeoutSeconds: 6,
                     expiration: { maxEntries: 40, maxAgeSeconds: 60 * 60 * 24 },
                   },
                 },
