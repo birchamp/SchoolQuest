@@ -346,7 +346,8 @@ Behaviors the test suite pins down:
 - Unschedulable work is **reported as a risk**, never silently dropped.
 - Identical inputs produce an identical plan.
 
-Run them with `pnpm test`.
+Run them with `pnpm test`. `pnpm test:acceptance` walks the release list in a real browser
+against the real Worker (`tools/e2e/README.md`), and CI runs both on every push.
 
 ## Status
 

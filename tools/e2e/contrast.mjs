@@ -12,6 +12,7 @@
 // Walks the real DOM in the real browser, so it catches whatever actually won the cascade
 // rather than whatever the stylesheet appears to say.
 import { chromium } from "playwright";
+import { chromiumLaunchOptions } from "./browser.mjs";
 
 const THEME = process.argv[2] ?? "quest";
 const APP = "http://127.0.0.1:5173";
@@ -41,7 +42,7 @@ const { sessionToken } = await api("/api/auth/callback", "POST", {
 });
 await api("/api/me", "PATCH", { theme: THEME }, sessionToken);
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const browser = await chromium.launch(chromiumLaunchOptions());
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 await page.goto(APP);
 await page.evaluate((t) => localStorage.setItem("sq_session_token", t), sessionToken);
