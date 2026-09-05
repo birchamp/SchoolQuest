@@ -13,6 +13,11 @@ already running. `.github/workflows/ci.yml` runs it, then `contrast.mjs` per the
 It exists because the primary button on Today was dead for a month and nothing could
 notice: every other test in the repository is a pure function.
 
+It plans from nine in the morning today, whatever the clock says, so a run near midnight
+still has a today to book. Each run signs up a fresh `acceptance-<timestamp>@example.edu`
+account in whichever database the Worker is using; on a developer's machine that is the
+local one, and those accounts are harmless but do accumulate.
+
 # End-to-end semester test
 
 Drives the complete student journey through the real Worker API: fresh account,

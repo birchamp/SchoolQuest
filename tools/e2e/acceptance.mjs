@@ -49,6 +49,7 @@ async function waitForServers(timeoutMs = 240_000) {
   for (;;) {
     const [api, web] = await Promise.all([isListening(8787), isListening(5173)]);
     if (api && web) return;
+    if (devExited !== null) throw new Error(`the dev runner exited with code ${devExited} before both servers were up`);
     if (Date.now() - started > timeoutMs) {
       throw new Error(`servers did not come up within ${timeoutMs / 1000}s (api: ${api}, web: ${web})`);
     }
@@ -57,6 +58,7 @@ async function waitForServers(timeoutMs = 240_000) {
 }
 
 let dev = null;
+let devExited = null;
 function startServers() {
   dev = spawn("node", ["tools/dev.mjs"], {
     cwd: ROOT,
@@ -66,6 +68,11 @@ function startServers() {
   });
   // Server output is kept for the failure report and otherwise stays out of the way.
   const log = [];
+  // A runner that dies (a port held by something else, say) must fail the journey now, not
+  // after four minutes of waiting for ports that will never answer.
+  dev.on("exit", (code) => {
+    devExited = code ?? 1;
+  });
   for (const stream of [dev.stdout, dev.stderr]) {
     stream.on("data", (chunk) => {
       for (const line of String(chunk).split("\n")) if (line.trim()) log.push(line);
@@ -106,9 +113,21 @@ function check(step, passed, detail = "") {
   console.log(`${passed ? "ok  " : "FAIL"} ${step}${detail ? ` -- ${detail}` : ""}`);
 }
 
+/**
+ * The moment the journey plans from: nine in the morning, today, UTC.
+ *
+ * Pinned rather than read from the wall clock, because the journey needs blocks *today* -- to
+ * start one, and to give the day up -- and a run at 23:50 UTC has no today left to book. The
+ * app reads `sq_dev_now` and the Worker honours `now` in dev mode, which is what the
+ * screenshot tools use to look at a term from week nine. The date is still the real date, so
+ * "today" agrees everywhere; only the hour is fixed.
+ */
+const TODAY = new Date().toISOString().slice(0, 10);
+const NOW = `${TODAY}T09:00:00.000Z`;
+
 /** ISO date `days` from today, in the app's UTC wall clock. */
 function dateFromToday(days) {
-  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+  return new Date(Date.parse(NOW) + days * 86_400_000).toISOString().slice(0, 10);
 }
 
 // --- The journey -------------------------------------------------------------------------
@@ -154,7 +173,13 @@ try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 300)));
-  await page.addInitScript((t) => localStorage.setItem("sq_session_token", t), sessionToken);
+  await page.addInitScript(
+    ({ token, now }) => {
+      localStorage.setItem("sq_session_token", token);
+      localStorage.setItem("sq_dev_now", now);
+    },
+    { token: sessionToken, now: NOW },
+  );
   await page.goto(APP);
   const nav = page.getByRole("navigation", { name: "Main" });
   await nav.waitFor({ timeout: 30_000 });
@@ -168,7 +193,7 @@ try {
   await page.getByRole("button", { name: /add a course/i }).first().click();
   await page.getByLabel("Course name").first().fill("Biology 101");
   await page.getByLabel("Course name").first().press("Enter");
-  await page.waitForTimeout(1500);
+  await page.getByText("Biology 101").first().waitFor({ timeout: 15_000 }).catch(() => {});
   check(
     "a course added in Setup appears in the list without a reload",
     (await page.getByText("Biology 101").count()) > 0 && (await page.getByText(/No courses yet/).count()) === 0,
@@ -187,7 +212,8 @@ try {
   const dueInput = page.locator("input[type=date]").first();
   if (await dueInput.count()) await dueInput.fill(dateFromToday(2));
   await page.getByRole("button", { name: /Add it/ }).click();
-  await page.waitForTimeout(2500);
+  await page.getByText("Lab report 1").first().waitFor({ timeout: 15_000 }).catch(() => {});
+  await page.waitForTimeout(1000);
   check(
     "an assignment added from the table appears in the table without a reload",
     (await page.getByText("Lab report 1").count()) > 0 && (await page.getByText("Nothing here yet").count()) === 0,
@@ -204,14 +230,17 @@ try {
 
   // 5. Start it, see it underway, survive a reload, stop it. Issue #5.
   await primary.getByRole("button", { name: /start session|begin/i }).click();
-  await page.waitForTimeout(1500);
+  await page.getByTestId("session-underway").waitFor({ timeout: 15_000 }).catch(() => {});
   check("Start session shows the block as underway", (await page.getByTestId("session-underway").count()) === 1);
   await page.reload();
   await nav.waitFor({ timeout: 30_000 });
   await go("Today");
+  await page.getByTestId("session-underway").waitFor({ timeout: 15_000 }).catch(() => {});
   check("the started state survives a reload", (await page.getByTestId("session-underway").count()) === 1);
   await page.getByRole("button", { name: /Stop, it's done/ }).click();
-  await page.waitForTimeout(2000);
+  // The celebration lands before the plan refetch that retires the badge, so wait for the
+  // badge to go rather than for the celebration to come.
+  await page.getByTestId("session-underway").waitFor({ state: "hidden", timeout: 15_000 }).catch(() => {});
   check(
     "Stop records the outcome and the block is no longer underway",
     (await page.getByTestId("session-underway").count()) === 0 &&
@@ -230,7 +259,7 @@ try {
       sessionToken,
     );
   }
-  await api(`/api/terms/${term.id}/plans/generate`, "POST", {}, sessionToken);
+  await api(`/api/terms/${term.id}/plans/generate`, "POST", { now: NOW, horizonStart: TODAY }, sessionToken);
 
   // 6. Move a block from the hour calendar with the keyboard, and lock it. Back to the
   //    visual views first: the table mode set above has no hour calendar.
@@ -239,8 +268,8 @@ try {
   await nav.waitFor({ timeout: 30_000 });
   await go("Week plan");
   await page.getByRole("button", { name: "Hour by hour" }).click();
-  await page.waitForTimeout(1200);
   const band = page.locator("[data-session-id]").first();
+  await band.waitFor({ timeout: 15_000 }).catch(() => {});
   check("study blocks on the hour calendar are operable", (await band.count()) === 1);
   const sessionId = await band.getAttribute("data-session-id");
   const before = (await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken)).sessions.find(
@@ -283,8 +312,8 @@ try {
   check("Today offers to give the day up when blocks are still open", (await lost.count()) === 1);
   await lost.getByRole("button").first().click();
   await page.getByRole("button", { name: /Yes, skip today|Yes/ }).click();
-  await page.waitForTimeout(5000);
   const changes = page.getByTestId("plan-changes");
+  await changes.waitFor({ timeout: 30_000 }).catch(() => {});
   check(
     "after a lost day the plan says what changed",
     (await changes.count()) === 1 && /kept|moved|added|dropped|Nothing moved/.test(await changes.innerText()),
@@ -305,7 +334,7 @@ try {
   // 10. Switch themes from Setup.
   await go("Setup");
   await page.getByRole("button", { name: /^quest$/i }).first().click();
-  await page.waitForTimeout(1200);
+  await page.waitForFunction(() => document.body.dataset.theme === "quest", null, { timeout: 15_000 }).catch(() => {});
   check("switching to Quest repaints the app", (await page.evaluate(() => document.body.dataset.theme)) === "quest");
   await page.getByRole("button", { name: /^plain$/i }).first().click();
   await page.waitForTimeout(800);
