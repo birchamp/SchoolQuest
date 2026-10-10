@@ -237,8 +237,13 @@ try {
     report("an ordinary week", auditCoverage(await currentPlan(token, s.termId, now), now), { strict: true });
 
     // 2. The student opens the app again eight days later. Nothing was replanned in between --
-    //    they did not press anything -- and the week the plan was made for is over.
+    //    they did not press anything -- and the week the plan was made for is over. They did
+    //    hand in last week's work (marked from the assignments table, which is not a replan):
+    //    ten overdue items would rightly outrank everything and measure something else.
     const later = at(dateFrom(monday, 8), "10:00");
+    for (const w of (await api(`/api/terms/${s.termId}/snapshot`, "GET", undefined, token)).workItems) {
+      if (w.dueAt < later) await api(`/api/work-items/${w.id}`, "PATCH", { status: "submitted" }, token);
+    }
     const { page, context, errors } = await openApp(browser, token, later);
     const plan = await currentPlan(token, s.termId, later);
     const horizonEnd = plan.planVersion.horizonEnd;

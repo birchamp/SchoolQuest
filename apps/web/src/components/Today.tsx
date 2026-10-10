@@ -210,7 +210,8 @@ export function Today({
     try {
       await api.post(`/api/work-sessions/${sessionId}/interrupted`, body);
       clearSessionStarted(sessionId);
-      onChanged();
+      // The block is skipped in the same call, so its work needs its time back, as below.
+      await onReplan();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
     } finally {
@@ -225,7 +226,11 @@ export function Today({
       await api.post(`/api/work-sessions/${sessionId}/${action}`, body);
       if (action === "start") noteSessionStarted(sessionId);
       if (action === "skip") clearSessionStarted(sessionId);
-      onChanged();
+      // A skipped block's work is still due. Reloading alone left it with that much less time
+      // booked and nothing to say so until someone pressed replan; the replan treats the hour
+      // just declined as taken, so "not now" does not come straight back as "now".
+      if (action === "skip") await onReplan();
+      else onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
     } finally {
@@ -261,7 +266,9 @@ export function Today({
           released: result.releasedSessions ?? 0,
         });
       }
-      onChanged();
+      // "Needs more time" is a request for more time; booking it is the answer.
+      if (outcome !== "completed") await onReplan();
+      else onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
     } finally {

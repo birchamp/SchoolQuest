@@ -114,6 +114,28 @@ describe("work coming due", () => {
   });
 });
 
+describe("a skipped block", () => {
+  it("gets its work's time back somewhere other than the hour just declined", () => {
+    const hw = item({ id: "hw", dueAt: "2026-10-13T23:59:00.000Z" });
+    const base = input([hw]);
+    const declined = {
+      id: "s_old",
+      workItemId: "hw",
+      planVersionId: "p0",
+      startAt: "2026-10-10T10:00:00.000Z",
+      endAt: "2026-10-10T11:00:00.000Z",
+      status: "skipped" as const,
+      locked: false,
+      acceptedByUser: false,
+      actualMinutes: null,
+      outcomeCode: "did_not_start" as const,
+    };
+    const plan = generatePlan({ ...base, now: "2026-10-10T10:05:00.000Z", existingSessions: [declined] }, "p");
+    expect(bookedFor(plan, "hw")).toBe(60);
+    for (const s of plan.sessions) expect(s.startAt >= declined.endAt).toBe(true);
+  });
+});
+
 describe("work whose only chance is today", () => {
   it("gets today ahead of higher-ranked work that has the rest of the week", () => {
     // Saturday holds two hours under the daily limit. The reading is due at nine on Sunday, so

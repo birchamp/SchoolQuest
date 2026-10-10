@@ -39,6 +39,7 @@ import { DiagnosticsButton } from "./components/DiagnosticsButton";
 import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 import { CampaignRadar } from "./components/CampaignRadar";
 import { PlanChanges } from "./components/PlanChanges";
+import { planIsStale, wallClockNow } from "./lib/clock";
 
 /**
  * App shell.
@@ -274,12 +275,23 @@ export function App() {
   const loadPlan = useCallback(async (termId: string) => {
     try {
       const when = devNow();
-      const current = await api.get<PlanResponse>(
-        `/api/terms/${termId}/plans/current${when ? `?now=${encodeURIComponent(when)}` : ""}`,
-      );
-      // No plan yet (fresh account, or the horizon has rolled over): generate the first one.
-      if (!current.planVersion) {
-        setPlan(await api.post<PlanResponse>(`/api/terms/${termId}/plans/generate`, {}));
+      const read = () =>
+        api.get<PlanResponse>(
+          `/api/terms/${termId}/plans/current${when ? `?now=${encodeURIComponent(when)}` : ""}`,
+        );
+      const current = await read();
+      // No plan yet, or one from an earlier day: build today's. The comment here used to say
+      // "or the horizon has rolled over" while the code checked only for no plan at all, so a
+      // finished week's plan was shown indefinitely and nothing new was ever booked.
+      const today = (when ?? wallClockNow()).slice(0, 10);
+      if (!current.planVersion || planIsStale(current.planVersion, today)) {
+        const generated = await api.post<PlanResponse>(`/api/terms/${termId}/plans/generate`, {
+          reason: current.planVersion ? "daily_refresh" : "initial",
+          ...(when ? { now: when, horizonStart: today } : {}),
+        });
+        // Said once, like any replan: the student opened the app and the week moved.
+        if (current.planVersion) setLastDiff(generated.diff ?? null);
+        setPlan(normalizePlan(await read()));
       } else {
         setPlan(normalizePlan(current));
       }

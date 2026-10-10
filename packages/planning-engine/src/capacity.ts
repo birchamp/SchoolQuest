@@ -116,10 +116,18 @@ function collectBusyIntervals(
     }
   }
 
-  // Locked sessions hold their slot across replans (docs/04 §12).
   for (const session of input.existingSessions) {
+    // A block the student skipped is an hour they said they do not have. "Not now" replans so
+    // the work gets its time back, and without this the earliest free time it found was the
+    // very hour just declined -- "not now" answered with "now". Only the skipped block's own
+    // hour is held; the rest of the day is still free.
+    if (session.status === "skipped") {
+      busy.push({ start: toEpochMinutes(session.startAt), end: toEpochMinutes(session.endAt) });
+      continue;
+    }
+    // Locked sessions hold their slot across replans (docs/04 §12).
     if (!session.locked) continue;
-    if (session.status === "missed" || session.status === "skipped") continue;
+    if (session.status === "missed") continue;
     busy.push({ start: toEpochMinutes(session.startAt), end: toEpochMinutes(session.endAt) });
   }
 
