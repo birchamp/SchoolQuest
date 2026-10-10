@@ -464,6 +464,89 @@ try {
     await context.close();
   });
 
+  // 8. "Not fitted into this week", as the student who reported this saw it. A term of weekly
+  //    assignments listed thirty-two of forty there on an ordinary Monday, headed "these items
+  //    need a decision", with no way anywhere to make one. Work that is simply not due yet does
+  //    not belong on that list; work that really did not fit must come with the decisions.
+  await journey(async () => {
+    const token = await signUp("term");
+    const day = TODAY;
+    const now = at(day, "08:00");
+    const s = await ordinaryStudent(token, { termStart: dateFrom(day, -21), termEnd: dateFrom(day, 80) });
+    for (const [key, id] of Object.entries(s.courses)) {
+      for (let week = 0; week < 9; week += 1) {
+        await addWork(token, id, `${key} weekly ${week + 1}`, "problem_set", at(dateFrom(day, 2 + week * 7), "23:59"), 60);
+      }
+    }
+    await api(`/api/terms/${s.termId}/plans/generate`, "POST", { now, horizonStart: day }, token);
+    const plan = await currentPlan(token, s.termId, now);
+    check(
+      "a term of weekly work: nothing is listed as not fitted when the week has room",
+      plan.unscheduledWorkItemIds.length === 0,
+      `${plan.unscheduledWorkItemIds.length} listed, ${plan.capacity.usedMinutes}/${plan.capacity.availableMinutes} min used`,
+    );
+  });
+
+  await journey(async () => {
+    const token = await signUp("decide");
+    const day = TODAY;
+    const now = at(day, "15:00");
+    const s = await ordinaryStudent(token, { termStart: dateFrom(day, -21), termEnd: dateFrom(day, 80) });
+    let n = 0;
+    for (const course of Object.values(s.courses)) {
+      for (const offset of [1, 2, 3]) {
+        n += 1;
+        await addWork(token, course, `Crunch item ${n}`, "assignment", at(dateFrom(day, offset), "23:59"), 150);
+      }
+    }
+    await api(`/api/terms/${s.termId}/plans/generate`, "POST", { now, horizonStart: day }, token);
+
+    const { page, context, errors } = await openApp(browser, token, now);
+    const nav = page.getByRole("navigation", { name: "Main" });
+    await nav.getByRole("button", { name: "Week plan" }).click();
+    await page.waitForTimeout(800);
+    const rows = page.getByTestId("unfitted-item");
+    await rows.first().waitFor({ timeout: 15_000 }).catch(() => {});
+    const count = await rows.count();
+    check(
+      "not fitted: every listed item offers a decision",
+      count > 0 &&
+        (await rows.getByRole("button", { name: "Put it first" }).count()) === count &&
+        (await rows.getByRole("button", { name: "Change it" }).count()) === count,
+      `${count} listed`,
+    );
+
+    // Put the first one first: it should come out of the list with time booked.
+    const title = (await rows.first().locator("span").first().innerText()).split("\n")[0].trim();
+    await rows.first().getByRole("button", { name: "Put it first" }).click();
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(2500);
+    const after = await currentPlan(token, s.termId, now);
+    const item = after.workItems.find((w) => w.title === title);
+    const booked = after.sessions
+      .filter((x) => x.workItemId === item?.id && x.status === "planned")
+      .reduce((m, x) => m + Math.round((Date.parse(x.endAt) - Date.parse(x.startAt)) / 60_000), 0);
+    check(
+      `not fitted: "Put it first" gets "${title}" its time`,
+      Boolean(item) && booked >= 150 && !after.unscheduledWorkItemIds.includes(item.id),
+      `${booked} min booked`,
+    );
+
+    // "Change it" lands on the item's row in the assignments table.
+    const second = page.getByTestId("unfitted-item").first();
+    const secondTitle = (await second.locator("span").first().innerText()).split("\n")[0].trim();
+    const secondItem = after.workItems.find((w) => w.title === secondTitle);
+    await second.getByRole("button", { name: "Change it" }).click();
+    await page.waitForTimeout(1500);
+    check(
+      "not fitted: \"Change it\" opens the item where its date, size and status can be changed",
+      Boolean(secondItem) && (await page.locator(`#work-item-${secondItem.id}`).count()) === 1,
+      secondTitle,
+    );
+    check("not fitted: no page errors", errors.length === 0, errors.join(" | "));
+    await context.close();
+  });
+
   // 5. More work than hours. Not everything can fit; the app must say which, not drop them.
   await journey(async () => {
     const token = await signUp("crunch");

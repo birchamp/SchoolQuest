@@ -567,11 +567,23 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
   // nothing-was-ripe second pass reported every item it went on to place a second time.
   for (const work of orderedPending) {
     if (work.minutesRemaining <= 0) continue;
-    unscheduled.push(work.item.id);
     const placedAny = sessions.some(
       (session) => session.workItemId === work.item.id && !carriedSessions.has(session),
     );
-    risks.push(unscheduledRisk(work, placedAny, horizonEndMinutes));
+    const risk = unscheduledRisk(work, placedAny, horizonEndMinutes);
+    risks.push(risk);
+    /**
+     * Work waiting its turn is not work that failed to fit.
+     *
+     * Every item left without time used to go on this list, including the bulk of the term
+     * that is not due for weeks and is held back on purpose. The week map prints the list as
+     * "Not fitted into this week -- these items need a decision before they can be scheduled",
+     * so a term with weekly assignments showed thirty-two of its forty items there on an
+     * ordinary Monday, with four-fifths of the week's study time free. A student reported
+     * exactly that: lots of assignments "not fitted into this week". The risk already said
+     * "not this week, and that is fine"; the list now agrees with it.
+     */
+    if (risk.code !== "WAITING_ITS_TURN") unscheduled.push(work.item.id);
   }
 
   const usedMinutes = sessions.reduce((sum, s) => sum + s.minutes, 0);
