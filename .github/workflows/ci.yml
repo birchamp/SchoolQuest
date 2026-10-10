@@ -54,6 +54,11 @@ jobs:
       - name: Acceptance journey
         run: pnpm test:acceptance
 
+      # Does every assignment coming due get time? A normal week, the week after, a skipped
+      # block, "needs more time", a student outside UTC, and an oversubscribed week.
+      - name: Scheduling journey
+        run: pnpm test:scheduling
+
       # WCAG AA on every rendered screen, per theme. The servers are started once for all
       # three runs; the walker signs in on its own.
       - name: Start the app for the contrast checks

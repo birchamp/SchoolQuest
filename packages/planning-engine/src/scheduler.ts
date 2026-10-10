@@ -25,10 +25,12 @@ import type {
 
 /**
  * v2 adds the first-touch pass: in an oversubscribed week every course gets one block before
- * any course gets a second. Stamped on every plan, so a plan made under the old rule is
- * identifiable rather than silently assumed to be comparable.
+ * any course gets a second. v3 adds the deadline rescue (work short of its deadline may displace
+ * work due later), the buffer falling back to the real deadline, short work booked at its own
+ * length, and skipped hours held as busy. Stamped on every plan, so a plan made under the old
+ * rule is identifiable rather than silently assumed to be comparable.
  */
-export const ALGORITHM_VERSION = "heuristic-v2";
+export const ALGORITHM_VERSION = "heuristic-v3";
 
 /** Fallback effort by work type, used only when the student has given us nothing better. */
 const DEFAULT_EFFORT_MINUTES: Record<string, number> = {

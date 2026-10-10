@@ -18,6 +18,38 @@ still has a today to book. Each run signs up a fresh `acceptance-<timestamp>@exa
 account in whichever database the Worker is using; on a developer's machine that is the
 local one, and those accounts are harmless but do accumulate.
 
+## The scheduling journey (runs on every push)
+
+`pnpm test:scheduling` asks the question the app is built to answer: does every assignment
+coming due get time on the calendar? It walks a real browser and the real Worker through an
+ordinary week, the week after it, a skipped block, the morning after a missed block, "needs more
+time", a student whose browser is in Honolulu, and a week with more work than hours. Each ends in
+the same audit. Every piece of work due before the plan's horizon closes either has its minutes
+booked ahead of its deadline or is named in a risk saying it does not. In a week with room to
+spare, a warning does not count.
+
+It was written for a report that the app "isn't scheduling time to work on all of the
+assignments that are coming due", and its first run found seven separate reasons:
+
+- **The plan never moved on.** A plan was generated only when none existed, so once its week
+  ended the app showed it forever, with nothing on Today. The app now replans on the first
+  load of a new day.
+- **A skipped or missed block's time was gone.** "Not now" reloaded the plan instead of
+  replanning. Now it replans, and the declined hour counts as taken.
+- **"Needs more time" finished the assignment.** Estimate minus minutes worked hit zero, and
+  zero read as done.
+- **"Now" was Greenwich time** while every stored time is the student's wall clock, so in
+  Chicago the afternoon was over by mid-morning. The server now reads the student's zone, and
+  the app reports it.
+- **A deadline buffer before any free time** made work due the next morning unplaceable.
+- **Work shorter than the minimum session** could never be placed at all.
+- **Greedy placement** spent the only day an urgent item could use on work due later in the
+  week. Now work short of its deadline may displace work due later.
+
+`--attach` uses servers that are already running; `--verbose` prints each audit as a table.
+Remember that `wrangler dev` does not reload when only `packages/` changes, so restart the
+servers after editing the planning engine, or the journey will test the old one.
+
 # End-to-end semester test
 
 Drives the complete student journey through the real Worker API: fresh account,
