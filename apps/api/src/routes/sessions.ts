@@ -7,6 +7,7 @@ import { getDb, type Db } from "../db/repo.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
 import { findMoveConflict } from "../db/move-check.js";
 import { remainingAfterOutcome } from "../db/remaining-effort.js";
+import { studentNow } from "../wall-clock.js";
 import { isOpenOnDay } from "../db/lost-day.js";
 import { assertTermOwner } from "../db/repo.js";
 import type { AppBindings } from "../env.js";
@@ -113,7 +114,7 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
   // sit at "5 of 5 stages cleared" and still report itself unfinished forever — the parent
   // has no blocks of its own to complete, because the scheduler plans through the stages.
   if (itemStatus === "completed") {
-    await completeParentIfDone(db, item);
+    await completeParentIfDone(db, item, await studentNow(db, c.get("userId")));
   }
 
   // Finishing the work frees every block still held for it. Without this the interface
@@ -122,7 +123,9 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
   // that the week redraws itself around what is left was visibly false.
   let releasedSessions = 0;
   if (itemStatus === "completed") {
-    releasedSessions = await releaseFutureSessions(db, item.id, { excludeSessionId: id });
+    releasedSessions = await releaseFutureSessions(db, item.id, await studentNow(db, c.get("userId")), {
+      excludeSessionId: id,
+    });
   }
 
   await db.insert(auditEvents).values({

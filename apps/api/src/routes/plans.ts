@@ -26,6 +26,7 @@ import {
 } from "../db/repo.js";
 import { loadReview } from "./review.js";
 import { isDevMode, type AppBindings } from "../env.js";
+import { studentNow } from "../wall-clock.js";
 
 const generateBody = z.object({
   horizonStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -77,8 +78,11 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
 
   // A client may only move time in development mode, the same flag the login route uses.
   const timeTravelAllowed = isDevMode(c.env);
+  // A simulated `now` is already a wall-clock time; the real one is read in the student's zone.
   const now =
-    timeTravelAllowed && parsed.data.now ? new Date(parsed.data.now).toISOString() : new Date().toISOString();
+    timeTravelAllowed && parsed.data.now
+      ? new Date(parsed.data.now).toISOString()
+      : await studentNow(db, c.get("userId"));
   const horizonStart = parsed.data.horizonStart ?? now.slice(0, 10);
 
   const snapshot = await loadTermSnapshot(db, termId, { sessionsFrom: `${horizonStart}T00:00:00Z` });
@@ -203,7 +207,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
   const asOf =
     isDevMode(c.env) && c.req.query("now")
       ? new Date(c.req.query("now")!).toISOString()
-      : new Date().toISOString();
+      : await studentNow(db, c.get("userId"));
 
   const sessions = (
     await db.select().from(workSessions).where(eq(workSessions.planVersionId, current.id))
@@ -384,7 +388,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     // What the weeks that already happened have to say about the week being planned. Asked
     // here rather than on its own screen because the answer changes the plan, and a question
     // the student has to go looking for is a question nobody answers.
-    review: await loadReview(db, termId),
+    review: await loadReview(db, termId, asOf),
     /**
      * Blocks, each carrying the course it belongs to.
      *

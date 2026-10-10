@@ -7,6 +7,7 @@ import {
   type CalendarSlot,
   type SlotKind,
 } from "@schoolquest/planning-engine";
+import { wallClockToday } from "../lib/clock";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
@@ -149,7 +150,8 @@ export function WeekCalendar({
   const quest = theme === "quest";
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
-  const today = new Date().toISOString().slice(0, 10);
+  // The student's own date, in the frame every stored time is written in (lib/clock.ts).
+  const today = wallClockToday();
 
   /**
    * Editing a block from the grid.

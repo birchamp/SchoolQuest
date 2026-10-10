@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ThemeName } from "@schoolquest/domain";
 import { explainRisk, label } from "@schoolquest/theme-language";
+import { wallClockToday } from "../lib/clock";
 import { api } from "../lib/api";
 import { addDays } from "@schoolquest/domain";
 import { clearSessionStarted, minutesSinceStarted, noteSessionStarted } from "../lib/session-clock";
@@ -99,7 +100,8 @@ export function Today({
   const elapsed = underway && primary ? minutesSinceStarted(primary.sessionId) : null;
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
-  const today = new Date().toISOString().slice(0, 10);
+  // The student's own date, in the frame every stored time is written in (lib/clock.ts).
+  const today = wallClockToday();
   /**
    * Blocks still open today, which is what giving the day up costs. Rows carry a status on a
    * saved-plan read; a freshly generated plan's blocks are all still open.

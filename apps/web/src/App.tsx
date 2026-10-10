@@ -39,7 +39,7 @@ import { DiagnosticsButton } from "./components/DiagnosticsButton";
 import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 import { CampaignRadar } from "./components/CampaignRadar";
 import { PlanChanges } from "./components/PlanChanges";
-import { planIsStale, wallClockNow } from "./lib/clock";
+import { browserTimeZone, planIsStale, wallClockNow } from "./lib/clock";
 
 /**
  * App shell.
@@ -309,6 +309,14 @@ export function App() {
 
       const { user } = await api.get<{ user: Me }>("/api/me");
       setMe(user);
+
+      // The server plans from the student's own clock, so it has to know where they are. The
+      // zone was stored at sign-up as New York for everyone and nothing ever changed it.
+      // Best effort: a failure here leaves the plan in the old frame, which is no worse.
+      const zone = browserTimeZone();
+      if (zone && zone !== user.timezone) {
+        await api.patch("/api/me", { timezone: zone }).catch(() => undefined);
+      }
 
       const { terms } = await api.get<{ terms: Term[] }>("/api/terms");
       // Prefer the active term; fall back to any that is not archived; otherwise none, which

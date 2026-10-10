@@ -7,6 +7,7 @@ import type {
   PlanResponse,
   SessionBriefView,
 } from "../lib/types";
+import { wallClockToday } from "../lib/clock";
 import { courseLabelInk } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
 import { CalendarLegend } from "./CalendarLegend";
@@ -105,7 +106,8 @@ export function WeekMap({
 }) {
   const quest = theme === "quest";
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
-  const today = new Date().toISOString().slice(0, 10);
+  // The student's own date, in the frame every stored time is written in (lib/clock.ts).
+  const today = wallClockToday();
   const start = plan.horizonStart ?? plan.planVersion?.horizonStart ?? today;
 
   // Falling back to the raw sessions keeps this view working against a plan payload that

@@ -18,6 +18,7 @@ import {
 } from "@schoolquest/planning-engine";
 import { auditEvents, commitments, courses, interruptions, terms, workItems, workSessions } from "../db/schema.js";
 import { assertTermOwner, getDb, serializeDays, type Db } from "../db/repo.js";
+import { studentNow } from "../wall-clock.js";
 import type { AppBindings } from "../env.js";
 
 export const reviewRoute = new Hono<AppBindings>();
@@ -38,12 +39,11 @@ reviewRoute.get("/terms/:termId/review", async (c) => {
     return c.json({ error: "Term not found" }, 404);
   }
 
-  return c.json(await loadReview(db, termId));
+  return c.json(await loadReview(db, termId, await studentNow(db, c.get("userId"))));
 });
 
 /** Shared with the plan route, which folds the review into what it already returns. */
-export async function loadReview(db: Db, termId: string) {
-  const now = new Date().toISOString();
+export async function loadReview(db: Db, termId: string, now: string) {
   const since = new Date(
     (toEpochMinutes(now) - DEFAULT_LOOKBACK_DAYS * MINUTES_PER_DAY) * 60_000,
   ).toISOString();
@@ -265,5 +265,5 @@ reviewRoute.post("/terms/:termId/review/answer", async (c) => {
     createdAt: row.createdAt,
   });
 
-  return c.json({ ok: true, commitment, review: await loadReview(db, termId) });
+  return c.json({ ok: true, commitment, review: await loadReview(db, termId, await studentNow(db, c.get("userId"))) });
 });

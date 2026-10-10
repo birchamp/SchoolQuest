@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
 import { buildWeekCalendar, DEFAULT_EFFORT_MINUTES, type SlotKind } from "@schoolquest/planning-engine";
+import { wallClockToday } from "../lib/clock";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
@@ -840,7 +841,8 @@ type BlockKey = "day" | "start" | "title" | "course" | "minutes" | "kind";
 export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeName }) {
   const quest = theme === "quest";
   const { sort, onSort } = useSort<BlockKey>("start");
-  const today = new Date().toISOString().slice(0, 10);
+  // The student's own date, in the frame every stored time is written in (lib/clock.ts).
+  const today = wallClockToday();
 
   const rows = useMemo(() => {
     const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
