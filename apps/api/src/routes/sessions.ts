@@ -6,6 +6,7 @@ import { auditEvents, commitments, courses, meetingPatterns, terms, workItems, w
 import { getDb, type Db } from "../db/repo.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
 import { findMoveConflict } from "../db/move-check.js";
+import { remainingAfterOutcome } from "../db/remaining-effort.js";
 import { isOpenOnDay } from "../db/lost-day.js";
 import { assertTermOwner } from "../db/repo.js";
 import type { AppBindings } from "../env.js";
@@ -87,21 +88,14 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
     .set({ status, actualMinutes, outcomeCode: parsed.data.outcome })
     .where(eq(workSessions.id, id));
 
-  let remaining: number | null = item.remainingMinutes;
-  if (parsed.data.remainingMinutes !== undefined) {
-    remaining = parsed.data.remainingMinutes;
-  } else if (parsed.data.outcome === "completed") {
-    remaining = 0;
-  } else if (parsed.data.outcome === "did_not_start") {
-    remaining = item.remainingMinutes; // Nothing happened; effort is unchanged.
-  } else {
-    // Seeded from the estimate when no remaining figure exists yet. Most items never have
-    // one until they are touched, and the old guard skipped them entirely -- so a partial
-    // session's minutes counted for nothing and the item still demanded its full estimate,
-    // which is the opposite of the learning signal this route exists to record (docs/04 §9).
-    const base = item.remainingMinutes ?? item.estimatedMinutes;
-    if (base !== null) remaining = Math.max(0, base - actualMinutes);
-  }
+  const remaining = remainingAfterOutcome({
+    outcome: parsed.data.outcome,
+    reported: parsed.data.remainingMinutes,
+    remainingMinutes: item.remainingMinutes,
+    estimatedMinutes: item.estimatedMinutes,
+    actualMinutes,
+    plannedMinutes,
+  });
 
   const itemStatus =
     remaining === 0

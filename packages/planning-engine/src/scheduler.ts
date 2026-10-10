@@ -53,8 +53,10 @@ interface PendingWork {
   minutesRemaining: number;
   /** What `minutesRemaining` started as, so a second pass can reset to it. */
   allocatedMinutes: number;
-  /** Absolute latest a session may end: due date minus the reserved buffer. */
+  /** Latest a session should end: due date minus the reserved buffer. */
   latestEnd: number | null;
+  /** Latest a session may end at all: the deadline itself, or null once it has passed. */
+  deadline: number | null;
   earliestStart: number;
 }
 
@@ -79,6 +81,8 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
   const dailyMinutes = new Map<string, number>();
   // Free space remaining in each window as we consume it.
   const remainingWindows: CapacityWindow[] = windows.map((w) => ({ ...w }));
+  // Where the student will be at some point this horizon, before anything is booked.
+  const locationsOffered: ReadonlySet<string> = new Set(windows.map((w) => w.location));
 
   // --- Carry over the previous plan's committed blocks first, so replanning is stable.
   const carried = carryOverSessions(input, horizonStartMinutes, horizonEndMinutes);
@@ -181,6 +185,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
       minutesRemaining: allocation.minutes,
       allocatedMinutes: allocation.minutes,
       latestEnd: latestSafeEnd(item, input),
+      deadline: item.dueAt && toEpochMinutes(item.dueAt) > now ? toEpochMinutes(item.dueAt) : null,
       earliestStart: Math.max(
         now,
         item.availableAt ? toEpochMinutes(item.availableAt) : Number.NEGATIVE_INFINITY,
@@ -284,10 +289,25 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
    */
   /** Places one chunk of this work, or returns null when nothing will hold it. */
   const placeChunk = (work: PendingWork, chunk: number, earliest: number): number | null => {
-    const placement = findBestPlacement(work, chunk, earliest, remainingWindows, {
-      input,
-      dailyMinutes,
-    });
+    const ctx = { input, dailyMinutes, locationsOffered };
+    let placement = findBestPlacement(work, chunk, earliest, remainingWindows, ctx);
+    /**
+     * The buffer is a margin, not a second deadline. When keeping it leaves no free time at
+     * all, the real deadline is used instead and the block says it is closer than usual.
+     *
+     * `latestSafeEnd` already degrades the buffer once it has *elapsed*, but not when it merely
+     * falls before the student's free time. Reading due at nine tomorrow, a one-day buffer, and
+     * a morning with classes until three: the buffered limit was nine this morning, still in the
+     * future, so it stood -- and nothing ends before nine. The item went out as "no window fits
+     * this before its deadline" with the whole afternoon and evening of today empty. Found by the
+     * scheduling journey, on an ordinary week.
+     */
+    if (!placement && work.deadline !== null && work.deadline !== work.latestEnd) {
+      placement = findBestPlacement({ ...work, latestEnd: work.deadline }, chunk, earliest, remainingWindows, ctx);
+      if (placement && placement.tradeoffCode === null) {
+        placement.tradeoffCode = "WORK_PUSHED_CLOSER_TO_DEADLINE";
+      }
+    }
     if (!placement) return null;
 
     sessions.push({
@@ -614,19 +634,42 @@ function findBestPlacement(
   chunkMinutes: number,
   earliest: number,
   windows: CapacityWindow[],
-  ctx: { input: PlanningInput; dailyMinutes: Map<string, number> },
+  ctx: { input: PlanningInput; dailyMinutes: Map<string, number>; locationsOffered: ReadonlySet<string> },
 ): Placement | null {
   const prefs = ctx.input.preferences;
   let best: { placement: Placement; utility: number } | null = null;
+  /**
+   * The shortest block worth booking -- unless the work itself is shorter.
+   *
+   * The minimum session exists so that work is not shredded into slivers, not to refuse work
+   * that is small to begin with. Applied as an absolute floor, it made anything under twenty
+   * minutes unplaceable: a fifteen-minute discussion post, or the last ten minutes of a reading
+   * after a partial session, went out as "no window fits this before its deadline" in an empty
+   * week. Whole is not a sliver.
+   */
+  const floor = Math.min(prefs.minSessionMinutes, chunkMinutes);
 
   for (const window of windows) {
+    /**
+     * A library-only task does not go in a non-library window -- when the week has library time.
+     *
+     * This was only ever a score penalty, and what actually kept such work out of the wrong room
+     * was the minimum session: the ten minutes left after the library hour were too short to
+     * book anywhere. Once short work became bookable that accident stopped holding, so it is a
+     * rule now. But only where it can be met: a student who has never said when they are at the
+     * library still has the work, and refusing to plan it at all is the failure this rule must
+     * not reintroduce. There the requirement stays what it was, a strong preference.
+     */
+    const needed = work.item.locationRequirement;
+    if (needed !== "anywhere" && window.location !== needed && ctx.locationsOffered.has(needed)) continue;
+
     const start = Math.max(window.start, earliest);
     const available = window.end - start;
-    if (available < prefs.minSessionMinutes) continue;
+    if (available < floor) continue;
 
     let minutes = Math.min(chunkMinutes, available, prefs.maxSessionMinutes);
     if (work.item.divisibility !== "divisible" && minutes < chunkMinutes) continue;
-    if (minutes < prefs.minSessionMinutes) continue;
+    if (minutes < floor) continue;
 
     const end = start + minutes;
     if (work.latestEnd !== null && end > work.latestEnd) continue;
@@ -635,7 +678,7 @@ function findBestPlacement(
     const date = epochMinutesToDate(start);
     const usedToday = ctx.dailyMinutes.get(date) ?? 0;
     const roomToday = prefs.maxDailyAcademicMinutes - usedToday;
-    if (roomToday < prefs.minSessionMinutes) continue;
+    if (roomToday < floor) continue;
 
     let tradeoffCode: PlannedSession["tradeoffCode"] = null;
     if (minutes > roomToday) {
@@ -694,7 +737,7 @@ function contextFit(
       score += 0.25;
       reasonCodes.push("LOCATION_MATCH");
     } else {
-      // A library-only task in a non-library window is not a fit at all.
+      // Reached only when the horizon has no window at that location at all.
       score -= 0.5;
     }
   }
