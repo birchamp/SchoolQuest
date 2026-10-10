@@ -103,6 +103,27 @@ async function addWork(token, courseId, title, workType, dueAt, estimatedMinutes
   return workItem;
 }
 
+/**
+ * A week of work for `ordinaryStudent`, due over the seven days from `day`.
+ *
+ * `readingDue` is when the next-day reading closes. Nine in the morning is the hard case -- only
+ * the evening before can hold it -- and it is genuinely impossible when the plan is made after
+ * the last free hour of that evening, so the evening sweep moves it to the end of the day.
+ */
+async function ordinaryWeek(token, c, day, { readingDue = "09:00" } = {}) {
+  await addWork(token, c.bio, "Lab report 3", "assignment", at(dateFrom(day, 2), "23:59"), 90);
+  await addWork(token, c.bio, "Chapter 7 reading", "reading", at(dateFrom(day, 1), readingDue), 45);
+  await addWork(token, c.eng, "Essay 2 draft", "paper", at(dateFrom(day, 5), "23:59"), 180);
+  await addWork(token, c.eng, "Peer review", "assignment", at(dateFrom(day, 3), "11:00"), 40);
+  await addWork(token, c.his, "Primary source response", "assignment", at(dateFrom(day, 4), "23:59"), 60);
+  await addWork(token, c.his, "Quiz 4", "quiz", at(dateFrom(day, 6), "13:00"), null);
+  // Small things are real work too: shorter than the shortest session the planner likes.
+  await addWork(token, c.his, "Discussion post", "discussion", at(dateFrom(day, 2), "23:59"), 15);
+  await addWork(token, c.mat, "Homework 6", "problem_set", at(dateFrom(day, 1), "23:59"), 75);
+  await addWork(token, c.mat, "Homework 7", "problem_set", at(dateFrom(day, 4), "23:59"), 75);
+  await addWork(token, c.mat, "Unit 2 exam prep", "exam_prep", at(dateFrom(day, 6), "15:00"), 150);
+}
+
 /** The engine's fallback when the student gave no estimate; mirrors DEFAULT_EFFORT_MINUTES. */
 const DEFAULT_EFFORT = { reading: 60, quiz: 30, problem_set: 90, paper: 240, exam: 60, exam_prep: 120, assignment: 60 };
 const required = (w) => w.remainingMinutes ?? w.estimatedMinutes ?? DEFAULT_EFFORT[w.workType] ?? 60;
@@ -215,17 +236,7 @@ try {
     const now = at(monday, "08:00");
     const s = await ordinaryStudent(token, { termStart: dateFrom(monday, -21), termEnd: dateFrom(monday, 80) });
     const c = s.courses;
-    await addWork(token, c.bio, "Lab report 3", "assignment", at(dateFrom(monday, 2), "23:59"), 90);
-    await addWork(token, c.bio, "Chapter 7 reading", "reading", at(dateFrom(monday, 1), "09:00"), 45);
-    await addWork(token, c.eng, "Essay 2 draft", "paper", at(dateFrom(monday, 5), "23:59"), 180);
-    await addWork(token, c.eng, "Peer review", "assignment", at(dateFrom(monday, 3), "11:00"), 40);
-    await addWork(token, c.his, "Primary source response", "assignment", at(dateFrom(monday, 4), "23:59"), 60);
-    await addWork(token, c.his, "Quiz 4", "quiz", at(dateFrom(monday, 6), "13:00"), null);
-    // Small things are real work too: shorter than the shortest session the planner likes.
-    await addWork(token, c.his, "Discussion post", "discussion", at(dateFrom(monday, 2), "23:59"), 15);
-    await addWork(token, c.mat, "Homework 6", "problem_set", at(dateFrom(monday, 1), "23:59"), 75);
-    await addWork(token, c.mat, "Homework 7", "problem_set", at(dateFrom(monday, 4), "23:59"), 75);
-    await addWork(token, c.mat, "Unit 2 exam prep", "exam_prep", at(dateFrom(monday, 6), "15:00"), 150);
+    await ordinaryWeek(token, c, monday);
     // Next week's work, which this week's plan need not finish but next week's must.
     await addWork(token, c.bio, "Lab report 4", "assignment", at(dateFrom(monday, 9), "23:59"), 90);
     await addWork(token, c.eng, "Essay 2 final", "paper", at(dateFrom(monday, 12), "23:59"), 120);
@@ -370,6 +381,86 @@ try {
     );
     report("time zone", auditCoverage(plan, new Date(wallNow).toISOString()));
     check("time zone: no page errors", errors.length === 0, errors.join(" | "));
+    await context.close();
+  });
+
+  // 6. The same ordinary week, starting on every day of the week, planned in the morning and in
+  //    the evening. One run of this journey only ever sees one weekday; a planner that is right
+  //    on a Saturday morning can be wrong on a Tuesday night, and was -- it booked five-minute
+  //    slivers and gave a problem set due the next night fifty of its seventy-five minutes.
+  //    Simulated dates only, so the whole week is checked on every run.
+  await journey(async () => {
+    const short = [];
+    for (const hour of ["08:00", "19:00"]) {
+      for (let offset = 0; offset < 7; offset += 1) {
+        const day = dateFrom(TODAY, offset);
+        const now = at(day, hour);
+        const token = await signUp(`sweep${offset}${hour.slice(0, 2)}`);
+        const s = await ordinaryStudent(token, { termStart: dateFrom(day, -21), termEnd: dateFrom(day, 80) });
+        await ordinaryWeek(token, s.courses, day, { readingDue: hour === "08:00" ? "09:00" : "23:59" });
+        await api(`/api/terms/${s.termId}/plans/generate`, "POST", { now, horizonStart: day }, token);
+        const plan = await currentPlan(token, s.termId, now);
+        const weekday = new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+        for (const row of auditCoverage(plan, now)) {
+          if (row.booked < row.need) short.push(`${weekday} ${hour}: "${row.title}" ${row.booked}/${row.need}`);
+        }
+        const slivers = plan.sessions.filter(
+          (x) => (Date.parse(x.endAt) - Date.parse(x.startAt)) / 60_000 < 15,
+        );
+        for (const x of slivers) short.push(`${weekday} ${hour}: a ${(Date.parse(x.endAt) - Date.parse(x.startAt)) / 60_000}-minute sliver`);
+      }
+    }
+    check(
+      "every weekday, morning and evening: every assignment has all of its time, in real blocks",
+      short.length === 0,
+      short.length === 0 ? "14 weeks planned" : short.join("; "),
+    );
+  });
+
+  // 7. What the student committed to survives the replan that now happens on its own every
+  //    morning. A block started and never stopped stays on Today until it is finished; a locked
+  //    block stays on the calendar where the student put it.
+  await journey(async () => {
+    const token = await signUp("kept");
+    const day = TODAY;
+    const s = await ordinaryStudent(token, { termStart: dateFrom(day, -21), termEnd: dateFrom(day, 80) });
+    // Fifty minutes a day, so a long essay spreads over several days and has blocks to lock.
+    await api(
+      `/api/terms/${s.termId}/availability-rules`,
+      "PUT",
+      { rules: [0, 1, 2, 3, 4, 5, 6].map((d) => ({ dayOfWeek: d, startTime: "21:00", endTime: "21:50" })) },
+      token,
+    );
+    await addWork(token, s.courses.eng, "Long essay", "paper", at(dateFrom(day, 6), "23:59"), 200);
+    const now = at(day, "21:05");
+    const made = await api(`/api/terms/${s.termId}/plans/generate`, "POST", { now, horizonStart: day }, token);
+    const ordered = [...made.sessions].sort((a, b) => a.startAt.localeCompare(b.startAt));
+    const started = ordered[0];
+    const locked = ordered[ordered.length - 1];
+    await api(`/api/work-sessions/${started.id}/start`, "POST", {}, token);
+    await api(`/api/work-sessions/${locked.id}/lock`, "POST", { locked: true }, token);
+
+    const tomorrow = at(dateFrom(day, 1), "09:00");
+    const { context, errors } = await openApp(browser, token, tomorrow);
+    const plan = await currentPlan(token, s.termId, tomorrow);
+    check(
+      "the next morning: the app replanned",
+      plan.planVersion.createdAt.slice(0, 10) === tomorrow.slice(0, 10),
+      `plan made ${plan.planVersion.createdAt}`,
+    );
+    check(
+      "the next morning: a block started and never stopped is still underway on Today",
+      plan.recommendations.some((r) => r.sessionId === started.id && r.status === "started"),
+    );
+    check(
+      "the next morning: a locked block is still on the calendar, where it was put",
+      plan.sessions.some((x) => x.id === locked.id && x.locked && x.startAt === locked.startAt),
+    );
+    const clashes = plan.sessions.filter(
+      (x) => x.id !== locked.id && x.startAt < locked.endAt && x.endAt > locked.startAt && x.status === "planned",
+    );
+    check("the next morning: nothing is booked over the locked block", clashes.length === 0);
+    check("committed blocks: no page errors", errors.length === 0, errors.join(" | "));
     await context.close();
   });
 
