@@ -373,7 +373,15 @@ export interface PlanResponse {
   planVersionId?: string;
   /** What this plan changed against the one it replaces. Generate responses only. */
   diff?: PlanDiff;
-  planVersion?: { id: string; versionNumber: number; horizonStart: string; horizonEnd: string } | null;
+  planVersion?: {
+    id: string;
+    versionNumber: number;
+    horizonStart: string;
+    horizonEnd: string;
+    createdAt?: string;
+  } | null;
+  /** When the server read this plan, on the student's clock. */
+  asOf?: string;
   horizonStart?: string;
   horizonEnd?: string;
   capacity: { usedMinutes: number; availableMinutes: number };

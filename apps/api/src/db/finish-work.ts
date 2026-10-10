@@ -23,12 +23,18 @@ import type { Db } from "./repo.js";
 export async function releaseFutureSessions(
   db: Db,
   workItemId: string,
+  /**
+   * The student's wall-clock now (`studentNow`). Stored blocks are wall-clock times, so the real
+   * instant in Greenwich left a finished assignment's blocks for the next few hours unreleased
+   * for anyone west of it -- and Today went on recommending work already handed in.
+   */
+  now: string,
   options: { excludeSessionId?: string } = {},
 ): Promise<number> {
   const conditions = [
     eq(workSessions.workItemId, workItemId),
     eq(workSessions.status, "planned"),
-    gt(workSessions.startAt, new Date().toISOString()),
+    gt(workSessions.startAt, now),
   ];
   if (options.excludeSessionId) conditions.push(ne(workSessions.id, options.excludeSessionId));
 
@@ -83,6 +89,8 @@ export function shouldCompleteParent(
 export async function completeParentIfDone(
   db: Db,
   item: { id: string; courseId: string; parentWorkItemId: string | null },
+  /** The student's wall-clock now (`studentNow`); blocks after it are released. */
+  now: string,
 ): Promise<boolean> {
   if (!item.parentWorkItemId) return false;
 
@@ -113,7 +121,7 @@ export async function completeParentIfDone(
       and(
         inArray(workSessions.workItemId, [parent.id]),
         eq(workSessions.status, "planned"),
-        gt(workSessions.startAt, new Date().toISOString()),
+        gt(workSessions.startAt, now),
       ),
     );
   return true;

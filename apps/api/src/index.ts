@@ -17,6 +17,7 @@ import { reviewRoute } from "./routes/review.js";
 import { sessionsRoute } from "./routes/sessions.js";
 import { termsRoute } from "./routes/terms.js";
 import { isDevMode, type AppBindings } from "./env.js";
+import { isTimeZone } from "./wall-clock.js";
 
 const app = new Hono<AppBindings>();
 
@@ -128,7 +129,8 @@ app.get("/api/me", async (c) => {
 
 const profileBody = z.object({
   displayName: z.string().nullable().optional(),
-  timezone: z.string().optional(),
+  /** An IANA zone name; anything else would quietly turn every plan back to UTC. */
+  timezone: z.string().refine(isTimeZone, "Unknown time zone").optional(),
   theme: themeName.optional(),
   reducedMotion: z.boolean().optional(),
   detailMode: detailMode.optional(),

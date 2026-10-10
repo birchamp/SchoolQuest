@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ThemeName } from "@schoolquest/domain";
 import { explainRisk, label } from "@schoolquest/theme-language";
+import { wallClockToday } from "../lib/clock";
 import { api } from "../lib/api";
 import { addDays } from "@schoolquest/domain";
 import { clearSessionStarted, minutesSinceStarted, noteSessionStarted } from "../lib/session-clock";
@@ -99,7 +100,8 @@ export function Today({
   const elapsed = underway && primary ? minutesSinceStarted(primary.sessionId) : null;
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
-  const today = new Date().toISOString().slice(0, 10);
+  // The student's own date, in the frame every stored time is written in (lib/clock.ts).
+  const today = wallClockToday();
   /**
    * Blocks still open today, which is what giving the day up costs. Rows carry a status on a
    * saved-plan read; a freshly generated plan's blocks are all still open.
@@ -210,7 +212,8 @@ export function Today({
     try {
       await api.post(`/api/work-sessions/${sessionId}/interrupted`, body);
       clearSessionStarted(sessionId);
-      onChanged();
+      // The block is skipped in the same call, so its work needs its time back, as below.
+      await onReplan();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
     } finally {
@@ -225,7 +228,11 @@ export function Today({
       await api.post(`/api/work-sessions/${sessionId}/${action}`, body);
       if (action === "start") noteSessionStarted(sessionId);
       if (action === "skip") clearSessionStarted(sessionId);
-      onChanged();
+      // A skipped block's work is still due. Reloading alone left it with that much less time
+      // booked and nothing to say so until someone pressed replan; the replan treats the hour
+      // just declined as taken, so "not now" does not come straight back as "now".
+      if (action === "skip") await onReplan();
+      else onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
     } finally {
@@ -261,7 +268,9 @@ export function Today({
           released: result.releasedSessions ?? 0,
         });
       }
-      onChanged();
+      // "Needs more time" is a request for more time; booking it is the answer.
+      if (outcome !== "completed") await onReplan();
+      else onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not work.");
     } finally {

@@ -39,6 +39,7 @@ import { DiagnosticsButton } from "./components/DiagnosticsButton";
 import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 import { CampaignRadar } from "./components/CampaignRadar";
 import { PlanChanges } from "./components/PlanChanges";
+import { browserTimeZone, planIsStale, wallClockNow } from "./lib/clock";
 
 /**
  * App shell.
@@ -274,12 +275,27 @@ export function App() {
   const loadPlan = useCallback(async (termId: string) => {
     try {
       const when = devNow();
-      const current = await api.get<PlanResponse>(
-        `/api/terms/${termId}/plans/current${when ? `?now=${encodeURIComponent(when)}` : ""}`,
-      );
-      // No plan yet (fresh account, or the horizon has rolled over): generate the first one.
-      if (!current.planVersion) {
-        setPlan(await api.post<PlanResponse>(`/api/terms/${termId}/plans/generate`, {}));
+      const read = () =>
+        api.get<PlanResponse>(
+          `/api/terms/${termId}/plans/current${when ? `?now=${encodeURIComponent(when)}` : ""}`,
+        );
+      const current = await read();
+      // No plan yet, or one from an earlier day: build today's. The comment here used to say
+      // "or the horizon has rolled over" while the code checked only for no plan at all, so a
+      // finished week's plan was shown indefinitely and nothing new was ever booked.
+      //
+      // "Today" is the server's, from the same read. The browser's own clock (or a leftover
+      // simulated one, which a production server ignores) could disagree with the date the
+      // server stamps on the plan it builds -- and then every load would replan.
+      const today = (current.asOf ?? when ?? wallClockNow()).slice(0, 10);
+      if (!current.planVersion || planIsStale(current.planVersion, today)) {
+        const generated = await api.post<PlanResponse>(`/api/terms/${termId}/plans/generate`, {
+          reason: current.planVersion ? "daily_refresh" : "initial",
+          ...(when ? { now: when, horizonStart: today } : {}),
+        });
+        // Said once, like any replan: the student opened the app and the week moved.
+        if (current.planVersion) setLastDiff(generated.diff ?? null);
+        setPlan(normalizePlan(await read()));
       } else {
         setPlan(normalizePlan(current));
       }
@@ -297,6 +313,14 @@ export function App() {
 
       const { user } = await api.get<{ user: Me }>("/api/me");
       setMe(user);
+
+      // The server plans from the student's own clock, so it has to know where they are. The
+      // zone was stored at sign-up as New York for everyone and nothing ever changed it.
+      // Best effort: a failure here leaves the plan in the old frame, which is no worse.
+      const zone = browserTimeZone();
+      if (zone && zone !== user.timezone) {
+        await api.patch("/api/me", { timezone: zone }).catch(() => undefined);
+      }
 
       const { terms } = await api.get<{ terms: Term[] }>("/api/terms");
       // Prefer the active term; fall back to any that is not archived; otherwise none, which
@@ -336,6 +360,31 @@ export function App() {
   const refreshPlan = useCallback(() => {
     if (term) void loadPlan(term.id);
   }, [term, loadPlan]);
+
+  /**
+   * The new day arrives while the app is open, too.
+   *
+   * The daily rebuild in `loadPlan` ran only when something loaded the plan, and the desktop
+   * app and an installed PWA are opened once and left open for days. Coming back to the window,
+   * and a quiet check every ten minutes, look at the plan already in hand -- no request -- and
+   * reload only once the date has moved past it. `loadPlan` then judges by the server's clock.
+   */
+  useEffect(() => {
+    if (!term || !plan?.planVersion) return;
+    const version = plan.planVersion;
+    const check = () => {
+      if (document.visibilityState !== "visible") return;
+      if (planIsStale(version, (devNow() ?? wallClockNow()).slice(0, 10))) void loadPlan(term.id);
+    };
+    const timer = setInterval(check, 10 * 60_000);
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+    };
+  }, [term, plan?.planVersion, loadPlan]);
 
   /**
    * Re-reads the term itself, not just the plan built from it.

@@ -4,6 +4,8 @@ import {
   fromEpochMinutes,
   MINUTES_PER_DAY,
   dateToEpochMinutes,
+  mergeIntervals,
+  subtractIntervals,
   toEpochMinutes,
   type WorkItem,
 } from "@schoolquest/domain";
@@ -25,10 +27,12 @@ import type {
 
 /**
  * v2 adds the first-touch pass: in an oversubscribed week every course gets one block before
- * any course gets a second. Stamped on every plan, so a plan made under the old rule is
- * identifiable rather than silently assumed to be comparable.
+ * any course gets a second. v3 adds the deadline rescue (work short of its deadline may displace
+ * work due later), the buffer falling back to the real deadline, short work booked at its own
+ * length, and skipped hours held as busy. Stamped on every plan, so a plan made under the old
+ * rule is identifiable rather than silently assumed to be comparable.
  */
-export const ALGORITHM_VERSION = "heuristic-v2";
+export const ALGORITHM_VERSION = "heuristic-v3";
 
 /** Fallback effort by work type, used only when the student has given us nothing better. */
 const DEFAULT_EFFORT_MINUTES: Record<string, number> = {
@@ -53,8 +57,10 @@ interface PendingWork {
   minutesRemaining: number;
   /** What `minutesRemaining` started as, so a second pass can reset to it. */
   allocatedMinutes: number;
-  /** Absolute latest a session may end: due date minus the reserved buffer. */
+  /** Latest a session should end: due date minus the reserved buffer. */
   latestEnd: number | null;
+  /** Latest a session may end at all: the deadline itself, or null once it has passed. */
+  deadline: number | null;
   earliestStart: number;
 }
 
@@ -181,6 +187,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
       minutesRemaining: allocation.minutes,
       allocatedMinutes: allocation.minutes,
       latestEnd: latestSafeEnd(item, input),
+      deadline: item.dueAt && toEpochMinutes(item.dueAt) > now ? toEpochMinutes(item.dueAt) : null,
       earliestStart: Math.max(
         now,
         item.availableAt ? toEpochMinutes(item.availableAt) : Number.NEGATIVE_INFINITY,
@@ -284,10 +291,25 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
    */
   /** Places one chunk of this work, or returns null when nothing will hold it. */
   const placeChunk = (work: PendingWork, chunk: number, earliest: number): number | null => {
-    const placement = findBestPlacement(work, chunk, earliest, remainingWindows, {
-      input,
-      dailyMinutes,
-    });
+    const ctx = { input, dailyMinutes };
+    let placement = findBestPlacement(work, chunk, earliest, remainingWindows, ctx);
+    /**
+     * The buffer is a margin, not a second deadline. When keeping it leaves no free time at
+     * all, the real deadline is used instead and the block says it is closer than usual.
+     *
+     * `latestSafeEnd` already degrades the buffer once it has *elapsed*, but not when it merely
+     * falls before the student's free time. Reading due at nine tomorrow, a one-day buffer, and
+     * a morning with classes until three: the buffered limit was nine this morning, still in the
+     * future, so it stood -- and nothing ends before nine. The item went out as "no window fits
+     * this before its deadline" with the whole afternoon and evening of today empty. Found by the
+     * scheduling journey, on an ordinary week.
+     */
+    if (!placement && work.deadline !== null && work.deadline !== work.latestEnd) {
+      placement = findBestPlacement({ ...work, latestEnd: work.deadline }, chunk, earliest, remainingWindows, ctx);
+      if (placement && placement.tradeoffCode === null) {
+        placement.tradeoffCode = "WORK_PUSHED_CLOSER_TO_DEADLINE";
+      }
+    }
     if (!placement) return null;
 
     sessions.push({
@@ -331,7 +353,6 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
    * everything gets its full allocation either way — and reordering a week that fits would
    * scatter work for no gain.
    */
-  const placedByFirstTouch = new Set<string>();
   const placeOnePerCourse = () => {
     // A successor placed before its predecessor is scheduled would violate the ordering the
     // greedy pass maintains, and this pass runs before any of that is known.
@@ -358,7 +379,6 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
       const earliest = Math.max(work.earliestStart, now);
       if (placeChunk(work, chunk, earliest) === null) continue;
       touched.add(work.item.courseId);
-      placedByFirstTouch.add(work.item.id);
     }
   };
 
@@ -367,13 +387,11 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
     const dependencyFloor = earliestStartByItem.get(work.item.id) ?? Number.NEGATIVE_INFINITY;
     const earliest = Math.max(work.earliestStart, dependencyFloor, now);
     let lastEnd = earliest;
-    let placedAny = placedByFirstTouch.has(work.item.id);
 
     while (work.minutesRemaining > 0) {
       const end = placeChunk(work, nextChunkMinutes(work, input), earliest);
       if (end === null) break;
       lastEnd = Math.max(lastEnd, end);
-      placedAny = true;
     }
 
     // Successors cannot begin until this item's last session ends.
@@ -383,12 +401,141 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
       const current = earliestStartByItem.get(dep.successorWorkItemId) ?? Number.NEGATIVE_INFINITY;
       earliestStartByItem.set(dep.successorWorkItemId, Math.max(current, lastEnd));
     }
-
-    if (work.minutesRemaining > 0) {
-      unscheduled.push(work.item.id);
-      risks.push(unscheduledRisk(work, placedAny, horizonEndMinutes));
-    }
   }
+  };
+
+  /**
+   * Recomputes free space and daily totals from the blocks currently in the plan.
+   *
+   * One merge and one subtraction per window, rather than replaying `consume` block by block:
+   * this runs twice for every rescue step, and the replay was most of the rescue's cost.
+   */
+  const rebuildFreeSpace = () => {
+    const pause = Math.max(0, input.preferences.breakMinutes);
+    const taken = mergeIntervals(
+      sessions.map((session) => ({
+        start: toEpochMinutes(session.startAt),
+        end: toEpochMinutes(session.endAt) + pause,
+      })),
+    );
+    const free: CapacityWindow[] = [];
+    for (const window of windows) {
+      for (const piece of subtractIntervals(window, taken)) free.push({ ...window, start: piece.start, end: piece.end });
+    }
+    remainingWindows.splice(0, remainingWindows.length, ...free.sort((a, b) => a.start - b.start));
+    dailyMinutes.clear();
+    for (const session of sessions) addDaily(dailyMinutes, session.startAt, session.minutes);
+  };
+
+  /**
+   * Work that came up short before its deadline may take time from work due later.
+   *
+   * The greedy pass goes in priority order and prefers the earliest good slot, which is right
+   * nearly always and wrong in one shape of week. Found by the scheduling journey on an ordinary
+   * one: a reading due at nine on Sunday morning could only be done on Saturday, and by the time
+   * its turn came Saturday's daily limit had gone to an essay due Thursday, exam prep due Friday
+   * and a quiz due Friday -- all of which had five more days to go. The reading was reported as
+   * "no window fits this before its deadline" in a week with twenty free hours.
+   *
+   * So, for each piece of work still short, blocks of work with a *later* deadline (or none)
+   * that sit inside its own window are given up one at a time, latest deadline first, until it
+   * fits, the displaced work being placed again after each. A step is kept only if the rescued
+   * work gained and the displaced work got all of its time back; otherwise it is undone exactly. Work already overdue is never
+   * displaced -- it is more urgent, not less -- nor is a course's last block, and work tied into
+   * dependencies is left alone on both sides, because moving it could break the ordering the
+   * greedy pass established.
+   */
+  const carriedSessions = new Set<PlannedSession>(carried);
+  const inDependency = new Set(
+    input.dependencies.flatMap((d) => [d.predecessorWorkItemId, d.successorWorkItemId]),
+  );
+  const pendingById = new Map(orderedPending.map((w) => [w.item.id, w]));
+  const dueOf = (w: PendingWork) =>
+    w.item.dueAt === null ? Number.POSITIVE_INFINITY : toEpochMinutes(w.item.dueAt);
+
+  /**
+   * Makes room for one piece of work by displacing later-due blocks, one step at a time.
+   *
+   * `depth` lets the displaced work make room for itself the same way, once more. Found by the
+   * evening sweep: on a Sunday night, the reading due Monday could take Peer review's block, but
+   * Peer review (due Wednesday) could only go on Tuesday, which was full of an essay due Friday
+   * that had all of Thursday free. One level of rescue sees no move that is free; two do. Each
+   * level only ever moves work to a strictly later deadline, so the chain cannot loop.
+   */
+  /**
+   * How many displacement steps one plan may try. Each step rebuilds the week's free space twice,
+   * and the planner runs inside a Worker request with a few milliseconds of CPU: unbounded, a
+   * forty-item crunch week took forty-five milliseconds here against under one before rescue
+   * existed. Weeks the rescue is for -- room to spare, badly placed -- need a handful of steps;
+   * weeks that exhaust the budget are short of time in fact, and say so through their risks.
+   */
+  let rescueBudget = RESCUE_STEP_BUDGET;
+  const rescue = (work: PendingWork, depth: number): void => {
+    if (work.minutesRemaining <= 0 || work.deadline === null) return;
+    if (inDependency.has(work.item.id)) return;
+    const deadline = work.deadline;
+    const earliest = Math.max(work.earliestStart, now);
+
+    const victims = sessions
+      .filter((session) => !carriedSessions.has(session) && session.workItemId !== work.item.id)
+      .filter((session) => toEpochMinutes(session.startAt) < deadline && toEpochMinutes(session.endAt) > earliest)
+      .map((session) => ({ session, owner: pendingById.get(session.workItemId) }))
+      .filter(
+        (v): v is { session: PlannedSession; owner: PendingWork } =>
+          v.owner !== undefined && !inDependency.has(v.owner.item.id) && dueOf(v.owner) > deadline,
+      )
+      .sort(
+        (a, b) =>
+          dueOf(b.owner) - dueOf(a.owner) ||
+          b.session.startAt.localeCompare(a.session.startAt) ||
+          a.session.id.localeCompare(b.session.id),
+      );
+
+    for (const { session, owner } of victims) {
+      if (work.minutesRemaining <= 0 || rescueBudget <= 0) break;
+      if (!sessions.includes(session)) continue;
+      // A course's last block stays: in a crowded week "every course keeps moving" is the
+      // first-touch pass's promise, and rescuing one deadline must not quietly break it.
+      const courseBlocks = sessions.filter(
+        (other) => other.courseId === session.courseId && !carriedSessions.has(other),
+      ).length;
+      if (courseBlocks <= 1 && session.courseId !== work.item.courseId) continue;
+
+      // Each step is kept only if it cost nothing: the rescued work gained, and the displaced
+      // work got all of its time back somewhere else. The first version kept any gain at all,
+      // so a reading that still could not fit took a block from higher-ranked exam prep that
+      // then fitted nowhere -- two items short instead of one. Rescue moves work later; it
+      // never trades one deadline for another.
+      rescueBudget -= 1;
+      const savedSessions = [...sessions];
+      const savedRemaining = new Map(orderedPending.map((w) => [w, w.minutesRemaining]));
+      const before = work.minutesRemaining;
+      const owed = owner.minutesRemaining;
+
+      sessions.splice(sessions.indexOf(session), 1);
+      owner.minutesRemaining += session.minutes;
+      rebuildFreeSpace();
+      while (work.minutesRemaining > 0) {
+        if (placeChunk(work, nextChunkMinutes(work, input), earliest) === null) break;
+      }
+      if (work.minutesRemaining < before) {
+        const ownerEarliest = Math.max(owner.earliestStart, now);
+        while (owner.minutesRemaining > owed) {
+          if (placeChunk(owner, nextChunkMinutes(owner, input), ownerEarliest) === null) break;
+        }
+        if (owner.minutesRemaining > owed && depth > 1) rescue(owner, depth - 1);
+      }
+
+      if (work.minutesRemaining >= before || owner.minutesRemaining > owed) {
+        sessions.splice(0, sessions.length, ...savedSessions);
+        for (const [w, minutes] of savedRemaining) w.minutesRemaining = minutes;
+        rebuildFreeSpace();
+      }
+    }
+  };
+
+  const rescueDeadlines = () => {
+    for (const work of orderedPending) rescue(work, 2);
   };
 
   /**
@@ -405,7 +552,6 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
   if (sessions.length === carried.length && orderedPending.length > 0) {
     // Nothing was ripe. Lift the runway floor and try again — nothing has been consumed, so the
     // second pass starts from the same empty week the first one did.
-    unscheduled.length = 0;
     for (const work of orderedPending) {
       work.earliestStart = Math.max(
         now,
@@ -414,6 +560,18 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
       work.minutesRemaining = work.allocatedMinutes;
     }
     placeAll();
+  }
+  rescueDeadlines();
+
+  // Told once, after every pass. Risks used to be raised inside the placing loop, so the
+  // nothing-was-ripe second pass reported every item it went on to place a second time.
+  for (const work of orderedPending) {
+    if (work.minutesRemaining <= 0) continue;
+    unscheduled.push(work.item.id);
+    const placedAny = sessions.some(
+      (session) => session.workItemId === work.item.id && !carriedSessions.has(session),
+    );
+    risks.push(unscheduledRisk(work, placedAny, horizonEndMinutes));
   }
 
   const usedMinutes = sessions.reduce((sum, s) => sum + s.minutes, 0);
@@ -463,6 +621,9 @@ const MIN_PACED_MINUTES = 45;
  * five courses cost well under half of even a squeezed eight-hour week.
  */
 const FIRST_TOUCH_MINUTES = 30;
+
+/** Displacement steps the deadline rescue may try per plan; see `rescue` in `generatePlan`. */
+const RESCUE_STEP_BUDGET = 12;
 
 /**
  * How much of a long item's remaining effort belongs in *this* horizon.
@@ -618,15 +779,31 @@ function findBestPlacement(
 ): Placement | null {
   const prefs = ctx.input.preferences;
   let best: { placement: Placement; utility: number } | null = null;
+  /**
+   * The shortest block worth booking -- unless the work, as a whole, is shorter.
+   *
+   * The minimum session exists so that work is not shredded into slivers, not to refuse work
+   * that is small to begin with. Applied as an absolute floor, it made anything under twenty
+   * minutes unplaceable: a fifteen-minute discussion post, or the last ten minutes of a reading
+   * after a partial session, went out as "no window fits this before its deadline" in an empty
+   * week. Whole is not a sliver.
+   *
+   * Measured against what this plan owes the item in total, not against the chunk in hand. The
+   * first version used the chunk, and the leftover of any block cut short by a window or the
+   * daily limit then qualified as "small" -- five-minute blocks of a forty-five-minute reading,
+   * the exact shredding the minimum is for. Found by sweeping the scheduling journey across
+   * every weekday at seven in the evening.
+   */
+  const floor = Math.min(prefs.minSessionMinutes, work.allocatedMinutes);
 
   for (const window of windows) {
     const start = Math.max(window.start, earliest);
     const available = window.end - start;
-    if (available < prefs.minSessionMinutes) continue;
+    if (available < floor) continue;
 
     let minutes = Math.min(chunkMinutes, available, prefs.maxSessionMinutes);
     if (work.item.divisibility !== "divisible" && minutes < chunkMinutes) continue;
-    if (minutes < prefs.minSessionMinutes) continue;
+    if (minutes < floor) continue;
 
     const end = start + minutes;
     if (work.latestEnd !== null && end > work.latestEnd) continue;
@@ -635,12 +812,21 @@ function findBestPlacement(
     const date = epochMinutesToDate(start);
     const usedToday = ctx.dailyMinutes.get(date) ?? 0;
     const roomToday = prefs.maxDailyAcademicMinutes - usedToday;
-    if (roomToday < prefs.minSessionMinutes) continue;
+    if (roomToday < floor) continue;
 
     let tradeoffCode: PlannedSession["tradeoffCode"] = null;
     if (minutes > roomToday) {
       minutes = roomToday;
       tradeoffCode = "DAILY_LIMIT_REACHED";
+    }
+    // A block cut short must not leave a remainder too small to book: forty minutes of window for
+    // forty-five minutes of reading books twenty-five and leaves twenty, rather than forty and a
+    // five that no window will ever take. Not for work tied to one place, whose remainder would
+    // only be booked in the wrong one: there the longer block in the right room is worth more.
+    const rest = work.minutesRemaining - minutes;
+    if (rest > 0 && rest < floor && work.item.locationRequirement === "anywhere") {
+      minutes = work.minutesRemaining - floor;
+      if (minutes < floor) continue;
     }
     if (minutes < chunkMinutes && tradeoffCode === null && work.item.divisibility === "divisible") {
       tradeoffCode = "SESSION_SHORTENED";
@@ -724,7 +910,10 @@ function carryOverSessions(
   const carried: PlannedSession[] = [];
 
   for (const session of input.existingSessions) {
-    if (!session.locked && !session.acceptedByUser) continue;
+    // A started block is underway: the student is in it now, so a replan must neither drop it
+    // nor book something else over it. Replans happen on their own now -- every morning, and
+    // after "Not now" -- which turned this from a rare manual-replan glitch into a daily one.
+    if (!session.locked && !session.acceptedByUser && session.status !== "started") continue;
     if (session.status !== "planned" && session.status !== "started") continue;
 
     const start = toEpochMinutes(session.startAt);

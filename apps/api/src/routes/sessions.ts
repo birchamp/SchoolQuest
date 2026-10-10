@@ -6,6 +6,8 @@ import { auditEvents, commitments, courses, meetingPatterns, terms, workItems, w
 import { getDb, type Db } from "../db/repo.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
 import { findMoveConflict } from "../db/move-check.js";
+import { remainingAfterOutcome } from "../db/remaining-effort.js";
+import { studentNow } from "../wall-clock.js";
 import { isOpenOnDay } from "../db/lost-day.js";
 import { assertTermOwner } from "../db/repo.js";
 import type { AppBindings } from "../env.js";
@@ -87,21 +89,14 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
     .set({ status, actualMinutes, outcomeCode: parsed.data.outcome })
     .where(eq(workSessions.id, id));
 
-  let remaining: number | null = item.remainingMinutes;
-  if (parsed.data.remainingMinutes !== undefined) {
-    remaining = parsed.data.remainingMinutes;
-  } else if (parsed.data.outcome === "completed") {
-    remaining = 0;
-  } else if (parsed.data.outcome === "did_not_start") {
-    remaining = item.remainingMinutes; // Nothing happened; effort is unchanged.
-  } else {
-    // Seeded from the estimate when no remaining figure exists yet. Most items never have
-    // one until they are touched, and the old guard skipped them entirely -- so a partial
-    // session's minutes counted for nothing and the item still demanded its full estimate,
-    // which is the opposite of the learning signal this route exists to record (docs/04 §9).
-    const base = item.remainingMinutes ?? item.estimatedMinutes;
-    if (base !== null) remaining = Math.max(0, base - actualMinutes);
-  }
+  const remaining = remainingAfterOutcome({
+    outcome: parsed.data.outcome,
+    reported: parsed.data.remainingMinutes,
+    remainingMinutes: item.remainingMinutes,
+    estimatedMinutes: item.estimatedMinutes,
+    actualMinutes,
+    plannedMinutes,
+  });
 
   const itemStatus =
     remaining === 0
@@ -119,7 +114,7 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
   // sit at "5 of 5 stages cleared" and still report itself unfinished forever — the parent
   // has no blocks of its own to complete, because the scheduler plans through the stages.
   if (itemStatus === "completed") {
-    await completeParentIfDone(db, item);
+    await completeParentIfDone(db, item, await studentNow(db, c.get("userId")));
   }
 
   // Finishing the work frees every block still held for it. Without this the interface
@@ -128,7 +123,9 @@ sessionsRoute.post("/work-sessions/:id/complete", async (c) => {
   // that the week redraws itself around what is left was visibly false.
   let releasedSessions = 0;
   if (itemStatus === "completed") {
-    releasedSessions = await releaseFutureSessions(db, item.id, { excludeSessionId: id });
+    releasedSessions = await releaseFutureSessions(db, item.id, await studentNow(db, c.get("userId")), {
+      excludeSessionId: id,
+    });
   }
 
   await db.insert(auditEvents).values({

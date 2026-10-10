@@ -188,7 +188,8 @@ export function CampaignRadar({
   const selected =
     (activeId ? inRange.find((e) => e.id === activeId) : undefined) ?? worstEncounter(inRange);
 
-  const todayDayOfWeek = useMemo(() => new Date().getUTCDay(), []);
+  // The student's own weekday: UTC's was already tomorrow for an evening west of Greenwich.
+  const todayDayOfWeek = useMemo(() => new Date().getDay(), []);
   const rings = useMemo(
     () => ringGeometry(weeks, radar.currentTermWeek),
     [weeks, radar.currentTermWeek],

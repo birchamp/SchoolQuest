@@ -15,7 +15,7 @@ import {
   summarizeProjects,
 } from "@schoolquest/planning-engine";
 import { explainRecommendation, explainRisk, explainTradeoff } from "@schoolquest/theme-language";
-import { planVersions, workSessions } from "../db/schema.js";
+import { planVersions, workItems, workSessions } from "../db/schema.js";
 import {
   assertTermOwner,
   getDb,
@@ -26,6 +26,7 @@ import {
 } from "../db/repo.js";
 import { loadReview } from "./review.js";
 import { isDevMode, type AppBindings } from "../env.js";
+import { studentNow } from "../wall-clock.js";
 
 const generateBody = z.object({
   horizonStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -77,8 +78,11 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
 
   // A client may only move time in development mode, the same flag the login route uses.
   const timeTravelAllowed = isDevMode(c.env);
+  // A simulated `now` is already a wall-clock time; the real one is read in the student's zone.
   const now =
-    timeTravelAllowed && parsed.data.now ? new Date(parsed.data.now).toISOString() : new Date().toISOString();
+    timeTravelAllowed && parsed.data.now
+      ? new Date(parsed.data.now).toISOString()
+      : await studentNow(db, c.get("userId"));
   const horizonStart = parsed.data.horizonStart ?? now.slice(0, 10);
 
   const snapshot = await loadTermSnapshot(db, termId, { sessionsFrom: `${horizonStart}T00:00:00Z` });
@@ -145,6 +149,29 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
     db.insert(workSessions).values(batch),
   );
 
+  /**
+   * Blocks this plan kept move into it, along with any block still underway.
+   *
+   * The plan read selects blocks by plan version, and carried blocks kept the version that first
+   * booked them. So a locked or accepted block survived every replan in the scheduler and then
+   * vanished from every screen: its hour still held, nothing on the calendar saying why. A block
+   * started yesterday and never stopped -- which Today promises to keep showing until it is
+   * finished -- went the same way. That was a manual-replan glitch until replanning became
+   * automatic (every morning, and after "Not now"); then it was every locked block, every day.
+   */
+  const courseIds = snapshot.courses.map((course) => course.id);
+  const startedIds = courseIds.length === 0 ? [] : (
+    await db
+      .select({ id: workSessions.id })
+      .from(workSessions)
+      .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
+      .where(and(inArray(workItems.courseId, courseIds), eq(workSessions.status, "started")))
+  ).map((row) => row.id);
+  const keep = [...new Set([...plan.sessions.filter((s) => carriedIds.has(s.id)).map((s) => s.id), ...startedIds])];
+  await insertInChunks(keep, SUPERSEDE_BATCH, (batch) =>
+    db.update(workSessions).set({ planVersionId }).where(inArray(workSessions.id, batch)),
+  );
+
   // Retire the blocks this plan replaces.
   //
   // Nothing did this before, so every replan left its predecessor's blocks in the table
@@ -203,7 +230,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
   const asOf =
     isDevMode(c.env) && c.req.query("now")
       ? new Date(c.req.query("now")!).toISOString()
-      : new Date().toISOString();
+      : await studentNow(db, c.get("userId"));
 
   const sessions = (
     await db.select().from(workSessions).where(eq(workSessions.planVersionId, current.id))
@@ -348,6 +375,9 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
       status: current.status,
       createdAt: current.createdAt,
     },
+    // The moment this read was made at, on the student's clock. The app decides whether the
+    // plan is stale against this rather than its own clock, which can disagree with the server's.
+    asOf,
     ...summary,
     recommendations,
     // The week read as prepared session notes rather than a grid (see
@@ -384,7 +414,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     // What the weeks that already happened have to say about the week being planned. Asked
     // here rather than on its own screen because the answer changes the plan, and a question
     // the student has to go looking for is a question nobody answers.
-    review: await loadReview(db, termId),
+    review: await loadReview(db, termId, asOf),
     /**
      * Blocks, each carrying the course it belongs to.
      *
