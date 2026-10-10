@@ -15,7 +15,7 @@ import {
   summarizeProjects,
 } from "@schoolquest/planning-engine";
 import { explainRecommendation, explainRisk, explainTradeoff } from "@schoolquest/theme-language";
-import { planVersions, workSessions } from "../db/schema.js";
+import { planVersions, workItems, workSessions } from "../db/schema.js";
 import {
   assertTermOwner,
   getDb,
@@ -147,6 +147,29 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
   // A full week is easily 20+ sessions; 12 columns each would blow D1's parameter cap.
   await insertInChunks(rows, SESSION_INSERT_BATCH, (batch) =>
     db.insert(workSessions).values(batch),
+  );
+
+  /**
+   * Blocks this plan kept move into it, along with any block still underway.
+   *
+   * The plan read selects blocks by plan version, and carried blocks kept the version that first
+   * booked them. So a locked or accepted block survived every replan in the scheduler and then
+   * vanished from every screen: its hour still held, nothing on the calendar saying why. A block
+   * started yesterday and never stopped -- which Today promises to keep showing until it is
+   * finished -- went the same way. That was a manual-replan glitch until replanning became
+   * automatic (every morning, and after "Not now"); then it was every locked block, every day.
+   */
+  const courseIds = snapshot.courses.map((course) => course.id);
+  const startedIds = courseIds.length === 0 ? [] : (
+    await db
+      .select({ id: workSessions.id })
+      .from(workSessions)
+      .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
+      .where(and(inArray(workItems.courseId, courseIds), eq(workSessions.status, "started")))
+  ).map((row) => row.id);
+  const keep = [...new Set([...plan.sessions.filter((s) => carriedIds.has(s.id)).map((s) => s.id), ...startedIds])];
+  await insertInChunks(keep, SUPERSEDE_BATCH, (batch) =>
+    db.update(workSessions).set({ planVersionId }).where(inArray(workSessions.id, batch)),
   );
 
   // Retire the blocks this plan replaces.
@@ -352,6 +375,9 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
       status: current.status,
       createdAt: current.createdAt,
     },
+    // The moment this read was made at, on the student's clock. The app decides whether the
+    // plan is stale against this rather than its own clock, which can disagree with the server's.
+    asOf,
     ...summary,
     recommendations,
     // The week read as prepared session notes rather than a grid (see

@@ -380,6 +380,8 @@ export interface PlanResponse {
     horizonEnd: string;
     createdAt?: string;
   } | null;
+  /** When the server read this plan, on the student's clock. */
+  asOf?: string;
   horizonStart?: string;
   horizonEnd?: string;
   capacity: { usedMinutes: number; availableMinutes: number };
