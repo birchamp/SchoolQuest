@@ -164,3 +164,109 @@ describe("work whose only chance is today", () => {
     expect(saturday.filter((s) => s.workItemId === "late").reduce((n, s) => n + s.minutes, 0)).toBe(120);
   });
 });
+
+describe("found in review", () => {
+  const tight = (items: WorkItem[], cap: number) => {
+    const base = input(items);
+    return {
+      ...base,
+      // Saturday only, and only `cap` minutes of it.
+      availabilityRules: base.availabilityRules.filter((r) => r.dayOfWeek === 6),
+      preferences: { ...base.preferences, maxDailyAcademicMinutes: cap, deadlineBufferDays: 0 },
+    };
+  };
+
+  it("never rescues one deadline by breaking another", () => {
+    // Both are due before any free time after Saturday, and Saturday holds one of them.
+    const plan = generatePlan(
+      tight(
+        [
+          item({ id: "reading", dueAt: "2026-10-11T08:00:00.000Z", estimatedMinutes: 45, remainingMinutes: 45, userPriority: -2 }),
+          item({ id: "exam", workType: "exam_prep", dueAt: "2026-10-11T09:30:00.000Z", userPriority: 2 }),
+        ],
+        60,
+      ),
+      "p",
+    );
+    expect(bookedFor(plan, "exam")).toBe(60);
+  });
+
+  it("does not trade a whole block for part of one", () => {
+    const plan = generatePlan(
+      tight(
+        [
+          item({ id: "reading", dueAt: "2026-10-11T08:00:00.000Z", estimatedMinutes: 90, remainingMinutes: 90, userPriority: -2 }),
+          item({ id: "exam", workType: "exam_prep", dueAt: "2026-10-11T09:30:00.000Z", userPriority: 2 }),
+        ],
+        60,
+      ),
+      "p",
+    );
+    expect(bookedFor(plan, "exam")).toBe(60);
+    expect(plan.risks.filter((r) => r.level !== "safe").map((r) => r.workItemId)).toEqual(["reading"]);
+  });
+
+  it("never books a sliver of larger work when a block is cut short", () => {
+    // Forty minutes of window for forty-five minutes of reading: the five left over is a sliver.
+    const base = input([item({ id: "reading", dueAt: "2026-10-12T23:59:00.000Z", estimatedMinutes: 45, remainingMinutes: 45 })]);
+    const plan = generatePlan(
+      {
+        ...base,
+        availabilityRules: base.availabilityRules.map((r) => ({ ...r, startTime: "10:00", endTime: "10:40" })),
+      },
+      "p",
+    );
+    for (const s of plan.sessions) expect(s.minutes).toBeGreaterThanOrEqual(20);
+    // And none of it is dropped: twenty-five and twenty, not forty and nothing.
+    expect(bookedFor(plan, "reading")).toBe(45);
+  });
+
+  it("rescues with the block that can move, past one that cannot", () => {
+    // Saturday holds both higher-ranked pieces of work and leaves no room for the reading due
+    // tonight. The ninety-minute lab is one sitting and only Saturday is long enough for it, so
+    // it cannot move; the problem set, due Monday, can go on Sunday. The lab is due later, so it
+    // is the first one offered up -- and has to be put back, not traded for the reading.
+    const base = input([
+      item({ id: "reading", workType: "reading", dueAt: "2026-10-10T22:00:00.000Z", estimatedMinutes: 45, remainingMinutes: 45, userPriority: -2 }),
+      item({ id: "lab", workType: "lab", divisibility: "atomic", dueAt: "2026-10-13T23:59:00.000Z", estimatedMinutes: 90, remainingMinutes: 90, userPriority: 2, pointsPossible: 100 }),
+      item({ id: "ps", workType: "problem_set", dueAt: "2026-10-12T23:59:00.000Z", estimatedMinutes: 45, remainingMinutes: 45, userPriority: 2, pointsPossible: 100 }),
+    ]);
+    const plan = generatePlan(
+      {
+        ...base,
+        preferences: { ...base.preferences, deadlineBufferDays: 0 },
+        availabilityRules: [
+          { ...base.availabilityRules[6]!, startTime: "10:00", endTime: "12:30" },
+          ...[0, 1, 2].map((d) => ({ ...base.availabilityRules[d]!, startTime: "10:00", endTime: "10:50" })),
+        ],
+      },
+      "p",
+    );
+    expect(bookedFor(plan, "reading")).toBe(45);
+    expect(bookedFor(plan, "lab")).toBe(90);
+    expect(bookedFor(plan, "ps")).toBe(45);
+  });
+
+  it("keeps a started block through a replan and books nothing over it", () => {
+    const hw = item({ id: "hw", dueAt: "2026-10-13T23:59:00.000Z", estimatedMinutes: 120, remainingMinutes: 120 });
+    const started = {
+      id: "s_started",
+      workItemId: "hw",
+      planVersionId: "p0",
+      startAt: "2026-10-10T10:00:00.000Z",
+      endAt: "2026-10-10T10:45:00.000Z",
+      status: "started" as const,
+      locked: false,
+      acceptedByUser: false,
+      actualMinutes: null,
+      outcomeCode: null,
+    };
+    const plan = generatePlan({ ...input([hw]), now: "2026-10-10T10:20:00.000Z", existingSessions: [started] }, "p");
+    expect(plan.sessions.map((s) => s.id)).toContain("s_started");
+    for (const s of plan.sessions) {
+      if (s.id !== "s_started") expect(s.startAt >= started.endAt).toBe(true);
+    }
+    // Its minutes count toward the work, so the rest is not booked twice.
+    expect(bookedFor(plan, "hw")).toBe(120);
+  });
+});
