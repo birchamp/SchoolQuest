@@ -775,6 +775,9 @@ export function App() {
                       theme={theme}
                       brief={plan.brief}
                       hiddenCourseIds={hiddenCourseIds}
+                      onPrioritize={prioritize}
+                      onOpenWork={openWorkItem}
+                      onAddHours={() => goTo("setup", "study-hours")}
                     />
                   )}
 
@@ -891,7 +894,9 @@ export function App() {
               */}
               <OpenQuestions termId={term.id} onAnswer={(tab, elementId) => goTo(tab as Tab, elementId)} />
               <EffortSurvey termId={term.id} onChanged={regenerate} />
-              <StudyHours termId={term.id} onChanged={regenerate} />
+              <div id="study-hours">
+                <StudyHours termId={term.id} onChanged={regenerate} />
+              </div>
               <MealWindows term={term} onChanged={regenerate} />
               <div id="syllabus-upload">
               <SyllabusUpload

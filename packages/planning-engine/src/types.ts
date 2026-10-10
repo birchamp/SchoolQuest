@@ -124,6 +124,12 @@ export interface PlanningResult {
   /** Where each meal falls, including the ones the engine held open itself. */
   meals: MealBreak[];
   risks: PlanRisk[];
+  /**
+   * Work that needed time in this horizon and did not get all of it.
+   *
+   * Not work held back on purpose because it is not due for weeks (`WAITING_ITS_TURN`). That
+   * work is still in `risks`, at `safe`, so it stays accounted for.
+   */
   unscheduledWorkItemIds: string[];
   /** Minutes of capacity used vs available across the horizon. */
   capacity: { usedMinutes: number; availableMinutes: number };

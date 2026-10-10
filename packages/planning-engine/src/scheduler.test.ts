@@ -479,9 +479,13 @@ describe("an oversubscribed week", () => {
     });
     const plan = generatePlan(roomy, PLAN_ID);
 
-    // Only work whose predecessor has not finished inside the horizon is left over — the
-    // dependency floor, not capacity.
-    expect(plan.unscheduledWorkItemIds).toEqual(["wi_edu_observe", "wi_psych_revise"]);
+    // Nothing is left short. The only work without time is waiting on a predecessor and not due
+    // for weeks, which is waiting its turn rather than failing to fit -- still accounted for, in
+    // the risks, and kept off the "not fitted into this week" list.
+    expect(plan.unscheduledWorkItemIds).toEqual([]);
+    for (const id of ["wi_edu_observe", "wi_psych_revise"]) {
+      expect(plan.risks.find((r) => r.workItemId === id)?.code).toBe("WAITING_ITS_TURN");
+    }
 
     const booked = new Map<string, number>();
     for (const s of plan.sessions) {
