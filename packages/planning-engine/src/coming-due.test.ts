@@ -113,3 +113,32 @@ describe("work coming due", () => {
     for (const s of plan.sessions) expect(s.minutes).toBeGreaterThanOrEqual(20);
   });
 });
+
+describe("work whose only chance is today", () => {
+  it("gets today ahead of higher-ranked work that has the rest of the week", () => {
+    // Saturday holds two hours under the daily limit. The reading is due at nine on Sunday, so
+    // Saturday is all it has; the two exam-prep sessions rank higher and are due on Thursday.
+    const base = input([
+      item({ id: "reading", workType: "reading", dueAt: "2026-10-11T09:00:00.000Z", estimatedMinutes: 45, remainingMinutes: 45, userPriority: -2 }),
+      item({ id: "ps1", workType: "exam_prep", dueAt: "2026-10-15T23:59:00.000Z", userPriority: 2 }),
+      item({ id: "ps2", workType: "exam_prep", dueAt: "2026-10-15T23:59:00.000Z", userPriority: 2 }),
+    ]);
+    const plan = generatePlan({ ...base, preferences: { ...base.preferences, maxDailyAcademicMinutes: 120 } }, "p");
+
+    expect(bookedFor(plan, "reading")).toBe(45);
+    // And what it displaced still gets its time later in the week.
+    expect(bookedFor(plan, "ps1")).toBe(60);
+    expect(bookedFor(plan, "ps2")).toBe(60);
+    expect(plan.risks.filter((r) => r.level === "at_risk")).toEqual([]);
+  });
+
+  it("does not displace work that is already overdue", () => {
+    const base = input([
+      item({ id: "reading", workType: "reading", dueAt: "2026-10-11T09:00:00.000Z", estimatedMinutes: 45, remainingMinutes: 45, userPriority: -2 }),
+      item({ id: "late", dueAt: "2026-10-09T23:59:00.000Z", estimatedMinutes: 120, remainingMinutes: 120, userPriority: 2 }),
+    ]);
+    const plan = generatePlan({ ...base, preferences: { ...base.preferences, maxDailyAcademicMinutes: 120 } }, "p");
+    const saturday = plan.sessions.filter((s) => s.startAt.startsWith("2026-10-10"));
+    expect(saturday.filter((s) => s.workItemId === "late").reduce((n, s) => n + s.minutes, 0)).toBe(120);
+  });
+});
