@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
+import type { Course, PassFail, ThemeName, WorkItem } from "@schoolquest/domain";
 import { explainHealth, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { courseChipFill, courseInitials } from "../lib/course-colour";
@@ -356,6 +356,19 @@ function RecordResults({
     }
   }
 
+  async function savePassFail(item: WorkItem, passFail: PassFail) {
+    setBusy(item.id);
+    setError(null);
+    try {
+      await api.put(`/api/work-items/${item.id}/grade`, { passFail });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <details style={{ marginTop: "0.35rem" }}>
       <summary style={{ cursor: "pointer", fontSize: "0.82rem", padding: "0.25rem 0" }}>
@@ -416,6 +429,27 @@ function RecordResults({
           </label>
           <button className="action" type="submit" disabled={busy === item.id}>
             Save
+          </button>
+          <span aria-hidden="true" className="muted">
+            or
+          </span>
+          <button
+            className="action"
+            type="button"
+            disabled={busy === item.id}
+            onClick={() => void savePassFail(item, "pass")}
+            title="Marked Pass/Fail rather than scored: record a pass"
+          >
+            Pass
+          </button>
+          <button
+            className="action"
+            type="button"
+            disabled={busy === item.id}
+            onClick={() => void savePassFail(item, "fail")}
+            title="Marked Pass/Fail rather than scored: record a fail"
+          >
+            Fail
           </button>
         </form>
       ))}

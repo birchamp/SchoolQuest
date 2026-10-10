@@ -242,6 +242,27 @@ describe("grades", () => {
     expect(c.ungradedResults).toBe(0);
   });
 
+  it("counts a Pass/Fail result as recorded, but not as a scored result", () => {
+    const c = build({
+      items: [item({ id: "wi_a", status: "completed", dueAt: "2026-09-20T23:59:00.000Z" })],
+      grades: [
+        {
+          id: "grd_1",
+          workItemId: "wi_a",
+          pointsEarned: null,
+          pointsPossible: null,
+          letterGrade: "Pass",
+          postedAt: null,
+          confirmationStatus: "confirmed",
+          sourceDocumentId: null,
+          dropped: false,
+        },
+      ],
+    });
+    expect(c.ungradedResults).toBe(0);
+    expect(c.gradedCount).toBe(0);
+  });
+
   it("says so when the grading scheme does not add up", () => {
     // The real BIO 240 in the test semester: four categories summing to 90.
     const c = build({ categories: [category(50, "a"), category(40, "b")] });

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { applyDropRule, computeCourseStanding, estimateAcademicValue, isGraded } from "./grades.js";
+import {
+  applyDropRule,
+  computeCourseStanding,
+  estimateAcademicValue,
+  FAIL_LETTER,
+  isGraded,
+  PASS_LETTER,
+  passFailOf,
+} from "./grades.js";
 import type { GradeResult, GradingCategory, WorkItem } from "./entities.js";
 
 function item(overrides: Partial<WorkItem> & Pick<WorkItem, "id">): WorkItem {
@@ -125,5 +133,36 @@ describe("academic value normalization", () => {
   it("returns null rather than inventing a value when nothing is known", () => {
     const orphan = item({ id: "wi_orphan" });
     expect(estimateAcademicValue(orphan, { courseWorkItems: [orphan], categories: [] })).toBeNull();
+  });
+});
+
+describe("Pass/Fail results", () => {
+  it("reads the outcome only from a pointless result carrying the Pass/Fail letter", () => {
+    expect(passFailOf(grade({ id: "g", workItemId: "wi", letterGrade: PASS_LETTER }))).toBe("pass");
+    expect(passFailOf(grade({ id: "g", workItemId: "wi", letterGrade: FAIL_LETTER }))).toBe("fail");
+    // "F" is a letter grade, not a Pass/Fail outcome.
+    expect(passFailOf(grade({ id: "g", workItemId: "wi", letterGrade: "F" }))).toBeNull();
+    expect(
+      passFailOf(grade({ id: "g", workItemId: "wi", pointsEarned: 8, pointsPossible: 10, letterGrade: PASS_LETTER })),
+    ).toBeNull();
+  });
+
+  it("neither moves the percentage nor counts as pending", () => {
+    const workItems = [
+      item({ id: "wi_1", gradingCategoryId: quizzes.id, pointsPossible: 10 }),
+      item({ id: "wi_2", gradingCategoryId: quizzes.id, pointsPossible: 10 }),
+      item({ id: "wi_3", gradingCategoryId: quizzes.id, pointsPossible: 10 }),
+    ];
+    const grades = [
+      grade({ id: "g1", workItemId: "wi_1", pointsEarned: 8, pointsPossible: 10 }),
+      grade({ id: "g2", workItemId: "wi_2", letterGrade: PASS_LETTER }),
+      grade({ id: "g3", workItemId: "wi_3", letterGrade: FAIL_LETTER }),
+    ];
+
+    const standing = computeCourseStanding({ workItems, grades, categories: [quizzes] });
+    expect(standing.estimatedPercent).toBeCloseTo(80);
+    expect(standing.categories[0]!.gradedCount).toBe(1);
+    expect(standing.categories[0]!.passFailCount).toBe(2);
+    expect(standing.categories[0]!.pendingCount).toBe(0);
   });
 });

@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
+import { passFailOf, type Course, type PassFail, type ThemeName, type WorkItem } from "@schoolquest/domain";
 import { buildWeekCalendar, DEFAULT_EFFORT_MINUTES, type SlotKind } from "@schoolquest/planning-engine";
 import { wallClockToday } from "../lib/clock";
 import { api } from "../lib/api";
@@ -333,6 +333,22 @@ export function AssignmentsTable({
     }
   }
 
+  /** Records a Pass/Fail outcome in place of a score, for work that is not marked in points. */
+  async function savePassFail(item: WorkItem, passFail: PassFail) {
+    setBusy(item.id);
+    setError(null);
+    try {
+      await api.put(`/api/work-items/${item.id}/grade`, { passFail });
+      setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
+      setEditingGrade(null);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   /**
    * Saves the two halves of a deadline as the one instant the domain stores.
    *
@@ -638,6 +654,15 @@ export function AssignmentsTable({
                         {gradesByItem.get(item.id)!.pointsPossible}
                       </span>
                     )}
+                    {(() => {
+                      const grade = gradesByItem.get(item.id);
+                      const outcome = grade ? passFailOf(grade) : null;
+                      return outcome ? (
+                        <span className="muted" style={{ display: "block", fontSize: "0.74rem" }}>
+                          {outcome === "pass" ? "passed" : "failed"}
+                        </span>
+                      ) : null;
+                    })()}
                   </td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     {/* Handed in and still waiting on a result -- or a recorded score reopened to
@@ -700,6 +725,26 @@ export function AssignmentsTable({
                         <button className="action" type="submit" disabled={busy === item.id}>
                           Save
                         </button>
+                        {/* Not everything is marked in points. Pass/Fail is a result too: it
+                            stops the row waiting on a number, without moving the percentage. */}
+                        <button
+                          className="action"
+                          type="button"
+                          disabled={busy === item.id}
+                          onClick={() => void savePassFail(item, "pass")}
+                          title="Marked Pass/Fail rather than scored: record a pass"
+                        >
+                          Pass
+                        </button>
+                        <button
+                          className="action"
+                          type="button"
+                          disabled={busy === item.id}
+                          onClick={() => void savePassFail(item, "fail")}
+                          title="Marked Pass/Fail rather than scored: record a fail"
+                        >
+                          Fail
+                        </button>
                         {editingGrade === item.id ? (
                           <button
                             className="action"
@@ -727,7 +772,7 @@ export function AssignmentsTable({
                           className="action"
                           disabled={busy === item.id}
                           onClick={() => startEditGrade(item)}
-                          title="Correct the recorded score"
+                          title="Correct the recorded result"
                         >
                           Edit grade
                         </button>{" "}
@@ -735,7 +780,7 @@ export function AssignmentsTable({
                           className="action"
                           disabled={busy === item.id}
                           onClick={() => void clearGrade(item)}
-                          title="Remove the recorded score; the row waits on a result again"
+                          title="Remove the recorded result; the row waits on a result again"
                         >
                           Clear grade
                         </button>

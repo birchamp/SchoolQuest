@@ -1,5 +1,6 @@
 import {
   MINUTES_PER_DAY,
+  passFailOf,
   toEpochMinutes,
   type Course,
   type CourseStanding,
@@ -114,7 +115,10 @@ export interface CourseHealth {
    */
   gradePercent: number | null;
   gradedWeightFraction: number;
-  /** Individual results recorded. Carries the standing when no weights are declared. */
+  /**
+   * Individual scored results recorded (Pass/Fail excluded). Carries the standing when no
+   * weights are declared.
+   */
   gradedCount: number;
   /** The target this is judged against — the student's own, or the default floor. */
   targetPercent: number;
@@ -194,6 +198,11 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
   const now = toEpochMinutes(input.now);
   const loadById = new Map(input.load.map((l) => [l.courseId, l]));
   const gradedItemIds = new Set(input.grades.map((g) => g.workItemId));
+  // A Pass/Fail result answers "was it recorded" but adds nothing to a percentage, so it must
+  // not count toward the number of results the standing is judged on.
+  const scoredItemIds = new Set(
+    input.grades.filter((g) => passFailOf(g) === null).map((g) => g.workItemId),
+  );
 
   const courses = input.courses.map((course) => {
     const load = loadById.get(course.id);
@@ -205,7 +214,7 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
     const gradedWeightFraction = standing?.gradedWeightFraction ?? 0;
     const gradePercent = standing?.estimatedPercent ?? null;
     const ungradedResults = countUngradedResults(items, gradedItemIds, now);
-    const gradedCount = items.filter((w) => gradedItemIds.has(w.id)).length;
+    const gradedCount = items.filter((w) => scoredItemIds.has(w.id)).length;
 
     const concerns: CourseConcern[] = [
       ...planningConcerns(load, items, now),
