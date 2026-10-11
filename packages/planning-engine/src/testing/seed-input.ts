@@ -5,14 +5,20 @@ import {
   SEED_WEEK_START,
   type SeedSemester,
 } from "@schoolquest/fixtures";
-import type { PlanningInput } from "./types.js";
+import type { PlanningInput } from "../types.js";
+
+/*
+ * Test support only. Not exported from the package root: the engine's production code must not
+ * depend on @schoolquest/fixtures (a devDependency). Tests reach this through the
+ * `@schoolquest/planning-engine/testing` subpath or a relative import.
+ */
 
 export { SEED_NOW, SEED_WEEK_START, buildSeedSemester };
 export type { SeedSemester };
 
 /**
- * Assembles a raw semester into a PlanningInput. Used by the regression tests and by the
- * API's seed script, so both exercise exactly the same assembly path.
+ * Assembles a raw semester into a PlanningInput, so every regression test exercises exactly
+ * the same assembly path.
  */
 export function planningInputFor(
   seed: SeedSemester,
@@ -33,7 +39,6 @@ export function planningInputFor(
     dependencies: seed.dependencies,
     existingSessions: seed.existingSessions,
     courseStandings: standingsFor(seed),
-    seed: 42,
   };
 }
 

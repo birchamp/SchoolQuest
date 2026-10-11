@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { toEpochMinutes, type WorkItem, type WorkStatus, type WorkType } from "@schoolquest/domain";
 import { generatePlan } from "./scheduler.js";
 import { scoreWorkItems } from "./priority.js";
-import { seedPlanningInput, SEED_NOW } from "./seed-input.js";
+import { seedPlanningInput, SEED_NOW } from "./testing/seed-input.js";
 import type { PlanningInput } from "./types.js";
 
 /**

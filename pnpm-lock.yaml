@@ -174,18 +174,22 @@ importers:
       '@schoolquest/domain':
         specifier: workspace:*
         version: link:../domain
-      '@schoolquest/fixtures':
-        specifier: workspace:*
-        version: link:../fixtures
       zod:
         specifier: ^3.24.1
         version: 3.25.76
+    devDependencies:
+      '@schoolquest/fixtures':
+        specifier: workspace:*
+        version: link:../fixtures
 
   packages/theme-language:
     dependencies:
       '@schoolquest/domain':
         specifier: workspace:*
         version: link:../domain
+      '@schoolquest/planning-engine':
+        specifier: workspace:*
+        version: link:../planning-engine
 
 packages:
 

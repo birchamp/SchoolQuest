@@ -55,8 +55,9 @@ interface PendingWork {
 /**
  * Constraint-aware heuristic scheduler (docs/04-planning-engine-spec.md §11).
  *
- * Deliberately not an LLM: given the same input and seed it must produce the same plan,
- * every placement must be explainable by reason codes, and hard constraints must hold.
+ * Deliberately not an LLM: given the same input it must produce the same plan -- ties break on
+ * ids, never on chance, so there is no seed -- every placement must be explainable by reason
+ * codes, and hard constraints must hold.
  */
 export function generatePlan(input: PlanningInput, planVersionId: string): PlanningResult {
   const now = toEpochMinutes(input.now);

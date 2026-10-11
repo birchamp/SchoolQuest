@@ -1,5 +1,5 @@
 import type { CognitiveDemand, WorkItem, WorkType } from "@schoolquest/domain";
-import { toEpochMinutes, zoneCalendar, type ZoneCalendar } from "@schoolquest/domain";
+import { addDays, toEpochMinutes, zoneCalendar, type ZoneCalendar } from "@schoolquest/domain";
 import { daysUntil, isOpen } from "./work-item.js";
 
 /**
@@ -369,12 +369,6 @@ function loadFor(weightedHours: number): DayLoad {
   if (weightedHours >= HEAVY_THRESHOLD) return "heavy";
   if (weightedHours >= STEADY_THRESHOLD) return "steady";
   return weightedHours > 0 ? "light" : "clear";
-}
-
-function addDays(date: string, days: number): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 /** The day the week turns on: the set piece if there is one, otherwise the heaviest. */

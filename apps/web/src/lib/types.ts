@@ -8,7 +8,7 @@ import type {
   ThemeName,
   WorkItem,
 } from "@schoolquest/domain";
-import type { CampaignRadar, RadarEncounter } from "@schoolquest/planning-engine";
+import type { CampaignRadar, RadarEncounter, RiskCode } from "@schoolquest/planning-engine";
 
 /**
  * The radar crosses the wire verbatim, so the view type is the engine's own rather than a
@@ -50,7 +50,7 @@ export interface PlannedSession {
 
 export interface PlanRisk {
   level: "safe" | "watch" | "at_risk" | "decision_needed";
-  code: string;
+  code: RiskCode;
   workItemId: string | null;
   detail: string;
   explanation?: string;

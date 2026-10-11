@@ -70,7 +70,7 @@ quietly stop being true. **Add to it whenever a new one turns up.**
 
 Three rules hold this together:
 
-1. **The planning engine never calls an LLM.** Same inputs and seed → same plan, every time.
+1. **The planning engine never calls an LLM.** Same inputs → same plan, every time.
    It is fully testable without a network.
 2. **The LLM never writes to academic records.** The coach emits typed *proposed actions*;
    the student's click is what calls the API.

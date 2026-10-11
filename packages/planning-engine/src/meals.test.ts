@@ -9,7 +9,7 @@ import {
 import { buildCapacity } from "./capacity.js";
 import { planMealBreaks, mealNotes, reservedIntervals } from "./meals.js";
 import { generatePlan } from "./scheduler.js";
-import { seedPlanningInput } from "./seed-input.js";
+import { seedPlanningInput } from "./testing/seed-input.js";
 import type { PlanningInput } from "./types.js";
 
 /** 2026-09-07 is a Monday, matching the seed fixture's horizon. */

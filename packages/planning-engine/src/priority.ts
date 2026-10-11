@@ -2,7 +2,6 @@ import {
   estimateAcademicValue,
   toEpochMinutes,
   MINUTES_PER_DAY,
-  type CourseStanding,
   type Dependency,
   type WorkItem,
 } from "@schoolquest/domain";
@@ -279,14 +278,6 @@ function buildSuccessorMap(dependencies: Dependency[]): Map<string, string[]> {
     else map.set(dep.predecessorWorkItemId, [dep.successorWorkItemId]);
   }
   return map;
-}
-
-/** Exported for the placer, which re-scores context fit per candidate window. */
-export function courseStandingFor(
-  input: PlanningInput,
-  courseId: string,
-): CourseStanding | undefined {
-  return input.courseStandings?.[courseId];
 }
 
 function clamp01(n: number): number {
