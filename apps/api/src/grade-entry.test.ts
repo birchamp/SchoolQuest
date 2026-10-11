@@ -51,4 +51,27 @@ describe("resolveGradeEntry", () => {
     expect(resolve({ passFail: "pass", pointsPossible: 10 })).toHaveProperty("error");
     expect(resolve({ passFail: "pass", letterGrade: "A" })).toHaveProperty("error");
   });
+
+  it("treats a blank letter as no letter", () => {
+    expect(resolve({ letterGrade: "" })).toHaveProperty("error");
+    expect(resolve({ letterGrade: "  " })).toHaveProperty("error");
+    expect(resolve({ pointsEarned: 8, letterGrade: "" })).toEqual({
+      entry: { pointsEarned: 8, pointsPossible: 10, letterGrade: null },
+    });
+  });
+
+  it("refuses a score with no total anywhere", () => {
+    expect(resolve({ pointsEarned: 8 }, null)).toHaveProperty("error");
+    expect(resolve({ pointsEarned: 8, pointsPossible: 10 }, null)).toHaveProperty("entry");
+  });
+
+  it("reads Pass or Fail typed as a letter as the Pass/Fail outcome, with no total", () => {
+    expect(resolve({ letterGrade: "Fail" })).toEqual({
+      entry: { pointsEarned: null, pointsPossible: null, letterGrade: "Fail" },
+    });
+    expect(resolve({ letterGrade: "pass" })).toEqual({
+      entry: { pointsEarned: null, pointsPossible: null, letterGrade: "Pass" },
+    });
+    expect(resolve({ letterGrade: "Fail", pointsEarned: 3 })).toHaveProperty("error");
+  });
 });

@@ -11,6 +11,8 @@ import { FAIL_LETTER, PASS_LETTER } from "@schoolquest/domain";
  *   - The score-above-total check ran before that fallback, so `{ pointsEarned: 15 }` on a
  *     10-point item stored 15/10 and pushed a category past 100%.
  *   - `passFail` alongside a `letterGrade` silently threw the letter away.
+ *   - A blank letter, or a score with no total anywhere, stored a result the standing could not
+ *     use but which still marked the work as graded.
  */
 export const gradeBody = z.object({
   pointsEarned: z.number().nonnegative().nullable().default(null),
@@ -35,11 +37,26 @@ export function resolveGradeEntry(
   body: GradeBody,
   itemPointsPossible: number | null,
 ): { entry: GradeEntry } | { error: string } {
-  const { pointsEarned, pointsPossible, letterGrade, passFail } = body;
+  const { pointsEarned, pointsPossible } = body;
+  // A blank letter is no letter: storing "" would mark the work graded with nothing in it.
+  const typedLetter = body.letterGrade?.trim() || null;
+  // "Pass" or "Fail" typed as a letter means the same as passFail -- stored any other way, it
+  // would read back as a Pass/Fail outcome with a total attached.
+  const letterAsOutcome =
+    typedLetter?.toLowerCase() === PASS_LETTER.toLowerCase()
+      ? "pass"
+      : typedLetter?.toLowerCase() === FAIL_LETTER.toLowerCase()
+        ? "fail"
+        : null;
+  const letterGrade = letterAsOutcome ? null : typedLetter;
+  const passFail = body.passFail ?? letterAsOutcome;
+  if (body.passFail !== null && typedLetter !== null) {
+    return { error: "A Pass/Fail result has no score or letter; send one or the other." };
+  }
 
   if (passFail !== null) {
     // A Pass/Fail outcome is the whole result: no points, and the outcome as the letter.
-    if (pointsEarned !== null || pointsPossible !== null || letterGrade !== null) {
+    if (pointsEarned !== null || pointsPossible !== null) {
       return { error: "A Pass/Fail result has no score or letter; send one or the other." };
     }
     return {
@@ -58,6 +75,10 @@ export function resolveGradeEntry(
   // Fall back to the item's own points when the student gives only a score -- the syllabus
   // already said what it was out of, and making them retype it invites a mismatch.
   const outOf = pointsPossible ?? itemPointsPossible ?? null;
+  // A score out of nothing adds nothing to the standing, yet would still mark the work graded.
+  if (pointsEarned !== null && outOf === null) {
+    return { error: "A score needs a total to be out of." };
+  }
   // Checked against the total that will actually be stored, fallback included.
   if (pointsEarned !== null && outOf !== null && pointsEarned > outOf) {
     return { error: "A score cannot be higher than the total it is out of." };
