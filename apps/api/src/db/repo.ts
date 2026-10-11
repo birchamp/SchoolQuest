@@ -27,6 +27,7 @@ import {
   workItems,
   workSessions,
 } from "./schema.js";
+import { jsonObject, requireJsonColumn } from "../lib/json-column.js";
 
 export type Db = DrizzleD1Database<Record<string, never>>;
 
@@ -47,6 +48,29 @@ export async function insertInChunks<T>(
   for (let i = 0; i < rows.length; i += chunkSize) {
     await run(rows.slice(i, i + chunkSize));
   }
+}
+
+/**
+ * `rows` in runs of `chunkSize`, for statements that go into one `db.batch` rather than being
+ * awaited one by one. Same parameter ceiling as `insertInChunks`; a batch does not lift it.
+ */
+export function chunk<T>(rows: T[], chunkSize: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < rows.length; i += chunkSize) out.push(rows.slice(i, i + chunkSize));
+  return out;
+}
+
+/**
+ * Whether `error` is SQLite refusing a duplicate in the unique index over `columns`, such as
+ * "UNIQUE constraint failed: plan_versions.term_id, plan_versions.version_number". The cause
+ * chain is searched too, in case the driver wraps the D1 error.
+ */
+export function isUniqueViolation(error: unknown, columns: string[]): boolean {
+  const expected = `UNIQUE constraint failed: ${columns.join(", ")}`;
+  for (let e = error; e instanceof Error; e = e.cause) {
+    if (e.message.includes(expected)) return true;
+  }
+  return false;
 }
 
 /**
@@ -224,7 +248,11 @@ export async function loadTermSnapshot(
     courseId: g.courseId,
     name: g.name,
     weightPercent: g.weightPercent,
-    dropRule: g.dropRuleJson ? (JSON.parse(g.dropRuleJson) as Record<string, unknown>) : null,
+    // Thrown on, like the preferences below: both feed the planner and grade projections, where
+    // a silent default would change a student's plan or standing with nothing said.
+    dropRule: g.dropRuleJson
+      ? requireJsonColumn(jsonObject, g.dropRuleJson, "grading_categories.drop_rule_json")
+      : null,
     confidenceStatus: g.confidenceStatus as GradingCategory["confidenceStatus"],
   }));
 
@@ -330,7 +358,11 @@ export async function loadTermSnapshot(
     })),
     standings,
     // Preferences are stored as JSON; parsing applies the schema defaults for missing keys.
-    preferences: planningPreferences.parse(JSON.parse(termRow.planningPreferencesJson || "{}")),
+    preferences: requireJsonColumn(
+      planningPreferences,
+      termRow.planningPreferencesJson || "{}",
+      "terms.planning_preferences_json",
+    ),
     termEndDate: termRow.endDate,
     termStartDate: termRow.startDate,
   };

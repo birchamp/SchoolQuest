@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { useBodyTheme } from "../lib/use-body-theme";
+import { useTheme } from "../lib/theme-context";
+import { Themed } from "./Themed";
 
 /**
  * Everything nobody has answered about this term, and the message to send about it.
@@ -64,17 +65,6 @@ interface OpenQuestionsResult {
   coursesAffected: number;
 }
 
-/** Themed wording on screen, plain wording for assistive technology (docs/02-prd.md §5). */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
-}
-
 /**
  * A short label for the kind of gap, so a reader scanning the list can tell at a glance whether
  * this is a missing date or a policy to confirm without reading the sentence.
@@ -131,7 +121,7 @@ export function OpenQuestions({
    */
   refreshKey?: number;
 }) {
-  const theme = useBodyTheme();
+  const theme = useTheme();
   const quest = theme === "quest";
 
   const [result, setResult] = useState<OpenQuestionsResult | null>(null);

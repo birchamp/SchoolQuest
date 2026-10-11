@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
-import { passFailOf, type Course, type PassFail, type ThemeName, type WorkItem } from "@schoolquest/domain";
-import { buildWeekCalendar, DEFAULT_EFFORT_MINUTES, type SlotKind } from "@schoolquest/planning-engine";
+import { passFailOf, type Course, type PassFail, type WorkItem } from "@schoolquest/domain";
+import { buildWeekCalendar, defaultEffortFor, type SlotKind } from "@schoolquest/planning-engine";
 import { appToday, formatTime, localMinuteOfDay, planTimeZone } from "../lib/clock";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
@@ -16,6 +16,8 @@ import {
   formatDueDay,
 } from "../lib/due-time";
 import type { PlanResponse } from "../lib/types";
+import { courseNameWithCode } from "../lib/format";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * The same data, as rows.
@@ -55,10 +57,7 @@ function formatMinutes(minutes: number): string {
 }
 
 function courseLabel(course: Course | undefined): string {
-  if (!course) return "—";
-  return course.code && !course.name.includes(course.code)
-    ? `${course.name} (${course.code})`
-    : course.name;
+  return course ? courseNameWithCode(course) : "—";
 }
 
 /**
@@ -148,7 +147,7 @@ type AssignmentKey = "title" | "course" | "type" | "due" | "effort" | "worth" | 
  */
 /** The per-type effort the planner falls back to when nobody has said, formatted for a cell. */
 function assumedEffortLabel(workType: string): string {
-  const mins = DEFAULT_EFFORT_MINUTES[workType] ?? 60;
+  const mins = defaultEffortFor(workType);
   if (mins < 60) return `${mins}m`;
   const hours = Math.floor(mins / 60);
   const rest = mins % 60;
@@ -157,13 +156,12 @@ function assumedEffortLabel(workType: string): string {
 
 export function AssignmentsTable({
   plan,
-  theme,
   onChanged,
 }: {
   plan: PlanResponse;
-  theme: ThemeName;
   onChanged: () => void;
 }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const { sort, onSort } = useSort<AssignmentKey>("due");
   const [busy, setBusy] = useState<string | null>(null);
@@ -864,7 +862,8 @@ export function AssignmentsTable({
 type BlockKey = "day" | "start" | "title" | "course" | "minutes" | "kind";
 
 /** Every block of the week as rows, including the hours that are not study. */
-export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeName }) {
+export function WeekTable({ plan }: { plan: PlanResponse }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const { sort, onSort } = useSort<BlockKey>("start");
   // The student's own date, in the frame every stored time is written in (lib/clock.ts).
@@ -1016,7 +1015,8 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
 type AheadKey = "due" | "title" | "course" | "days" | "prep";
 
 /** The term's landmarks as rows — the arc's data, sortable and complete. */
-export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: ThemeName }) {
+export function LookaheadTable({ plan }: { plan: PlanResponse }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const { sort, onSort } = useSort<AheadKey>("due");
@@ -1031,6 +1031,7 @@ export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: The
       courseId: m.courseId,
       due: m.dueAt,
       days: m.daysAway,
+      pastDue: m.pastDue,
       prep: m.prepMinutes,
       confirmed: m.dueConfirmed,
     }));
@@ -1041,6 +1042,7 @@ export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: The
       courseId: m.courseId,
       due: null,
       days: null,
+      pastDue: false,
       prep: m.prepMinutes,
       confirmed: false,
     }));
@@ -1113,7 +1115,14 @@ export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: The
                   )}
                 </td>
                 <td style={{ textAlign: "right" }}>
-                  {row.days === null ? <span className="muted">—</span> : row.days}
+                  {row.days === null ? (
+                    <span className="muted">—</span>
+                  ) : row.pastDue && row.days === 0 ? (
+                    // Due earlier today and already gone: "0" would read as still ahead.
+                    "passed"
+                  ) : (
+                    row.days
+                  )}
                 </td>
                 <td style={{ textAlign: "right" }}>{formatMinutes(row.prep)}</td>
               </tr>
@@ -1131,7 +1140,8 @@ export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: The
 type CourseKey = "course" | "level" | "booked" | "open" | "due" | "grade";
 
 /** The dashboard's board as rows. */
-export function CoursesTable({ plan, theme }: { plan: PlanResponse; theme: ThemeName }) {
+export function CoursesTable({ plan }: { plan: PlanResponse }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const { sort, onSort } = useSort<CourseKey>("level");

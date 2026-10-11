@@ -1,6 +1,10 @@
-import { type Course, type ThemeName } from "@schoolquest/domain";
+import type { Course } from "@schoolquest/domain";
 import type { CourseProgressView, TermProgressView } from "../lib/types";
 import { courseTincture } from "../lib/course-colour";
+import { QUEST_PALETTE } from "../lib/quest-palette";
+import { courseLabel, initialsFor } from "../lib/format";
+import { Themed } from "./Themed";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * Per-course progress readout (packages/planning-engine/src/progress.ts).
@@ -19,20 +23,8 @@ import { courseTincture } from "../lib/course-colour";
  * are identical under every theme (docs/01-product-brief.md principle 9).
  */
 
-/**
- * Quest palette, duplicated from the `--q-*` custom properties in styles.css as literals.
- * Inline styles here are only ever applied when `theme === "quest"`, but hard-coding the
- * hex keeps the component readable in isolation and matches how Today.tsx does it.
- */
-const Q = {
-  ink: "#2a1f14",
-  parchment: "#efe3c8",
-  leather: "#17110a",
-  gold: "#c9a227",
-  goldBright: "#e8c95a",
-  goldDim: "#8a6f1f",
-  wax: "#8c2f28",
-} as const;
+/** The shared palette, but with this screen's own (marginally warmer) leather. */
+const Q = { ...QUEST_PALETTE, leather: "#17110a" } as const;
 
 /** Locale-formatted, but never rounded up into a friendlier number. */
 function num(value: number): string {
@@ -45,41 +37,6 @@ function num(value: number): string {
  */
 function percentOf(fraction: number): number {
   return Math.floor(Math.min(1, Math.max(0, fraction)) * 100);
-}
-
-/** Course code appended only when the name does not already carry it (see WeekMap). */
-function courseLabel(course: Course | undefined, courseId: string): string {
-  if (!course) return `Course ${courseId.slice(0, 6)}`;
-  return course.code && !course.name.includes(course.code)
-    ? `${course.name} (${course.code})`
-    : course.name;
-}
-
-/**
- * Sigil lettering. Digits are skipped on purpose: "BIO 240" as a two-character mark reads
- * as "B2", which looks like a typo rather than a course.
- */
-function initialsFor(course: Course | undefined, courseId: string): string {
-  const source = course?.code ?? course?.name ?? courseId;
-  const words = source.match(/[A-Za-z]+/g) ?? [];
-  const first = words[0];
-  if (!first) return "?";
-  const second = words[1];
-  return (second ? first.slice(0, 1) + second.slice(0, 1) : first.slice(0, 3)).toUpperCase();
-}
-
-/**
- * Themed wording on screen, plain wording for assistive tech. Screen-reader output must
- * never depend on the visual theme (docs/02-prd.md §5 Accessibility).
- */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
 }
 
 /**
@@ -186,12 +143,11 @@ function Stat({ caption, value, quest }: { caption: string; value: string; quest
 export function Questline({
   progress,
   courses,
-  theme,
 }: {
   progress: TermProgressView;
   courses: Course[];
-  theme: ThemeName;
 }): JSX.Element {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
 

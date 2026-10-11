@@ -8,6 +8,7 @@ import { getReaderCatalog, readerListFor } from "./model-catalog.js";
 import { decryptSecret, encryptSecret, keyHint } from "./secrets.js";
 import { redeemLoginToken, requestLoginLink, requireAuth, SESSION_COOKIE, setSessionCookie, signOut } from "./auth.js";
 import { getDb } from "./db/repo.js";
+import { clientIp, limitOrRefuse } from "./rate-limit.js";
 import { users } from "./db/schema.js";
 import { coachRoute } from "./routes/coach.js";
 import { documentsRoute } from "./routes/documents.js";
@@ -16,6 +17,12 @@ import { plansRoute } from "./routes/plans.js";
 import { reviewRoute } from "./routes/review.js";
 import { sessionsRoute } from "./routes/sessions.js";
 import { termsRoute } from "./routes/terms.js";
+import { questionsRoute } from "./routes/questions.js";
+import { calendarRoute } from "./routes/calendar.js";
+import { coursesRoute } from "./routes/courses.js";
+import { commitmentsRoute } from "./routes/commitments.js";
+import { workItemsRoute } from "./routes/work-items.js";
+import { gradesRoute } from "./routes/grades.js";
 import { isDevMode, type AppBindings } from "./env.js";
 import { isTimeZone } from "@schoolquest/domain";
 
@@ -54,6 +61,14 @@ app.post("/api/auth/login", async (c) => {
     .object({ email: z.string().email() })
     .safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: "A valid email address is required." }, 400);
+
+  // Network first, so one source cycling through addresses is stopped without spending each
+  // address's own allowance. Applies to unknown addresses exactly as to known ones, so the limit
+  // reveals nothing about which emails have accounts.
+  const refused =
+    (await limitOrRefuse(c, "loginIp", clientIp(c))) ??
+    (await limitOrRefuse(c, "loginEmail", body.data.email.trim().toLowerCase()));
+  if (refused) return refused;
 
   const { url, emailed } = await requestLoginLink(c.env, body.data.email);
   // The link is echoed back only in development mode (see `isDevMode`). A deployment with no
@@ -195,7 +210,16 @@ app.patch("/api/me", async (c) => {
   return c.json({ user: { ...safe, openrouterKeyHint: stored ? keyHint(stored) : null } });
 });
 
+// These seven were one file (routes/terms.ts) and are mounted where it was, in its order. No two
+// of their patterns can match the same request, so the split cannot change which handler answers;
+// http.test.ts and the route-list comparison in #35 hold that.
 app.route("/api", termsRoute);
+app.route("/api", questionsRoute);
+app.route("/api", calendarRoute);
+app.route("/api", coursesRoute);
+app.route("/api", commitmentsRoute);
+app.route("/api", workItemsRoute);
+app.route("/api", gradesRoute);
 app.route("/api", plansRoute);
 app.route("/api", sessionsRoute);
 app.route("/api", reviewRoute);

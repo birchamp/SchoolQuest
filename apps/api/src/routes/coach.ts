@@ -2,17 +2,16 @@ import { Hono } from "hono";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { fromEpochMinutes, newId, themeName, toEpochMinutes, zoneCalendar } from "@schoolquest/domain";
-import {
-  AiProviderError,
-  buildCoachContext,
-  createOpenRouterProvider,
-  runCoach,
-} from "@schoolquest/ai";
+import { buildCoachContext, runCoach } from "@schoolquest/ai";
 import { generatePlan } from "@schoolquest/planning-engine";
 import { coachMessages, users } from "../db/schema.js";
 import { assertTermOwner, getDb, loadTermSnapshot, toPlanningInput } from "../db/repo.js";
 import { loadReview } from "./review.js";
+import { aiErrorResponse } from "../lib/ai-errors.js";
+import { parseJsonColumn } from "../lib/json-column.js";
+import { openRouterFor } from "../lib/openrouter.js";
 import { NO_COACH_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
+import { rateLimitPerUser } from "../rate-limit.js";
 import type { AppBindings } from "../env.js";
 
 const messageBody = z.object({
@@ -30,7 +29,7 @@ export const coachRoute = new Hono<AppBindings>();
  * coach always answers against the student's real current state. It is a pure function
  * over data we already hold, so this costs no extra model call.
  */
-coachRoute.post("/coach/messages", async (c) => {
+coachRoute.post("/coach/messages", rateLimitPerUser("coach"), async (c) => {
   const parsed = messageBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
@@ -82,13 +81,7 @@ coachRoute.post("/coach/messages", async (c) => {
     .reverse()
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-  const provider = createOpenRouterProvider({
-    apiKey: resolved.apiKey,
-    defaultModel: resolved.coachModel,
-    appUrl: c.env.APP_URL,
-    appName: c.env.APP_NAME,
-    ...(c.env.OPENROUTER_BASE_URL ? { baseUrl: c.env.OPENROUTER_BASE_URL } : {}),
-  });
+  const provider = openRouterFor(c.env, resolved.apiKey, resolved.coachModel);
 
   let result;
   try {
@@ -100,20 +93,25 @@ coachRoute.post("/coach/messages", async (c) => {
       guardModel: resolved.guardModel,
     });
   } catch (error) {
-    if (error instanceof AiProviderError) {
-      // A provider outage is not the student's fault and not a bug in their plan. Say so
-      // plainly, and point back at the plan, which still works without the coach.
-      console.error("[coach] provider error", error.message);
-      return c.json(
-        {
-          error:
-            "The coach is unreachable right now. Your plan is unaffected — Today and the week view still work.",
-          retryable: error.retryable,
-        },
-        502,
-      );
-    }
+    // A provider outage is not the student's fault and not a bug in their plan. Say so
+    // plainly, and point back at the plan, which still works without the coach.
+    const answer = aiErrorResponse(c, error, {
+      unreachable:
+        "The coach is unreachable right now. Your plan is unaffected — Today and the week view still work.",
+      logTag: "coach",
+      extractionErrors: false,
+    });
+    if (answer) return answer;
     throw error;
+  }
+
+  // The student only sees "send it again"; the log says whether that was an outage or a reply
+  // the gate could not read, which need different fixes. The message itself is not logged.
+  if (result.guard.failure) {
+    console.warn(
+      `[coach] guard failed closed: ${result.guard.failure.reason}`,
+      result.guard.failure.detail,
+    );
   }
 
   // Persisting the guard verdict is what makes the gate tunable against real traffic.
@@ -159,7 +157,8 @@ coachRoute.get("/coach/messages", async (c) => {
       id: m.id,
       role: m.role,
       content: m.content,
-      actions: JSON.parse(m.actionsJson) as unknown[],
+      // History is display: a turn whose stored actions are unreadable shows with none.
+      actions: parseJsonColumn(z.array(z.unknown()), m.actionsJson, [], "coach_messages.actions_json"),
       refused: m.guardVerdict !== null && m.guardVerdict !== "ALLOW",
       createdAt: m.createdAt,
     })),

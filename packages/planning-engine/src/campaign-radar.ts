@@ -8,8 +8,8 @@ import {
   type WorkItem,
   zoneCalendar,
 } from "@schoolquest/domain";
-import { DEFAULT_EFFORT_MINUTES } from "./scheduler.js";
 import { runwayDays } from "./terrain.js";
+import { daysUntil, isOpen, isPastDue, remainingEffortMinutes } from "./work-item.js";
 
 /**
  * The term as a radar sweep: what is coming, and whether time has been set aside for it.
@@ -256,22 +256,6 @@ function tierFromShare(share: number): ThreatTier {
   return 1;
 }
 
-/** Effort still owed on an item, from the best source available (docs/04 §9). */
-function requiredMinutesFor(item: WorkItem): number {
-  if (item.remainingMinutes !== null) return item.remainingMinutes;
-  if (item.estimatedMinutes !== null) return item.estimatedMinutes;
-  return DEFAULT_EFFORT_MINUTES[item.workType] ?? 60;
-}
-
-function isOpen(item: WorkItem): boolean {
-  return (
-    item.status !== "completed" &&
-    item.status !== "submitted" &&
-    item.status !== "canceled" &&
-    item.status !== "optional"
-  );
-}
-
 function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));
 }
@@ -371,7 +355,7 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
     const dueDate = calendar.dateOf(dueMinutes);
     // Whole calendar days, not a floor of the raw difference: work due at nine tomorrow
     // morning is tomorrow's problem even when it is only ten hours away.
-    const daysAway = Math.round((dateToEpochMinutes(dueDate) - startOfToday) / MINUTES_PER_DAY);
+    const daysAway = daysUntil(item.dueAt, now, calendar);
     if (daysAway > horizonDays) {
       beyondCount += 1;
       continue;
@@ -390,7 +374,7 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
       // Fractional distance keeps two things due the same day from landing exactly on top
       // of each other, and keeps overdue work pinned at the centre rather than behind it.
       distanceDays: Math.max(0, (dueMinutes - now) / MINUTES_PER_DAY),
-      minutesNeeded: requiredMinutesFor(item),
+      minutesNeeded: remainingEffortMinutes(item),
       minutesBanked: input.bookedByItem[item.id] ?? 0,
       tier: gradeShare === null ? tierFromWorkType(item.workType) : tierFromShare(gradeShare),
       gradeShare,
@@ -548,7 +532,8 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
   }): RadarEncounter {
     const hoursNeeded = base.minutesNeeded / 60;
     const hoursBanked = base.minutesBanked / 60;
-    const overdue = base.daysAway < 0;
+    // The instant decides, not the date: due at nine this morning is overdue this afternoon.
+    const overdue = isPastDue(base.dueAt, now);
     const hoursExpected = hoursNeeded * expectedFraction(base.daysAway, base.minutesNeeded);
     const readiness = hoursExpected <= 0 ? 1 : clamp01(hoursBanked / hoursExpected);
     const health = verdict(readiness, overdue);
@@ -643,7 +628,7 @@ function buildTermWeeks(input: {
     if (item.dueAt === null) continue;
     const index = weekOf(zoneCalendar(input.timeZone).dateOf(toEpochMinutes(item.dueAt)));
     if (index < 0 || index >= weekCount) continue;
-    hours[index] = hours[index]! + requiredMinutesFor(item) / 60;
+    hours[index] = hours[index]! + remainingEffortMinutes(item) / 60;
   }
 
   const bossWeeks = new Set<number>();

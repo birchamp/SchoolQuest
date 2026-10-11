@@ -32,7 +32,7 @@ a connection failure is described; nothing is gated to one shell.
 ## Stack
 
 - **Frontend** — Vite + React + TypeScript SPA, installable as a PWA via `vite-plugin-pwa`
-- **Desktop** — Tauri v2 wrapping that same bundle (~10 MB, native file dialogs)
+- **Desktop** — Tauri v2 wrapping that same bundle (~10 MB; no native plugins, files go through the web upload)
 - **API** — Hono on Cloudflare Workers
 - **Database** — Cloudflare D1 (SQLite) with Drizzle
 - **Files** — Cloudflare R2 (syllabus PDFs, grade screenshots)
@@ -70,7 +70,7 @@ quietly stop being true. **Add to it whenever a new one turns up.**
 
 Three rules hold this together:
 
-1. **The planning engine never calls an LLM.** Same inputs and seed → same plan, every time.
+1. **The planning engine never calls an LLM.** Same inputs → same plan, every time.
    It is fully testable without a network.
 2. **The LLM never writes to academic records.** The coach emits typed *proposed actions*;
    the student's click is what calls the API.
@@ -204,6 +204,11 @@ npx wrangler d1 migrations apply schoolquest --remote
 npx wrangler deploy
 ```
 
+Apply migrations **before** `wrangler deploy`, as above: a new Worker can depend on a table its
+migration creates. (The rate limiter steps aside and logs a warning if `rate_limits` is
+missing, so a Worker deployed first still signs people in, but neither sign-in nor the AI routes
+are limited until the migration runs.)
+
 Then set `APP_URL` in `wrangler.toml` to your deployed web origin, and build the web app
 with `VITE_API_URL` pointing at the Worker.
 
@@ -257,9 +262,12 @@ tiny classification instead of a full turn. Refusals render as ordinary replies,
 errors — being told "not that" should not feel like being told off. Every verdict is
 persisted (`coach_messages.guard_verdict`) so the gate can be tuned against real traffic.
 
-If the classifier call fails outright (provider outage), the gate **fails open** to ALLOW
-and records that it did; the system prompt is the backstop. Hard-refusing every message
-during a provider blip would break the app for legitimate use.
+If the classifier call fails or returns something that is not a label, the gate **fails
+closed**: the message is not sent to the coach, the student is asked calmly to send it again,
+and the verdict is recorded as `UNCHECKED`. Only messages the prefilter could not judge ever
+reach the classifier, so plain planning and app questions keep working through a classifier
+failure; failing open would instead let a message that breaks the classifier's output skip the
+gate entirely. The reasoning is spelled out in `packages/ai/src/guardrail.ts`.
 
 **One deliberate exception:** messages expressing self-harm or crisis are routed to a
 distress branch that responds warmly and points to real help (988, campus counseling)
@@ -346,7 +354,8 @@ Behaviors the test suite pins down:
 - Unschedulable work is **reported as a risk**, never silently dropped.
 - Identical inputs produce an identical plan.
 
-Run them with `pnpm test`. `pnpm test:acceptance` walks the release list in a real browser
+Run them with `pnpm test`. The wall-clock CPU ceilings on the planner and the radar run
+separately, one file at a time, with `pnpm test:bench`. `pnpm test:acceptance` walks the release list in a real browser
 against the real Worker (`tools/e2e/README.md`), and CI runs both on every push.
 
 ## Status

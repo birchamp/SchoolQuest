@@ -1,9 +1,14 @@
 import type { ReactNode } from "react";
-import { type Course, type ThemeName } from "@schoolquest/domain";
+import type { Course } from "@schoolquest/domain";
 import type { MilestoneView, UndatedMilestoneView } from "../lib/types";
 import { courseTincture } from "../lib/course-colour";
 import { localDate } from "../lib/clock";
 import { formatDueDay, LONG_DUE_DAY } from "../lib/due-time";
+import { arcBand, dueDistanceShort, dueDistanceSpoken, type ArcBand } from "../lib/due-label";
+import { QUEST_PALETTE as Q } from "../lib/quest-palette";
+import { courseLabel, formatEffort, initialsFor } from "../lib/format";
+import { Themed } from "./Themed";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * The term's major work as a timeline (docs/07-session-prep-design.md §3).
@@ -36,32 +41,6 @@ import { formatDueDay, LONG_DUE_DAY } from "../lib/due-time";
  * in the summary band are identical whatever is switched off. Rows for a switched-off class
  * recede — they keep every word, and lose colour and weight. See `recessedInk`.
  */
-
-/**
- * Quest palette, duplicated from the `--q-*` custom properties in styles.css as literals.
- * These are only ever applied when `theme === "quest"`; hard-coding them keeps the file
- * readable in isolation, the way Today.tsx and Questline.tsx already do.
- */
-const Q = {
-  ink: "#2a1f14",
-  parchment: "#efe3c8",
-  leather: "#16100b",
-  gold: "#c9a227",
-  goldBright: "#e8c95a",
-  goldDim: "#8a6f1f",
-  wax: "#8c2f28",
-  /**
-   * Dim ink for text sitting on a *tinted* patch of parchment rather than bare parchment.
-   * The card's own `--text-dim` (#6b5636) measures 4.77:1 on the darker parchment stop,
-   * which is above the floor — but a 6% wax wash under it drops the same ink to 4.37:1.
-   * Tinted regions therefore get this darker value instead of `var(--text-dim)`.
-   */
-  inkDim: "#5b4930",
-  /** Cream that clears 4.5:1 on filled wax and forest chips. */
-  chipCream: "#f2ead6",
-  /** Dark ink for text on gold leaf; the shipped risk-chip pairing. */
-  onGold: "#3a2b00",
-} as const;
 
 /**
  * The single colour lookup for this file. Every use site goes through here so the palette
@@ -109,34 +88,23 @@ function recessedInk(quest: boolean): string {
  * Order is nearest-first within a band, which the incoming array already guarantees.
  */
 const BANDS: {
-  key: string;
-  holds: (daysAway: number) => boolean;
+  key: ArcBand;
   quest: string;
   plain: string;
 }[] = [
   {
     key: "overdue",
-    holds: (d) => d < 0,
     quest: "Already behind you — still open",
     plain: "Past due — still open",
   },
-  { key: "week", holds: (d) => d <= 7, quest: "Within the week", plain: "Within 7 days" },
-  { key: "month", holds: (d) => d <= 30, quest: "Within the month", plain: "Within 30 days" },
+  { key: "week", quest: "Within the week", plain: "Within 7 days" },
+  { key: "month", quest: "Within the month", plain: "Within 30 days" },
   {
     key: "term",
-    holds: () => true,
     quest: "Further along the road",
     plain: "Later in the term",
   },
 ];
-
-/** "95" -> "1h 35m". Matches Today.tsx, so the same minutes read the same on both screens. */
-function formatEffort(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
-}
 
 /** The same figure spelled out, for screen readers: "1h 35m" is not speech. */
 function spellEffort(minutes: number): string {
@@ -169,42 +137,6 @@ function workTypeLabel(workType: string): string {
  */
 function formatDue(dueAt: string): string {
   return formatDueDay(dueAt, LONG_DUE_DAY);
-}
-
-/** Course code appended only when the name does not already carry it (see WeekMap). */
-function courseLabel(course: Course | undefined, courseId: string): string {
-  if (!course) return `Course ${courseId.slice(0, 6)}`;
-  return course.code && !course.name.includes(course.code)
-    ? `${course.name} (${course.code})`
-    : course.name;
-}
-
-/**
- * Sigil lettering, matched to Questline.tsx and CourseManager.tsx so the three screens
- * agree. Digits are skipped on purpose: "BIO 240" as a two-character mark reads as "B2",
- * which looks like a typo rather than a course.
- */
-function initialsFor(course: Course | undefined, courseId: string): string {
-  const source = course?.code ?? course?.name ?? courseId;
-  const words = source.match(/[A-Za-z]+/g) ?? [];
-  const first = words[0];
-  if (!first) return "?";
-  const second = words[1];
-  return (second ? first.slice(0, 1) + second.slice(0, 1) : first.slice(0, 3)).toUpperCase();
-}
-
-/**
- * Themed wording on screen, plain wording for assistive tech. Copied from Questline.tsx:
- * screen-reader output must never depend on the visual theme (docs/02-prd.md §5).
- */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
 }
 
 /**
@@ -466,14 +398,10 @@ function DatedRow({
   const ink = recede ? recessedInk(quest) : undefined;
 
   // Distance: the numeral is the scale, because the layout deliberately is not one.
-  const distanceVisible =
-    m.daysAway < 0 ? `${-m.daysAway}d ago` : m.daysAway === 0 ? "today" : `${m.daysAway}d`;
-  const distancePlain =
-    m.daysAway < 0
-      ? `past due by ${-m.daysAway} ${-m.daysAway === 1 ? "day" : "days"}`
-      : m.daysAway === 0
-        ? "due today"
-        : `in ${m.daysAway} ${m.daysAway === 1 ? "day" : "days"}`;
+  // `daysAway` for the distance, `pastDue` (the instant) for the verdict: due at nine this
+  // morning reads "earlier today" this afternoon, not "today".
+  const distanceVisible = dueDistanceShort(m);
+  const distancePlain = dueDistanceSpoken(m);
 
   return (
     <li
@@ -548,7 +476,7 @@ function DatedRow({
             // A receded overdue row gives up the wax red with everything else. The date is
             // still past, and the band heading it sits under says so in words — colour was
             // never the only signal here, which is exactly what makes it safe to spend.
-            color: ink ?? (quest ? (m.daysAway < 0 ? Q.wax : Q.ink) : "var(--text)"),
+            color: ink ?? (quest ? (m.pastDue ? Q.wax : Q.ink) : "var(--text)"),
           }}
         >
           <Themed visible={distanceVisible} plain={distancePlain} />
@@ -628,13 +556,11 @@ export function CampaignArc({
   milestones,
   undatedMilestones,
   courses,
-  theme,
   hiddenCourseIds,
 }: {
   milestones: MilestoneView[];
   undatedMilestones: UndatedMilestoneView[];
   courses: Course[];
-  theme: ThemeName;
   /**
    * Classes switched off at the tab level. They **recede here and are never removed** — see the
    * note at the top of the file, and `LayerBar.tsx` for why the road ahead is the only card that
@@ -642,6 +568,7 @@ export function CampaignArc({
    */
   hiddenCourseIds?: ReadonlySet<string>;
 }): JSX.Element {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
 
@@ -682,7 +609,7 @@ export function CampaignArc({
   const unprepared = all.filter((m) => m.prepBlocks === 0).length;
   const prepBlocks = all.reduce((sum, m) => sum + m.prepBlocks, 0);
   const prepMinutes = all.reduce((sum, m) => sum + m.prepMinutes, 0);
-  const overdue = milestones.filter((m) => m.daysAway < 0).length;
+  const overdue = milestones.filter((m) => m.pastDue).length;
 
   /**
    * Date provenance — the second judgement call, and the reason `markRows` exists.
@@ -871,14 +798,10 @@ export function CampaignArc({
             )}
           </Rule>
 
-          {BANDS.map((band, bandIndex) => {
-            // A row belongs to the first band that holds it, so the tests can stay simple
-            // one-sided comparisons and no row can land in two bands.
-            const rows = milestones.filter(
-              (m) =>
-                band.holds(m.daysAway) &&
-                !BANDS.slice(0, bandIndex).some((earlier) => earlier.holds(m.daysAway)),
-            );
+          {BANDS.map((band) => {
+            // `arcBand` places each row in exactly one band, past due (the instant) first --
+            // so work due at nine this morning leaves "within 7 days" this afternoon.
+            const rows = milestones.filter((m) => arcBand(m) === band.key);
             if (rows.length === 0) return null;
             const attention = band.key === "overdue";
 

@@ -1,15 +1,17 @@
 import {
-  MINUTES_PER_DAY,
   passFailOf,
   toEpochMinutes,
+  zoneCalendar,
   type Course,
   type CourseStanding,
   type GradeResult,
   type GradingCategory,
   type WorkItem,
+  type ZoneCalendar,
 } from "@schoolquest/domain";
 import type { CourseLoad } from "./course-load.js";
 import type { ProjectProgress } from "./project-progress.js";
+import { daysUntil, isFinished, isOpen, isPastDue, remainingEffortMinutes } from "./work-item.js";
 
 /**
  * How each course is actually doing, in one verdict a student can read at a glance.
@@ -108,7 +110,7 @@ export interface CourseHealth {
 
   nextDueAt: string | null;
   nextDueTitle: string | null;
-  /** Whole days until the next thing is due; negative is past due. */
+  /** Whole calendar days until the next thing is due (`daysUntil`); negative is past due. */
   nextDueInDays: number | null;
 
   /**
@@ -199,10 +201,13 @@ export interface CourseHealthInput {
   projects: readonly ProjectProgress[];
   /** ISO instant. */
   now: string;
+  /** The student's zone: what "today" is when counting days until due. */
+  timeZone: string;
 }
 
 export function computeCourseHealth(input: CourseHealthInput): TermHealth {
   const now = toEpochMinutes(input.now);
+  const calendar = zoneCalendar(input.timeZone);
   const loadById = new Map(input.load.map((l) => [l.courseId, l]));
   const gradedItemIds = new Set(input.grades.map((g) => g.workItemId));
   const passFailItemIds = new Set(
@@ -238,7 +243,7 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
       .map((w) => w.title);
 
     const concerns: CourseConcern[] = [
-      ...planningConcerns(load, items, now),
+      ...planningConcerns(load, items, now, calendar),
       ...projectConcerns(projects),
       ...gradeConcerns({
         course,
@@ -266,10 +271,7 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
       openItems: load?.openItems ?? 0,
       nextDueAt,
       nextDueTitle: load?.nextDueTitle ?? null,
-      nextDueInDays:
-        nextDueAt === null
-          ? null
-          : Math.floor((toEpochMinutes(nextDueAt) - now) / MINUTES_PER_DAY),
+      nextDueInDays: nextDueAt === null ? null : daysUntil(nextDueAt, now, calendar),
       gradePercent,
       gradedWeightFraction,
       gradedCount,
@@ -314,6 +316,7 @@ function planningConcerns(
   load: CourseLoad | undefined,
   items: readonly WorkItem[],
   now: number,
+  calendar: ZoneCalendar,
 ): CourseConcern[] {
   const concerns: CourseConcern[] = [];
   const open = load?.openItems ?? 0;
@@ -333,16 +336,14 @@ function planningConcerns(
   // booked minutes for the course as a whole rather than per item, because the student's
   // question is "have I left myself time", not "is the allocation optimal".
   const imminent = items.filter((item) => {
-    if (!item.dueAt) return false;
-    if (item.status === "completed" || item.status === "submitted") return false;
-    if (item.status === "canceled" || item.status === "optional") return false;
-    const days = (toEpochMinutes(item.dueAt) - now) / MINUTES_PER_DAY;
-    return days >= 0 && days <= IMMINENT_DAYS;
+    if (!item.dueAt || !isOpen(item) || isPastDue(item.dueAt, now)) return false;
+    // The same calendar days `nextDueInDays` reports, so "due in 3 days" means one thing.
+    return daysUntil(item.dueAt, now, calendar) <= IMMINENT_DAYS;
   });
 
   if (imminent.length > 0 && (load?.bookedMinutes ?? 0) > 0) {
     const needed = imminent.reduce(
-      (sum, item) => sum + (item.remainingMinutes ?? item.estimatedMinutes ?? 0),
+      (sum, item) => sum + remainingEffortMinutes(item),
       0,
     );
     if (needed > 0 && (load?.bookedMinutes ?? 0) < needed) {
@@ -520,9 +521,9 @@ function countUngradedResults(
 ): number {
   let count = 0;
   for (const item of items) {
-    if (item.status !== "completed" && item.status !== "submitted") continue;
+    if (!isFinished(item)) continue;
     if (gradedItemIds.has(item.id)) continue;
-    if (!item.dueAt || toEpochMinutes(item.dueAt) > now) continue;
+    if (!item.dueAt || !isPastDue(item.dueAt, now)) continue;
     count += 1;
   }
   return count;

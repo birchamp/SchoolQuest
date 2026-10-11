@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { useBodyTheme } from "../lib/use-body-theme";
+import { useTheme } from "../lib/theme-context";
 import { localDate } from "../lib/clock";
+import { Themed } from "./Themed";
 
 /**
  * Asking the student how long their work actually takes.
@@ -63,20 +64,9 @@ interface Survey {
   itemCount: number;
 }
 
-/** Themed wording on screen, plain wording for assistive technology (docs/02-prd.md §5). */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
-}
-
 
 export function EffortSurvey({ termId, onChanged }: { termId: string; onChanged: () => void }) {
-  const theme = useBodyTheme();
+  const theme = useTheme();
   const quest = theme === "quest";
 
   const [survey, setSurvey] = useState<Survey | null>(null);

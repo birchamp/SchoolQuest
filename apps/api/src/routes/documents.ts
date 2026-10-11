@@ -1,8 +1,10 @@
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { newId } from "@schoolquest/domain";
-import { courses, sourceDocuments, terms } from "../db/schema.js";
+import { sourceDocuments } from "../db/schema.js";
 import { getDb } from "../db/repo.js";
+import { assertCourseOwner, loadOwnedDocument } from "../db/ownership.js";
+import { downloadHeaders } from "../download-headers.js";
 import type { AppBindings } from "../env.js";
 
 export const documentsRoute = new Hono<AppBindings>();
@@ -50,12 +52,9 @@ documentsRoute.post("/courses/:courseId/documents", async (c) => {
   const courseId = c.req.param("courseId");
   const userId = c.get("userId");
 
-  const [course] = await db
-    .select({ id: courses.id })
-    .from(courses)
-    .innerJoin(terms, eq(terms.id, courses.termId))
-    .where(and(eq(courses.id, courseId), eq(terms.userId, userId)));
-  if (!course) return c.json({ error: "Course not found" }, 404);
+  if (!(await assertCourseOwner(db, courseId, userId))) {
+    return c.json({ error: "Course not found" }, 404);
+  }
 
   // Hono's parseBody types file entries as File; workers-types' FormData.get() does not.
   const form = await c.req.parseBody().catch(() => null);
@@ -104,12 +103,9 @@ documentsRoute.get("/courses/:courseId/documents", async (c) => {
   const db = getDb(c.env.DB);
   const courseId = c.req.param("courseId");
 
-  const [course] = await db
-    .select({ id: courses.id })
-    .from(courses)
-    .innerJoin(terms, eq(terms.id, courses.termId))
-    .where(and(eq(courses.id, courseId), eq(terms.userId, c.get("userId"))));
-  if (!course) return c.json({ error: "Course not found" }, 404);
+  if (!(await assertCourseOwner(db, courseId, c.get("userId")))) {
+    return c.json({ error: "Course not found" }, 404);
+  }
 
   const documents = await db
     .select()
@@ -121,12 +117,7 @@ documentsRoute.get("/courses/:courseId/documents", async (c) => {
 /** Streams a stored document back. Ownership is re-checked on every read. */
 documentsRoute.get("/documents/:id/file", async (c) => {
   const db = getDb(c.env.DB);
-  const [row] = await db
-    .select({ document: sourceDocuments })
-    .from(sourceDocuments)
-    .innerJoin(courses, eq(courses.id, sourceDocuments.courseId))
-    .innerJoin(terms, eq(terms.id, courses.termId))
-    .where(and(eq(sourceDocuments.id, c.req.param("id")), eq(terms.userId, c.get("userId"))));
+  const row = await loadOwnedDocument(db, c.req.param("id"), c.get("userId"));
 
   if (!row) return c.json({ error: "Document not found" }, 404);
 
@@ -142,23 +133,14 @@ documentsRoute.get("/documents/:id/file", async (c) => {
   }
 
   return new Response(object.body, {
-    headers: {
-      "Content-Type": row.document.mimeType,
-      "Content-Disposition": `inline; filename="${row.document.filename}"`,
-      "Cache-Control": "private, no-store",
-    },
+    headers: downloadHeaders(row.document.mimeType, row.document.filename),
   });
 });
 
 /** Deleting a document removes the stored bytes as well as the row (docs/05 §8). */
 documentsRoute.delete("/documents/:id", async (c) => {
   const db = getDb(c.env.DB);
-  const [row] = await db
-    .select({ document: sourceDocuments })
-    .from(sourceDocuments)
-    .innerJoin(courses, eq(courses.id, sourceDocuments.courseId))
-    .innerJoin(terms, eq(terms.id, courses.termId))
-    .where(and(eq(sourceDocuments.id, c.req.param("id")), eq(terms.userId, c.get("userId"))));
+  const row = await loadOwnedDocument(db, c.req.param("id"), c.get("userId"));
 
   if (!row) return c.json({ error: "Document not found" }, 404);
 

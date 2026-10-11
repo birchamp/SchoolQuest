@@ -1,9 +1,10 @@
 import { useState } from "react";
-import type { ThemeName } from "@schoolquest/domain";
+import type { CommitmentType } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import type { CommitmentProposalView, ReviewQuestionView, WeeklyReviewView } from "../lib/types";
 import { formatCalendarDate, formatClock } from "../lib/clock";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * What the weeks that already happened have to say about the week being planned.
@@ -44,7 +45,7 @@ const DAY_LONG = [
 ];
 
 /** Matches the plain-English options in CourseManager's commitment form. */
-const COMMITMENT_TYPES: { value: string; label: string }[] = [
+const COMMITMENT_TYPES: { value: CommitmentType; label: string }[] = [
   { value: "work", label: "Work" },
   { value: "class", label: "Class" },
   { value: "club", label: "Club or team" },
@@ -77,14 +78,13 @@ function clock(time: string): string {
 export function WeeklyReview({
   review,
   termId,
-  theme,
   onAnswered,
 }: {
   review: WeeklyReviewView;
   termId: string;
-  theme: ThemeName;
   onAnswered: () => void;
 }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   // Answered questions disappear immediately rather than waiting on the refreshed plan, so
   // the card cannot show a question the student has just settled.
@@ -285,7 +285,7 @@ function ReviewCase({
               </span>
               <select
                 value={draft.commitmentType}
-                onChange={(e) => setDraft({ ...draft, commitmentType: e.target.value })}
+                onChange={(e) => setDraft({ ...draft, commitmentType: e.target.value as CommitmentType })}
               >
                 {COMMITMENT_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>

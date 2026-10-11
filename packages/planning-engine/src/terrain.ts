@@ -1,4 +1,11 @@
-import { MINUTES_PER_DAY, toEpochMinutes, type WorkItem } from "@schoolquest/domain";
+import { MINUTES_PER_DAY, toEpochMinutes, zoneCalendar, type WorkItem } from "@schoolquest/domain";
+import {
+  daysUntil,
+  isFinished,
+  isOpenOrFinished,
+  isPastDue,
+  remainingEffortMinutes,
+} from "./work-item.js";
 
 /**
  * The term as ground you can see across.
@@ -60,7 +67,7 @@ export interface TerrainMarker {
   /** Null only for the undated markers, which are placed off to one side. */
   dueAt: string | null;
   dueConfirmed: boolean;
-  /** Whole days until due; negative is past due. */
+  /** Whole calendar days until due (`daysUntil`): 0 is today, negative is past due. */
   daysAway: number | null;
 
   /**
@@ -146,8 +153,8 @@ export interface TerrainInput {
   courseIds: readonly string[];
   /** ISO instant. */
   now: string;
-  /** Fallback effort by work type, so an unestimated item still has a size. */
-  defaultEffortMinutes: Readonly<Record<string, number>>;
+  /** The student's zone: what "today" is when counting days until due. */
+  timeZone: string;
   /** How much time the modelled ground covers. Past it, work goes into the distance. */
   focusDays?: number;
   /** How far ahead to place anything. Past it, work is counted rather than placed. */
@@ -241,11 +248,11 @@ const LARGE_MINUTES = 600;
 
 export function buildTerrain(input: TerrainInput): Terrain {
   const now = toEpochMinutes(input.now);
+  const calendar = zoneCalendar(input.timeZone);
   const laneOf = new Map(input.courseIds.map((id, i) => [id, i]));
 
-  const open = input.workItems.filter(
-    (item) => item.status !== "canceled" && item.status !== "optional",
-  );
+  // Finished work stays on the map as a cold ember, so progress is visible.
+  const open = input.workItems.filter(isOpenOrFinished);
 
   const dated = open.filter((item) => item.dueAt !== null);
   const furthest = dated.reduce((max, item) => {
@@ -267,7 +274,7 @@ export function buildTerrain(input: TerrainInput): Terrain {
   const beyond: TerrainMarker[] = [];
 
   for (const item of open) {
-    const required = effortOf(item, input.defaultEffortMinutes);
+    const required = remainingEffortMinutes(item);
     const booked = input.bookedByItem[item.id] ?? 0;
     const lane = laneOf.get(item.courseId) ?? 0;
     const lateral = lateralFor(lane, input.courseIds.length, item.id);
@@ -285,9 +292,9 @@ export function buildTerrain(input: TerrainInput): Terrain {
         depth: 0.85,
         lateral,
         rise,
-        state: finished(item) ? "done" : "waiting",
+        state: isFinished(item) ? "done" : "waiting",
         glow: 0.25,
-        detail: finished(item)
+        detail: isFinished(item)
           ? "Finished."
           : "No date is known for this, so it cannot be placed in time.",
         requiredMinutes: required,
@@ -296,8 +303,9 @@ export function buildTerrain(input: TerrainInput): Terrain {
       continue;
     }
 
-    const daysAway = Math.floor((toEpochMinutes(item.dueAt) - now) / MINUTES_PER_DAY);
-    const { state, detail } = beaconFor(item, { daysAway, required, booked });
+    const daysAway = daysUntil(item.dueAt, now, calendar);
+    const pastDue = isPastDue(item.dueAt, now);
+    const { state, detail } = beaconFor(item, { daysAway, pastDue, required, booked });
     const onGround = daysAway <= focusDays;
     // On the ground, depth is position within the four weeks. Past it, depth is position
     // within the distance — a separate scale, because the two are drawn as different kinds
@@ -362,14 +370,6 @@ function lit(state: BeaconState): boolean {
   return state === "overdue" || state === "needs_time" || state === "partly_covered";
 }
 
-function finished(item: WorkItem): boolean {
-  return item.status === "completed" || item.status === "submitted";
-}
-
-function effortOf(item: WorkItem, defaults: Readonly<Record<string, number>>): number {
-  return item.remainingMinutes ?? item.estimatedMinutes ?? defaults[item.workType] ?? 60;
-}
-
 /**
  * How far ahead this particular piece of work starts asking for time.
  *
@@ -383,14 +383,15 @@ export function runwayDays(requiredMinutes: number): number {
 
 function beaconFor(
   item: WorkItem,
-  facts: { daysAway: number; required: number; booked: number },
+  facts: { daysAway: number; pastDue: boolean; required: number; booked: number },
 ): { state: BeaconState; detail: string } {
-  if (finished(item)) return { state: "done", detail: "Finished." };
+  if (isFinished(item)) return { state: "done", detail: "Finished." };
 
-  if (facts.daysAway < 0) {
+  // The instant decides, not the date: due at nine this morning is overdue this afternoon.
+  if (facts.pastDue) {
     return {
       state: "overdue",
-      detail: `Its date has passed${
+      detail: `Its deadline has passed${
         facts.booked > 0 ? " and it is still open" : " and no time was booked for it"
       }.`,
     };

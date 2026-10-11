@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { guardMessage, prefilter, type GuardVerdict } from "./guardrail.js";
-import type { AiProvider } from "./provider.js";
+import { guardMessage, parseClassifierLabel, prefilter, type ClassifierLabel } from "./guardrail.js";
+import { AiProviderError, type AiProvider, type CompletionRequest } from "./provider.js";
 
 /** A provider that always returns the label it was constructed with, and remembers what it was asked. */
-function stubProvider(label: GuardVerdict): AiProvider & { calls: number; systemPrompt: string } {
+function stubProvider(label: ClassifierLabel): AiProvider & { calls: number; systemPrompt: string } {
   const provider = {
     calls: 0,
     /** The classifier instructions of the last call, so a test can assert what the gate was told. */
@@ -112,15 +112,176 @@ describe("classifier: ambiguous messages go to the model", () => {
     expect(decision.refusal).toMatch(/plan|step|when|break/i);
   });
 
-  it("fails open when the provider is unavailable, and records that it did", async () => {
-    const broken: AiProvider = {
-      name: "broken",
-      defaultModel: "broken",
-      complete: vi.fn().mockRejectedValue(new Error("network down")),
+});
+
+describe("classifier failure: the gate fails closed", () => {
+  /** A provider whose classifier call resolves with `text`, or rejects when given an Error. */
+  function failingProvider(outcome: string | Error): AiProvider & { complete: ReturnType<typeof vi.fn> } {
+    return {
+      name: "failing",
+      defaultModel: "failing",
+      complete:
+        outcome instanceof Error
+          ? vi.fn().mockRejectedValue(outcome)
+          : vi.fn().mockResolvedValue({
+              text: outcome,
+              model: "failing",
+              usage: { promptTokens: 0, completionTokens: 0 },
+            }),
     };
-    const decision = await guardMessage("something ambiguous entirely", broken);
+  }
+
+  const failures: [string, string | Error][] = [
+    ["the provider is unreachable", new Error("network down")],
+    ["the classifier answers in prose instead of JSON", "Sure! This looks like a planning question."],
+    ["the classifier's JSON is truncated", '{"label": "AL'],
+    ["the classifier invents a label", JSON.stringify({ label: "PROBABLY_FINE" })],
+    ["the classifier tries to choose UNCHECKED itself", JSON.stringify({ label: "UNCHECKED" })],
+  ];
+
+  for (const [when, outcome] of failures) {
+    it(`does not allow an ambiguous message when ${when}`, async () => {
+      const decision = await guardMessage("something ambiguous entirely", failingProvider(outcome));
+      expect(decision.verdict).toBe("UNCHECKED");
+      expect(decision.source).toBe("classifier_failed_closed");
+    });
+  }
+
+  it("tells the student calmly to try again, without blaming them", async () => {
+    const decision = await guardMessage("something ambiguous entirely", failingProvider(new Error("503")));
+    expect(decision.refusal).toMatch(/again/i);
+    expect(decision.refusal).toMatch(/plan/i);
+    expect(decision.refusal).not.toMatch(/error|outside what I do|will not/i);
+  });
+
+  it("still allows a confidently planning message, which never needed the classifier", async () => {
+    const broken = failingProvider(new Error("network down"));
+    const decision = await guardMessage("What should I work on now?", broken);
     expect(decision.verdict).toBe("ALLOW");
-    expect(decision.source).toBe("classifier_failed_open");
+    expect(decision.source).toBe("prefilter");
+    expect(broken.complete).not.toHaveBeenCalled();
+  });
+
+  it("still allows an unambiguous question about the app", async () => {
+    const broken = failingProvider(new Error("network down"));
+    const decision = await guardMessage("what does not doing it do", broken);
+    expect(decision.verdict).toBe("ALLOW");
+    expect(broken.complete).not.toHaveBeenCalled();
+  });
+});
+
+describe("classifier robustness: a real verdict is not lost to formatting or a blip", () => {
+  type Outcome = string | Error;
+  /** Answers each call with the next outcome in turn, and records every request it was sent. */
+  function scriptedProvider(...outcomes: Outcome[]) {
+    const requests: CompletionRequest[] = [];
+    const provider: AiProvider & { requests: CompletionRequest[] } = {
+      name: "scripted",
+      defaultModel: "scripted",
+      requests,
+      async complete(request) {
+        requests.push(request);
+        const next = outcomes[Math.min(requests.length - 1, outcomes.length - 1)]!;
+        if (next instanceof Error) throw next;
+        return { text: next, model: "scripted", usage: { promptTokens: 0, completionTokens: 0 } };
+      },
+    };
+    return provider;
+  }
+
+  const ambiguous = "something ambiguous entirely";
+
+  it("leaves a reasoning model room to finish its answer", async () => {
+    const provider = scriptedProvider(JSON.stringify({ label: "ALLOW" }));
+    await guardMessage(ambiguous, provider);
+    // 16 tokens was the old ceiling: a reasoning model spent it thinking and returned a fragment.
+    expect(provider.requests[0]!.maxTokens).toBeGreaterThanOrEqual(256);
+  });
+
+  const lenient: [string, string, string][] = [
+    ["JSON wrapped in a code fence", '```json\n{"label": "OFF_TOPIC"}\n```', "OFF_TOPIC"],
+    ["JSON after a sentence of preamble", 'Here is the label: {"label":"DO_MY_WORK"}', "DO_MY_WORK"],
+    ["a bare label word", "ALLOW", "ALLOW"],
+    ["a bare label with a full stop", "OFF_TOPIC.", "OFF_TOPIC"],
+  ];
+  for (const [what, text, label] of lenient) {
+    it(`reads the verdict from ${what}`, async () => {
+      const decision = await guardMessage(ambiguous, scriptedProvider(text));
+      expect(decision.source).toBe("classifier");
+      expect(decision.verdict).toBe(label);
+    });
+  }
+
+  it("does not guess when the reply names more than one label", async () => {
+    const decision = await guardMessage(ambiguous, scriptedProvider("Not DO_MY_WORK, so ALLOW"));
+    expect(decision.verdict).toBe("UNCHECKED");
+    expect(decision.failure?.reason).toBe("unparseable");
+  });
+
+  it("retries once after a transient provider error", async () => {
+    const provider = scriptedProvider(
+      new AiProviderError("OpenRouter request failed (503)", 503, true),
+      JSON.stringify({ label: "ALLOW" }),
+    );
+    const decision = await guardMessage(ambiguous, provider);
+    expect(decision).toMatchObject({ verdict: "ALLOW", source: "classifier" });
+    expect(provider.requests).toHaveLength(2);
+  });
+
+  it("retries once after a network failure", async () => {
+    const provider = scriptedProvider(new TypeError("fetch failed"), '{"label":"OFF_TOPIC"}');
+    expect((await guardMessage(ambiguous, provider)).verdict).toBe("OFF_TOPIC");
+  });
+
+  it("asks again without the strict schema when the model refuses it", async () => {
+    const provider = scriptedProvider(
+      new AiProviderError("OpenRouter request failed (400): response_format not supported", 400),
+      "DO_MY_WORK",
+    );
+    const decision = await guardMessage(ambiguous, provider);
+    expect(decision.verdict).toBe("DO_MY_WORK");
+    expect(provider.requests[0]!.jsonSchema).toBeDefined();
+    expect(provider.requests[1]!.jsonSchema).toBeUndefined();
+  });
+
+  it("retries only once, then fails closed and says why", async () => {
+    const provider = scriptedProvider(
+      new AiProviderError("OpenRouter request failed (503)", 503, true),
+    );
+    const decision = await guardMessage(ambiguous, provider);
+    expect(decision).toMatchObject({ verdict: "UNCHECKED", source: "classifier_failed_closed" });
+    expect(decision.failure?.reason).toBe("provider_error");
+    expect(decision.failure?.detail).toMatch(/503/);
+    expect(provider.requests).toHaveLength(2);
+  });
+
+  it("does not retry an error that will not change, such as a bad key", async () => {
+    const provider = scriptedProvider(new AiProviderError("OpenRouter request failed (401)", 401));
+    const decision = await guardMessage(ambiguous, provider);
+    expect(decision.verdict).toBe("UNCHECKED");
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("records a truncated reply as unparseable, distinct from an outage", async () => {
+    const decision = await guardMessage(ambiguous, scriptedProvider('{"label": "AL'));
+    expect(decision.failure?.reason).toBe("unparseable");
+  });
+});
+
+describe("parseClassifierLabel: conflicting verdicts are not guessed at", () => {
+  it("takes a single verdict, however it is wrapped", () => {
+    expect(parseClassifierLabel('```json\n{"label":"OFF_TOPIC"}\n```')).toBe("OFF_TOPIC");
+    expect(parseClassifierLabel('{"label":"ALLOW"} {"label":"ALLOW"}')).toBe("ALLOW");
+  });
+
+  it("fails closed when two JSON objects disagree, whichever comes first", () => {
+    // An echoed example followed by the real verdict must not let the echo through.
+    expect(parseClassifierLabel('{"label":"ALLOW"} {"label":"DO_MY_WORK"}')).toBeNull();
+    expect(parseClassifierLabel('{"label":"DO_MY_WORK"}\n{"label":"ALLOW"}')).toBeNull();
+  });
+
+  it("fails closed when the JSON verdict contradicts a label named in the prose", () => {
+    expect(parseClassifierLabel('Not ALLOW. {"label":"OFF_TOPIC"}')).toBeNull();
   });
 });
 

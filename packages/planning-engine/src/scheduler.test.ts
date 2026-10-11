@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { seedPlanningInput, SEED_NOW } from "./seed-input.js";
+import { seedPlanningInput, SEED_NOW } from "./testing/seed-input.js";
 import { toEpochMinutes, type WorkItem, type WorkSession } from "@schoolquest/domain";
 import { generatePlan, selectRecommendedSessions } from "./scheduler.js";
 import { isSchedulable, scoreWorkItems } from "./priority.js";

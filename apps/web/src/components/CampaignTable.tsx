@@ -4,6 +4,10 @@ import { explainUpkeep, label, plainLabel } from "@schoolquest/theme-language";
 import type { CourseLoadView, TermLoadView } from "../lib/types";
 import { courseTincture as sharedTincture } from "../lib/course-colour";
 import { formatDueDay, LONG_DUE_DAY } from "../lib/due-time";
+import { QUEST_PALETTE as Q } from "../lib/quest-palette";
+import { courseLabel, formatEffort, initialsFor } from "../lib/format";
+import { Themed } from "./Themed";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * One pool of time, divided across every course
@@ -42,28 +46,6 @@ import { formatDueDay, LONG_DUE_DAY } from "../lib/due-time";
  */
 
 /**
- * Quest palette, duplicated from the `--q-*` custom properties in styles.css as literals.
- * Only ever applied when `theme === "quest"`; hard-coding keeps the file readable in
- * isolation, the way Today.tsx, Questline.tsx, CampaignArc.tsx and Stats.tsx already do.
- */
-const Q = {
-  ink: "#2a1f14",
-  parchment: "#efe3c8",
-  leather: "#16100b",
-  gold: "#c9a227",
-  goldBright: "#e8c95a",
-  goldDim: "#8a6f1f",
-  wax: "#8c2f28",
-  /**
-   * Dim ink for text on a *tinted* patch of parchment. The card's own `--text-dim`
-   * (#6b5636) measures 4.45:1 once a selected row lays a 12% gold wash over the darker
-   * parchment stop — under the floor. Every muted string inside this card therefore uses
-   * this darker value rather than `.muted`, the same call CampaignArc.tsx documents.
-   */
-  inkDim: "#5b4930",
-} as const;
-
-/**
  * The single place this file asks what colour a course is.
  *
  * Every sigil, share bar and strip segment goes through here, so the two maps above are
@@ -91,14 +73,6 @@ function courseFill(courseId: string, course: Course | undefined, quest: boolean
     : tincture;
 }
 
-/** "95" -> "1h 35m". Matches Today.tsx and Stats.tsx, so minutes read the same everywhere. */
-function formatEffort(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
-}
-
 /** The same figure spelled out, for screen readers: "1h 35m" is not speech. */
 function spellEffort(minutes: number): string {
   if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
@@ -117,28 +91,6 @@ function percentOf(fraction: number): number {
   return Math.floor(Math.min(1, Math.max(0, fraction)) * 100);
 }
 
-/** Course code appended only when the name does not already carry it (see WeekMap). */
-function courseLabel(course: Course | undefined, courseId: string): string {
-  if (!course) return `Course ${courseId.slice(0, 6)}`;
-  return course.code && !course.name.includes(course.code)
-    ? `${course.name} (${course.code})`
-    : course.name;
-}
-
-/**
- * Sigil lettering, matched to Questline.tsx / CampaignArc.tsx / Stats.tsx so the screens
- * agree. Digits are skipped on purpose: "BIO 240" as a two-character mark reads as "B2",
- * which looks like a typo rather than a course.
- */
-function initialsFor(course: Course | undefined, courseId: string): string {
-  const source = course?.code ?? course?.name ?? courseId;
-  const words = source.match(/[A-Za-z]+/g) ?? [];
-  const first = words[0];
-  if (!first) return "?";
-  const second = words[1];
-  return (second ? first.slice(0, 1) + second.slice(0, 1) : first.slice(0, 3)).toUpperCase();
-}
-
 /**
  * The due date, formatted from the date part in UTC — the same treatment as CampaignArc.tsx
  * and Stats.tsx, so a date printed here cannot disagree with the same date printed there.
@@ -147,21 +99,6 @@ function initialsFor(course: Course | undefined, courseId: string): string {
  */
 function formatDue(dueAt: string): string {
   return formatDueDay(dueAt, LONG_DUE_DAY);
-}
-
-/**
- * Themed wording on screen, plain wording for assistive tech. Copied from Questline.tsx:
- * screen-reader output must never depend on the visual theme (docs/02-prd.md §5), so the
- * metaphor never carries meaning.
- */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
 }
 
 /**
@@ -331,16 +268,15 @@ function Note({ children, quest }: { children: ReactNode; quest: boolean }) {
 export function CampaignTable({
   load,
   courses,
-  theme,
   selectedCourseId,
   onSelectCourse,
 }: {
   load: TermLoadView;
   courses: Course[];
-  theme: ThemeName;
   selectedCourseId: string | null;
   onSelectCourse: (courseId: string | null) => void;
 }): JSX.Element {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
 

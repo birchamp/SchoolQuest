@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { AvailabilityRule, WorkItem, WorkSession } from "@schoolquest/domain";
 import { MINUTES_PER_DAY, toEpochMinutes } from "@schoolquest/domain";
 import { INGESTED_SEMESTER } from "@schoolquest/fixtures";
-import { DEFAULT_EFFORT_MINUTES, generatePlan } from "./scheduler.js";
+import { generatePlan } from "./scheduler.js";
+import { defaultEffortFor } from "./work-item.js";
 import { computeCourseLoad } from "./course-load.js";
 import { computeProjectProgress } from "./project-progress.js";
 import { computeCourseHealth } from "./course-health.js";
@@ -277,7 +278,7 @@ for (const [index, weekStart] of weeks.entries()) {
         const done = [...sessionsById.values()]
           .filter((x) => x.workItemId === item.id && (x.status === "completed" || x.status === "partial"))
           .reduce((sum, x) => sum + minutesOf(x), 0);
-        const required = item.estimatedMinutes ?? DEFAULT_EFFORT_MINUTES[item.workType] ?? 60;
+        const required = item.estimatedMinutes ?? defaultEffortFor(item.workType);
         if (done >= required) {
           items.set(item.id, { ...item, status: "completed" });
           // Finishing the last stage finishes the project, exactly as the complete endpoint
@@ -321,6 +322,7 @@ for (const [index, weekStart] of weeks.entries()) {
       .map((s) => ({ workItemId: s.workItemId, endAt: s.endAt, minutes: minutesOf(s) })),
     booked: all.filter((s) => s.status === "planned").map((s) => ({ workItemId: s.workItemId, minutes: minutesOf(s) })),
     now: endOfWeek,
+    timeZone: "UTC",
     weeklyCapacityMinutes: plan.capacity.availableMinutes,
   });
   const health = computeCourseHealth({
@@ -333,6 +335,7 @@ for (const [index, weekStart] of weeks.entries()) {
     load: load.courses,
     projects,
     now: endOfWeek,
+    timeZone: "UTC",
   });
 
   const bookedByItem: Record<string, number> = {};
@@ -342,7 +345,7 @@ for (const [index, weekStart] of weeks.entries()) {
     bookedByItem,
     courseIds: seed.courses.map((c) => c.id),
     now: endOfWeek,
-    defaultEffortMinutes: DEFAULT_EFFORT_MINUTES,
+    timeZone: "UTC",
   });
 
   // The review reads the weeks behind it, so it is run here — at the end of each week, with

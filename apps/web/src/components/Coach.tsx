@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import type { CoachActionView, CoachMessageView, CoachReplyResponse } from "../lib/types";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * Coach chat (docs/02-prd.md FR-15).
@@ -41,13 +41,12 @@ const GUIDE_CREED =
 
 export function Coach({
   termId,
-  theme,
   onPlanChanged,
 }: {
   termId: string;
-  theme: ThemeName;
   onPlanChanged: () => void;
 }) {
+  const theme = useTheme();
   const [messages, setMessages] = useState<CoachMessageView[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);

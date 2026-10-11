@@ -258,3 +258,17 @@ export function zoneCalendar(timeZone: string | null | undefined): ZoneCalendar 
   calendars.set(timeZone, calendar);
   return calendar;
 }
+
+/**
+ * Whole calendar days from the student's date at `from` to their date at `to`. 0 is the same
+ * day; negative means `to` falls on an earlier date.
+ *
+ * Calendar days, not a floor of the raw difference: something due at nine tomorrow morning is
+ * one day away even at eleven tonight, and something due at eight this morning is still today
+ * at three this afternoon. Read in the student's zone, because "tomorrow" is theirs.
+ */
+export function calendarDaysBetween(calendar: ZoneCalendar, from: number, to: number): number {
+  const fromDay = dateToEpochMinutes(calendar.dateOf(from));
+  const toDay = dateToEpochMinutes(calendar.dateOf(to));
+  return Math.round((toDay - fromDay) / MINUTES_PER_DAY);
+}

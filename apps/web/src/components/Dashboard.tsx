@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Course, GradeResult, PassFail, ThemeName, WorkItem } from "@schoolquest/domain";
+import type { Course, GradeResult, PassFail, WorkItem } from "@schoolquest/domain";
 import { explainHealth, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { courseChipFill, courseInitials } from "../lib/course-colour";
@@ -7,6 +7,7 @@ import { noPercentReading, parseScoreEntry, workAwaitingResult } from "../lib/re
 import { PassFailButtons, recordPassFail } from "./PassFailButtons";
 import type { CourseHealthView, TermHealthView } from "../lib/types";
 import { appNow } from "../lib/clock";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * Which class needs me?
@@ -92,7 +93,6 @@ export function Dashboard({
   courses,
   workItems,
   grades,
-  theme,
   onChanged,
 }: {
   health: TermHealthView;
@@ -100,9 +100,9 @@ export function Dashboard({
   workItems: WorkItem[];
   /** Results already recorded, so the record-results list never offers to overwrite one. */
   grades: GradeResult[];
-  theme: ThemeName;
   onChanged: () => void;
 }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
   const gradedIds = new Set(grades.map((g) => g.workItemId));
@@ -143,7 +143,6 @@ export function Dashboard({
           workItems={workItems}
           gradedIds={gradedIds}
           quest={quest}
-          theme={theme}
           onChanged={onChanged}
         />
       ))}
@@ -157,7 +156,6 @@ function CourseRow({
   workItems,
   gradedIds,
   quest,
-  theme,
   onChanged,
 }: {
   row: CourseHealthView;
@@ -165,9 +163,9 @@ function CourseRow({
   workItems: WorkItem[];
   gradedIds: ReadonlySet<string>;
   quest: boolean;
-  theme: ThemeName;
   onChanged: () => void;
 }) {
+  const theme = useTheme();
   const [open, setOpen] = useState(false);
   const verdict = explainHealth(row.level, theme);
   // A filled chip with white letters on it, so it needs the fill that is safe for them.

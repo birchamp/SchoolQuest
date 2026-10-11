@@ -81,9 +81,6 @@ importers:
       '@tauri-apps/api':
         specifier: ^2.1.1
         version: 2.11.1
-      '@tauri-apps/plugin-dialog':
-        specifier: ^2.2.0
-        version: 2.7.2
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2.1.0
@@ -174,18 +171,22 @@ importers:
       '@schoolquest/domain':
         specifier: workspace:*
         version: link:../domain
-      '@schoolquest/fixtures':
-        specifier: workspace:*
-        version: link:../fixtures
       zod:
         specifier: ^3.24.1
         version: 3.25.76
+    devDependencies:
+      '@schoolquest/fixtures':
+        specifier: workspace:*
+        version: link:../fixtures
 
   packages/theme-language:
     dependencies:
       '@schoolquest/domain':
         specifier: workspace:*
         version: link:../domain
+      '@schoolquest/planning-engine':
+        specifier: workspace:*
+        version: link:../planning-engine
 
 packages:
 
@@ -2109,9 +2110,6 @@ packages:
     resolution: {integrity: sha512-R8xGtMpwyetawSqm9kYOuMmEqkhUbvcUy8n0aNXIxollKBLESUu5f4Fx+64hgASYm1H+jSWq6jCW6zqTnH6hqQ==}
     engines: {node: '>= 10'}
     hasBin: true
-
-  '@tauri-apps/plugin-dialog@2.7.2':
-    resolution: {integrity: sha512-pX0IGm1I3I6wc+zeKYcq1GSqogK6okCNX5fOdaNU5ab1AjGS6l1E5wFNjEb7meg7ZFSp0JUs+0jQGQNyOvLrsg==}
 
   '@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1':
     resolution: {integrity: sha512-/67zpWDBLV+oYAEL682s1ktXL0HgqX76f6gaVGkGnVZlBbm1zd0v4Bz8MFF2GGhoX9rvfq3KSQHubFHwa6w6/Q==}
@@ -5402,10 +5400,6 @@ snapshots:
       '@tauri-apps/cli-win32-arm64-msvc': 2.11.4
       '@tauri-apps/cli-win32-ia32-msvc': 2.11.4
       '@tauri-apps/cli-win32-x64-msvc': 2.11.4
-
-  '@tauri-apps/plugin-dialog@2.7.2':
-    dependencies:
-      '@tauri-apps/api': 2.11.1
 
   '@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1':
     dependencies:

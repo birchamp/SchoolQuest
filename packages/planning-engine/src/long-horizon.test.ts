@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { toEpochMinutes, type WorkItem, type WorkStatus, type WorkType } from "@schoolquest/domain";
 import { generatePlan } from "./scheduler.js";
 import { scoreWorkItems } from "./priority.js";
-import { seedPlanningInput, SEED_NOW } from "./seed-input.js";
+import { seedPlanningInput, SEED_NOW } from "./testing/seed-input.js";
 import type { PlanningInput } from "./types.js";
 
 /**
@@ -389,6 +389,58 @@ describe("how early short work may start", () => {
       "plan_lh_floor",
     );
     expect(plan.sessions.length).toBeGreaterThan(0);
+  });
+
+  it("does not hold a successor to its predecessor's runway once that floor is lifted", () => {
+    // Issue #27. When nothing is ripe the second pass lifts every item's runway floor, but the
+    // first pass had already written each predecessor's floor into its successors' dependency
+    // floors. Ten days before day 20 is day 10, past the end of the week, so a successor that
+    // kept that floor could never be booked — even after its predecessor was, early in the week.
+    const outline = item({
+      id: "wi_outline",
+      title: "Outline",
+      workType: "problem_set",
+      dueAt: inDays(20),
+      estimatedMinutes: 60,
+      remainingMinutes: 60,
+    });
+    const draft = item({
+      id: "wi_draft",
+      title: "Draft",
+      workType: "problem_set",
+      dueAt: inDays(25),
+      estimatedMinutes: 60,
+      remainingMinutes: 60,
+    });
+    const base = seedPlanningInput();
+    const plan = generatePlan(
+      {
+        ...base,
+        workItems: [outline, draft],
+        dependencies: [
+          {
+            id: "dep_outline_draft",
+            predecessorWorkItemId: outline.id,
+            successorWorkItemId: draft.id,
+            dependencyType: "finish_to_start",
+          },
+        ],
+        existingSessions: [],
+      },
+      "plan_lh_floor_dependency",
+    );
+
+    const outlineEnds = plan.sessions
+      .filter((s) => s.workItemId === outline.id)
+      .map((s) => toEpochMinutes(s.endAt));
+    const draftStarts = plan.sessions
+      .filter((s) => s.workItemId === draft.id)
+      .map((s) => toEpochMinutes(s.startAt));
+    expect(outlineEnds.length).toBeGreaterThan(0);
+    expect(draftStarts.length).toBeGreaterThan(0);
+    // The ordering still holds; only the stale floor goes.
+    expect(Math.min(...draftStarts)).toBeGreaterThanOrEqual(Math.max(...outlineEnds));
+    expect(plan.unscheduledWorkItemIds).toEqual([]);
   });
 
   it("picks work up again once its date has gone, rather than abandoning it", () => {

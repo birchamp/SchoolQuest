@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@schoolquest/domain": "workspace:*"
+    "@schoolquest/domain": "workspace:*",
+    "@schoolquest/planning-engine": "workspace:*"
   }
 }

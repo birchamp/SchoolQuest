@@ -47,7 +47,10 @@ loads" — so `scripts/build-config.mjs` derives the CSP from the same URL and t
 it to `tauri build --config`. A custom API domain now needs no config edit.
 
 The committed CSP keeps `http://127.0.0.1:8787`, `http://localhost:8787` and
-`https://*.workers.dev` because `pnpm tauri dev` talks to `wrangler dev` on 8787.
+`https://*.workers.dev` because `pnpm tauri dev` talks to `wrangler dev` on 8787. A release
+does not inherit them: the overlay replaces `connect-src` with `'self'` plus the one API origin
+the build was made for, so an installed app cannot reach a local port or an arbitrary Worker on
+the shared `workers.dev` domain.
 
 ### Releasing a version
 

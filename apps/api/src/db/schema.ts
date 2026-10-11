@@ -1,4 +1,4 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * D1 (SQLite) schema. Mirrors docs/05-data-model-and-api.md §2.
@@ -68,6 +68,23 @@ export const loginTokens = sqliteTable(
     createdAt: text("created_at").notNull(),
   },
   (t) => [uniqueIndex("login_tokens_token_hash_idx").on(t.tokenHash)],
+);
+
+/**
+ * Fixed-window request counters for the rate limiter (`apps/api/src/rate-limit.ts`).
+ *
+ * One row per bucket per window. `bucketKey` is the rule name plus a hash of the subject (an
+ * email, an IP, a user id) — never the raw value, so the table does not become a log of who
+ * tried to sign in from where. `windowStart` is epoch milliseconds, floored to the window.
+ */
+export const rateLimits = sqliteTable(
+  "rate_limits",
+  {
+    bucketKey: text("bucket_key").notNull(),
+    windowStart: integer("window_start").notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.bucketKey, t.windowStart] })],
 );
 
 export const terms = sqliteTable(
@@ -191,6 +208,16 @@ export const workItems = sqliteTable(
     courseId: text("course_id")
       .notNull()
       .references(() => courses.id, { onDelete: "cascade" }),
+    /**
+     * No foreign key here or on `gradingCategoryId`, deliberately (issue #24). SQLite adds one
+     * only by rebuilding the table, and on D1 -- which enforces foreign keys and ignores
+     * `PRAGMA foreign_keys = OFF` inside a migration -- dropping `work_items` deletes every row
+     * through the `on delete cascade` of `work_sessions` and `grade_results`: the rebuild would
+     * erase every block and grade. `gradingCategoryId` also dangles in ordinary use, since saving
+     * a grading scheme replaces the course's categories with new ids, so the copy into the rebuilt
+     * table would fail on live data even if the cascade did not fire. `deleteWorkItems` removes
+     * a project's stages with it instead.
+     */
     parentWorkItemId: text("parent_work_item_id"),
     title: text("title").notNull(),
     description: text("description"),
@@ -220,8 +247,12 @@ export const dependencies = sqliteTable(
   "dependencies",
   {
     id: text("id").primaryKey(),
-    predecessorWorkItemId: text("predecessor_work_item_id").notNull(),
-    successorWorkItemId: text("successor_work_item_id").notNull(),
+    predecessorWorkItemId: text("predecessor_work_item_id")
+      .notNull()
+      .references(() => workItems.id, { onDelete: "cascade" }),
+    successorWorkItemId: text("successor_work_item_id")
+      .notNull()
+      .references(() => workItems.id, { onDelete: "cascade" }),
     dependencyType: text("dependency_type").notNull().default("finish_to_start"),
   },
   (t) => [index("dependencies_successor_idx").on(t.successorWorkItemId)],
@@ -245,7 +276,9 @@ export const planVersions = sqliteTable(
     /** The student's zone when the plan was made; null before migration 0009. */
     timeZone: text("time_zone"),
   },
-  (t) => [index("plan_versions_term_idx").on(t.termId, t.versionNumber)],
+  // Unique: two replans racing for one term both read the same latest number, and the second to
+  // commit must fail rather than leave two "version 7"s (issue #19). The generate route retries.
+  (t) => [uniqueIndex("plan_versions_term_idx").on(t.termId, t.versionNumber)],
 );
 
 export const workSessions = sqliteTable(
@@ -255,7 +288,9 @@ export const workSessions = sqliteTable(
     workItemId: text("work_item_id")
       .notNull()
       .references(() => workItems.id, { onDelete: "cascade" }),
-    planVersionId: text("plan_version_id").notNull(),
+    planVersionId: text("plan_version_id")
+      .notNull()
+      .references(() => planVersions.id, { onDelete: "cascade" }),
     startAt: text("start_at").notNull(),
     endAt: text("end_at").notNull(),
     status: text("status").notNull().default("planned"),

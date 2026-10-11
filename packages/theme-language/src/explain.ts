@@ -1,4 +1,5 @@
 import type { ThemeName } from "@schoolquest/domain";
+import type { ReasonCode, RiskCode, TradeoffCode } from "@schoolquest/planning-engine";
 
 /**
  * Reason codes → human sentences.
@@ -7,7 +8,9 @@ import type { ThemeName } from "@schoolquest/domain";
  * planner actually emitted, and this table is the ground truth it paraphrases from
  * (docs/06-ai-system-spec.md §11).
  */
-const REASON_TEXT: Record<string, Record<ThemeName, string>> = {
+// Keyed by the engine's own unions, so a code the planner can emit without wording here is a
+// compile error rather than a lowercased code on screen.
+const REASON_TEXT: Record<ReasonCode, Record<ThemeName, string>> = {
   DEADLINE_IMMINENT: {
     quest: "the deadline is close",
     mission: "the deadline is close",
@@ -90,7 +93,7 @@ const REASON_TEXT: Record<string, Record<ThemeName, string>> = {
   },
 };
 
-const TRADEOFF_TEXT: Record<string, string> = {
+const TRADEOFF_TEXT: Record<TradeoffCode, string> = {
   READING_MOVED_TO_LOW_ENERGY_WINDOW: "Your reading moved to a lower-energy window.",
   LOWER_VALUE_WORK_DEFERRED: "Lower-value work moved later in the week.",
   SESSION_SHORTENED: "This session is shorter than the ideal length.",
@@ -98,7 +101,7 @@ const TRADEOFF_TEXT: Record<string, string> = {
   DAILY_LIMIT_REACHED: "This session was trimmed to stay under your daily limit.",
 };
 
-const RISK_TEXT: Record<string, string> = {
+const RISK_TEXT: Record<RiskCode, string> = {
   INSUFFICIENT_CAPACITY: "There is not enough time this week to finish everything.",
   PREREQUISITE_LATE: "A prerequisite step is running late.",
   NO_FEASIBLE_WINDOW: "No available window fits this before it is due.",
@@ -114,17 +117,30 @@ const RISK_TEXT: Record<string, string> = {
   PACED_TO_DEADLINE: "Being worked through steadily rather than crammed in at the end.",
 };
 
-export function explainReason(code: string, theme: ThemeName = "plain"): string {
-  return REASON_TEXT[code]?.[theme] ?? code.toLowerCase().replace(/_/g, " ");
+/**
+ * The parameters take the engine's unions; the lookups still tolerate a code outside them,
+ * because a plan stored before a code was renamed is read back as whatever it held. Such a code
+ * is shown humanised rather than hidden.
+ */
+function lookup<K extends string, V>(table: Record<K, V>, code: string): V | undefined {
+  return Object.hasOwn(table, code) ? table[code as K] : undefined;
 }
 
-export function explainTradeoff(code: string | null): string | null {
+function humanise(code: string): string {
+  return code.toLowerCase().replace(/_/g, " ");
+}
+
+export function explainReason(code: ReasonCode, theme: ThemeName = "plain"): string {
+  return lookup(REASON_TEXT, code)?.[theme] ?? humanise(code);
+}
+
+export function explainTradeoff(code: TradeoffCode | null): string | null {
   if (!code) return null;
-  return TRADEOFF_TEXT[code] ?? null;
+  return lookup(TRADEOFF_TEXT, code) ?? null;
 }
 
-export function explainRisk(code: string): string {
-  return RISK_TEXT[code] ?? code.toLowerCase().replace(/_/g, " ");
+export function explainRisk(code: RiskCode): string {
+  return lookup(RISK_TEXT, code) ?? humanise(code);
 }
 
 /**
@@ -133,7 +149,7 @@ export function explainRisk(code: string): string {
  */
 export function explainRecommendation(
   title: string,
-  reasonCodes: string[],
+  reasonCodes: readonly ReasonCode[],
   theme: ThemeName = "plain",
 ): string {
   const reasons = reasonCodes.slice(0, 3).map((code) => explainReason(code, theme));

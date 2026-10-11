@@ -27,8 +27,8 @@ jobs:
   build:
     runs-on: windows-latest
 
-    # Lifted to the job so the signing steps can be skipped with `if: env.… != ''`. A step's own
-    # `env:` is not readable by its own `if:`, and the certificate is deliberately optional —
+    # Lifted to the job so the signing steps can be skipped with `if: env.X != ''`. A step's own
+    # `env:` is not readable by its own `if:`, and the certificate is deliberately optional --
     # the repository has to build without one until a certificate is actually bought.
     env:
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -73,18 +73,31 @@ jobs:
           pnpm test
 
       # A tag push carries no workflow inputs, so a release built on the input alone would ship
-      # with no API origin at all — an installer that starts, looks fine, and fails every
+      # with no API origin at all -- an installer that starts, looks fine, and fails every
       # request. The repository variable is what makes the tagged path work unattended.
+      #
+      # Both values reach the script through `env:`, never as an expression inside `run:`. Expressions
+      # are pasted into the script text before bash parses it, so an apiUrl containing `"` or
+      # `$(...)` would run as shell on a runner that holds the signing secrets. As an environment
+      # variable it is only ever data.
       - name: Resolve the API origin
         id: api
         shell: bash
+        env:
+          INPUT_API_URL: ${{ github.event.inputs.apiUrl }}
+          REPO_API_URL: ${{ vars.SCHOOLQUEST_API_URL }}
         run: |
-          url="${{ github.event.inputs.apiUrl }}"
-          [ -n "$url" ] || url="${{ vars.SCHOOLQUEST_API_URL }}"
+          url="$INPUT_API_URL"
+          [ -n "$url" ] || url="$REPO_API_URL"
           if [ -z "$url" ]; then
             echo "::error::No API origin. Set the SCHOOLQUEST_API_URL repository variable, or"\
                  " pass apiUrl when running this workflow by hand. A packaged build loads from"\
                  " tauri://localhost, so a blank value means every request goes nowhere."
+            exit 1
+          fi
+          # Written to GITHUB_OUTPUT below, where a newline would start a second output.
+          if ! [[ "$url" =~ ^https?://[^[:space:]]+$ ]]; then
+            echo "::error::API origin must be a single http(s) URL with no whitespace."
             exit 1
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
@@ -100,7 +113,7 @@ jobs:
         run: node tools/version.mjs check "${GITHUB_REF_NAME}"
 
       # Unsigned, Windows SmartScreen shows "Windows protected your PC" and hides the Run button
-      # behind "More info" — for a student that is where the install ends. Signing is therefore
+      # behind "More info" -- for a student that is where the install ends. Signing is therefore
       # the single highest-value thing here, and also the one thing that cannot be done without
       # buying something, so it is wired up and inert: with no WINDOWS_CERTIFICATE secret the
       # build is exactly the unsigned build it was before.
@@ -134,7 +147,7 @@ jobs:
           args=(--api-url "$VITE_API_URL")
           # Empty when no certificate was imported, which leaves the overlay free of signing keys
           # rather than passing an empty thumbprint the bundler would fail on. Spelled as an `if`
-          # rather than `[ … ] && …` because the short form's exit status is the shell's under
+          # rather than `[ ... ] && ...` because the short form's exit status is the shell's under
           # `set -e`, and whether that ends the step depends on the bash version on the runner.
           if [ -n "$THUMBPRINT" ]; then
             args+=(--thumbprint "$THUMBPRINT")
@@ -143,12 +156,14 @@ jobs:
           echo "Config overlay: $overlay"
           pnpm tauri build --config "$overlay"
 
-      # The certificate outlives the job otherwise only in theory — runners are ephemeral — but
+      # The certificate outlives the job otherwise only in theory -- runners are ephemeral -- but
       # `always()` keeps a failed build from being the reason a private key sits in a store.
       - name: Remove the certificate
         if: always() && steps.cert.outputs.thumbprint != ''
         shell: pwsh
-        run: Remove-Item -Path "Cert:\CurrentUser\My\${{ steps.cert.outputs.thumbprint }}" -DeleteKey -Force
+        env:
+          THUMBPRINT: ${{ steps.cert.outputs.thumbprint }}
+        run: Remove-Item -Path "Cert:\CurrentUser\My\$env:THUMBPRINT" -DeleteKey -Force
 
       - name: Collect the installers
         uses: actions/upload-artifact@v4
@@ -162,7 +177,7 @@ jobs:
       # Only on a tag: a manual run is for trying a build, not for publishing one.
       #
       # The release page is the first thing a student sees, and by default it is a list of two
-      # files with no indication which one they want — an .msi that asks for an administrator
+      # files with no indication which one they want -- an .msi that asks for an administrator
       # password most students do not have, next to the .exe that does not. The body says which,
       # in the two sentences someone reads before clicking.
       - name: Attach to the release
@@ -174,7 +189,7 @@ jobs:
             It installs for you only and never asks for an administrator password.
 
             Windows may say *"Windows protected your PC"*. Click **More info**, then
-            **Run anyway** — that warning is about the installer not being signed yet, not about
+            **Run anyway** -- that warning is about the installer not being signed yet, not about
             anything being wrong with it.
 
             Full instructions, including how to sign in and how to uninstall:

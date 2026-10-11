@@ -2,35 +2,20 @@ import { Hono } from "hono";
 import { and, eq, gte, inArray, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { addDays, fromEpochMinutes, newId, outcomeCode, zoneCalendar } from "@schoolquest/domain";
-import { auditEvents, commitments, courses, meetingPatterns, terms, workItems, workSessions } from "../db/schema.js";
-import { getDb, type Db } from "../db/repo.js";
+import { auditEvents, commitments, courses, meetingPatterns, workItems, workSessions } from "../db/schema.js";
+import { getDb } from "../db/repo.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
 import { findMoveConflict } from "../db/move-check.js";
 import { remainingAfterOutcome } from "../db/remaining-effort.js";
 import { isOpenOnDay } from "../db/lost-day.js";
 import { assertTermOwner } from "../db/repo.js";
+import { loadOwnedSession } from "../db/ownership.js";
 import type { AppBindings } from "../env.js";
 
 export const sessionsRoute = new Hono<AppBindings>();
 
-/**
- * Loads a session only if it belongs to this user, walking
- * session -> work item -> course -> term -> user in a single join.
- *
- * Every mutating route below goes through this. Without it, a session id from another
- * account would be editable by anyone who guessed it.
- */
-async function loadOwnedSession(db: Db, sessionId: string, userId: string) {
-  const [row] = await db
-    .select({ session: workSessions, item: workItems, term: terms })
-    .from(workSessions)
-    .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
-    .innerJoin(courses, eq(courses.id, workItems.courseId))
-    .innerJoin(terms, eq(terms.id, courses.termId))
-    .where(and(eq(workSessions.id, sessionId), eq(terms.userId, userId)));
-
-  return row ?? null;
-}
+// Every mutating route below loads its session through `loadOwnedSession` (db/ownership.ts).
+// Without it, a session id from another account would be editable by anyone who guessed it.
 
 const completeBody = z.object({
   outcome: outcomeCode,
@@ -227,13 +212,17 @@ sessionsRoute.post("/work-sessions/:id/move", async (c) => {
   return c.json({ session: updated[0] });
 });
 
+const lockBody = z.object({ locked: z.boolean().optional() });
+
 sessionsRoute.post("/work-sessions/:id/lock", async (c) => {
   const db = getDb(c.env.DB);
   if (!(await loadOwnedSession(db, c.req.param("id"), c.get("userId")))) {
     return c.json({ error: "Session not found" }, 404);
   }
-  const body = (await c.req.json().catch(() => ({}))) as { locked?: boolean };
-  const locked = body.locked !== false;
+  // An empty body still means "lock it"; anything sent has to be the right shape.
+  const parsed = lockBody.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  const locked = parsed.data.locked !== false;
 
   const updated = await db
     .update(workSessions)

@@ -1,6 +1,13 @@
-import type { WorkItem } from "@schoolquest/domain";
-import { toEpochMinutes } from "@schoolquest/domain";
-import { DEFAULT_EFFORT_MINUTES } from "./scheduler.js";
+import type { WorkItem, ZoneCalendar } from "@schoolquest/domain";
+import { toEpochMinutes, zoneCalendar } from "@schoolquest/domain";
+import {
+  daysLeftForPacing,
+  daysUntil,
+  isFinished,
+  isPastDue,
+  remainingEffortMinutes,
+  totalEffort,
+} from "./work-item.js";
 
 /**
  * Progress on the big things.
@@ -50,7 +57,10 @@ export interface ProjectProgress {
   workType: string;
   dueAt: string | null;
   dueConfirmed: boolean;
-  /** Whole days until due; negative is past due. Null when no date is known. */
+  /**
+   * Whole calendar days until due (`daysUntil`): 0 is today, negative is past due. Null when
+   * no date is known.
+   */
   daysAway: number | null;
 
   /** Effort the whole thing takes. */
@@ -116,6 +126,8 @@ export interface ProjectProgressInput {
   /** Sessions still ahead: planned or started, again term-wide. */
   booked: readonly BookedBlock[];
   now: string;
+  /** The student's zone: what "today" is when counting days until due. */
+  timeZone: string;
 }
 
 /**
@@ -154,6 +166,7 @@ export function computeProjectProgress(input: ProjectProgressInput): ProjectProg
     .map((item) =>
       row(item, {
         nowMinutes,
+        calendar: zoneCalendar(input.timeZone),
         investedByItem,
         bookedByItem,
         childrenByParent,
@@ -176,30 +189,18 @@ export function computeProjectProgress(input: ProjectProgressInput): ProjectProg
 function isProject(item: WorkItem, childrenByParent: Map<string, WorkItem[]>): boolean {
   if (item.status === "canceled") return false;
   if (childrenByParent.has(item.id)) return true;
-  return effortOf(item).minutes >= PROJECT_MINUTES;
-}
-
-/**
- * Total effort for an item, from the best source available.
- *
- * Mirrors the scheduler's own fallback deliberately: if the plan books 240 minutes for a
- * paper because that is the default, every other screen must measure against the same 240 or
- * they will quietly disagree about the same project. Exported for exactly that reason — a
- * second copy of this rule immediately drifted, and the course table reported zero projects
- * for a term the Chronicle showed seven in.
- */
-export function effortOf(item: WorkItem): { minutes: number; assumed: boolean } {
-  if (item.estimatedMinutes !== null) return { minutes: item.estimatedMinutes, assumed: false };
-  if (item.remainingMinutes !== null && item.remainingMinutes > 0) {
-    return { minutes: item.remainingMinutes, assumed: false };
-  }
-  return { minutes: DEFAULT_EFFORT_MINUTES[item.workType] ?? 60, assumed: true };
+  // Total effort, from the shared rule: the plan books the type default for an unestimated
+  // paper, so every screen must size the same project with the same number. A second copy of
+  // this rule once drifted, and the course table reported zero projects for a term the
+  // Chronicle showed seven in.
+  return totalEffort(item).minutes >= PROJECT_MINUTES;
 }
 
 function row(
   item: WorkItem,
   ctx: {
     nowMinutes: number;
+    calendar: ZoneCalendar;
     investedByItem: Map<string, { minutes: number; lastEnd: number }>;
     bookedByItem: Map<string, number>;
     childrenByParent: Map<string, WorkItem[]>;
@@ -212,35 +213,31 @@ function row(
     .map((child) => ({
       workItemId: child.id,
       title: child.title,
-      done: child.status === "completed" || child.status === "submitted",
+      done: isFinished(child),
       dueAt: child.dueAt,
     }));
 
   // A parent's own effort figures are usually unset once it has stages; roll the children
   // up rather than reporting zero for a project that is plainly under way.
   const children = ctx.childrenByParent.get(item.id) ?? [];
-  const ownEffort = effortOf(item);
-  const finishedByStatus = item.status === "completed" || item.status === "submitted";
+  const ownEffort = totalEffort(item);
+  const finishedByStatus = isFinished(item);
 
   const estimatedMinutes =
     children.length > 0
-      ? children.reduce((sum, c) => sum + effortOf(c).minutes, 0)
+      ? children.reduce((sum, c) => sum + totalEffort(c).minutes, 0)
       : ownEffort.minutes;
   const remainingMinutes =
     children.length > 0
       ? children.reduce(
-          (sum, c) =>
-            sum +
-            (c.status === "completed" || c.status === "submitted"
-              ? 0
-              : (c.remainingMinutes ?? effortOf(c).minutes)),
+          (sum, c) => sum + (isFinished(c) ? 0 : remainingEffortMinutes(c)),
           0,
         )
       : finishedByStatus
         ? 0
-        : (item.remainingMinutes ?? ownEffort.minutes);
+        : remainingEffortMinutes(item);
   const effortIsAssumed =
-    children.length > 0 ? children.some((c) => effortOf(c).assumed) : ownEffort.assumed;
+    children.length > 0 ? children.some((c) => totalEffort(c).assumed) : ownEffort.assumed;
 
   const invested = ctx.investedByItem.get(item.id);
   const investedFromStages = children.reduce(
@@ -262,9 +259,13 @@ function row(
       ? Math.floor((ctx.nowMinutes - Math.max(...lastEnds)) / (24 * 60))
       : null;
 
-  const daysAway = item.dueAt
-    ? Math.floor((toEpochMinutes(item.dueAt) - ctx.nowMinutes) / (24 * 60))
-    : null;
+  // Calendar days label the row; the instant decides whether it is past due; elapsed time
+  // paces it. Three questions, three answers -- one rule each, shared with every other view.
+  const daysAway = item.dueAt ? daysUntil(item.dueAt, ctx.nowMinutes, ctx.calendar) : null;
+  const pastDue = item.dueAt !== null && isPastDue(item.dueAt, ctx.nowMinutes);
+  const daysLeft =
+    item.dueAt === null ? null : pastDue ? 0 : daysLeftForPacing(item.dueAt, ctx.nowMinutes);
+  const neededPerWeekMinutes = neededPerWeek(remainingMinutes, daysLeft);
 
   // By effort, and only when there is effort to divide by. Falling back to a stage count
   // when stages exist is more honest than dividing by an estimate nobody gave.
@@ -291,27 +292,32 @@ function row(
     investedMinutes,
     completionFraction,
     bookedMinutes,
-    neededPerWeekMinutes: neededPerWeek(remainingMinutes, daysAway),
+    neededPerWeekMinutes,
     daysSinceProgress,
     health: health({
       finished,
       remainingMinutes,
       investedMinutes,
       daysSinceProgress,
-      daysAway,
-      neededPerWeekMinutes: neededPerWeek(remainingMinutes, daysAway),
+      dated: item.dueAt !== null,
+      pastDue,
+      neededPerWeekMinutes,
       weeklyCapacityMinutes: ctx.weeklyCapacityMinutes,
     }),
     stages,
   };
 }
 
-/** Minutes per week needed to land the remaining effort on time. */
-function neededPerWeek(remainingMinutes: number, daysAway: number | null): number | null {
-  if (daysAway === null) return null;
-  // Past due, or due within the day: all of it is needed now, not spread over anything.
-  if (daysAway <= 0) return remainingMinutes;
-  return Math.round(remainingMinutes / (daysAway / 7));
+/**
+ * Minutes per week needed to land the remaining effort on time, from the fractional days left
+ * (`daysLeftForPacing`). Ten hours before a deadline is ten hours, not a day, so the rate is
+ * not understated overnight.
+ */
+function neededPerWeek(remainingMinutes: number, daysLeft: number | null): number | null {
+  if (daysLeft === null) return null;
+  // Past due: all of it is needed now, not spread over anything.
+  if (daysLeft <= 0) return remainingMinutes;
+  return Math.round(remainingMinutes / (daysLeft / 7));
 }
 
 /**
@@ -333,7 +339,8 @@ function health(v: {
   remainingMinutes: number;
   investedMinutes: number;
   daysSinceProgress: number | null;
-  daysAway: number | null;
+  dated: boolean;
+  pastDue: boolean;
   neededPerWeekMinutes: number | null;
   weeklyCapacityMinutes: number;
 }): ProjectHealth {
@@ -342,10 +349,11 @@ function health(v: {
   // A passed deadline outranks every other reading. Saying only "not started" about work
   // that was due eight months ago understates it, and in this app the most common cause is a
   // date inferred from a syllabus for an older term — so the first move is to check the date.
-  if (v.daysAway !== null && v.daysAway < 0) return "past_due";
+  // The instant, not the date: a project due at nine this morning is past due this afternoon.
+  if (v.pastDue) return "past_due";
 
   const capacity = v.weeklyCapacityMinutes;
-  if (v.daysAway !== null && capacity > 0 && v.neededPerWeekMinutes !== null) {
+  if (v.dated && capacity > 0 && v.neededPerWeekMinutes !== null) {
     // Will not fit even if every study minute went to this one thing. Arithmetic, so it can
     // be stated plainly without hedging.
     if (v.neededPerWeekMinutes > capacity) return "will_not_fit";

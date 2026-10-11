@@ -1,4 +1,5 @@
 import type { Course, GradingCategory, WorkItem } from "@schoolquest/domain";
+import { isUnfinished } from "./work-item.js";
 
 /**
  * Everything the app does not know about this term, gathered into one place per course, with
@@ -128,8 +129,6 @@ export interface OpenQuestionsInput {
   policies?: PendingPolicy[];
 }
 
-/** Terminal states: nothing about finished or abandoned work is worth an email. */
-const CLOSED = new Set(["completed", "submitted", "canceled"]);
 
 /** Ordered by what it costs the student, which is the order the questions are asked in. */
 const KIND_ORDER: OpenQuestionKind[] = [
@@ -144,7 +143,9 @@ export function buildOpenQuestions(input: OpenQuestionsInput): OpenQuestionsResu
   const byCourse = new Map<string, OpenQuestion[]>();
   const add = (q: OpenQuestion) => byCourse.set(q.courseId, [...(byCourse.get(q.courseId) ?? []), q]);
 
-  const open = input.workItems.filter((w) => !CLOSED.has(w.status));
+  // Unfinished, optional work included: nothing about finished or abandoned work is worth an
+  // email, but an undated optional item is still a fair question.
+  const open = input.workItems.filter(isUnfinished);
 
   // --- Work with no date anywhere. Grouped per course: five undated readings is one question.
   const undatedByCourse = new Map<string, WorkItem[]>();

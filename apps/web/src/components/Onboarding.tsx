@@ -3,6 +3,7 @@ import { ArchivedTerms } from "./ArchivedTerms";
 import type { ThemeName } from "@schoolquest/domain";
 import { api } from "../lib/api";
 import { DayPicker, TimeRange } from "./DayPicker";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * First-run setup: pick a voice for the app, then a term, then the study windows the
@@ -644,14 +645,13 @@ function StepMark({ step }: { step: 1 | 2 }) {
 export function Onboarding({
   onDone,
   onSignOut,
-  theme,
   onThemeChange,
 }: {
   onDone: () => void;
   onSignOut: () => void;
-  theme?: ThemeName;
   onThemeChange?: (t: ThemeName) => void;
 }) {
+  const theme = useTheme();
   const [step, setStep] = useState<"theme" | "term" | "availability">("theme");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { useBodyTheme } from "../lib/use-body-theme";
+import { useTheme } from "../lib/theme-context";
 import type { Term } from "../lib/types";
 import { formatCalendarDate } from "../lib/clock";
 
@@ -19,7 +19,7 @@ function range(startDate: string, endDate: string): string {
 }
 
 export function ArchivedTerms({ onReopened }: { onReopened: () => void | Promise<void> }) {
-  const quest = useBodyTheme() === "quest";
+  const quest = useTheme() === "quest";
   const [archived, setArchived] = useState<Term[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Course, ThemeName } from "@schoolquest/domain";
+import type { Course } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { extractDocxText } from "../lib/docx-text";
 import { extractPdfText, type DocumentPage } from "../lib/pdf-text";
 import type { ExtractionResponse } from "../lib/extraction-types";
 import { ExtractionReview } from "./ExtractionReview";
-import { useBodyTheme } from "../lib/use-body-theme";
+import { useTheme } from "../lib/theme-context";
+import { Themed } from "./Themed";
 
 /**
  * Syllabus upload and extraction.
@@ -62,17 +63,6 @@ function statusWord(status: string): string {
 }
 
 
-/** Themed wording on screen, plain wording for assistive technology. */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
-}
-
 const Q = {
   gold: "#c9a227",
   goldBright: "#e8c95a",
@@ -118,13 +108,10 @@ function SelectChevron({ dim }: { dim?: boolean }) {
 export function SyllabusUpload({
   courses,
   onPlanChanged,
-  theme: themeProp,
   hasCalendar = true,
 }: {
   courses: Course[];
   onPlanChanged: () => void;
-  /** Optional. Omitted by the current call site, which is why the theme is read off body. */
-  theme?: ThemeName;
   /**
    * Whether the term has a calendar yet.
    *
@@ -136,7 +123,7 @@ export function SyllabusUpload({
    */
   hasCalendar?: boolean;
 }) {
-  const theme = useBodyTheme(themeProp);
+  const theme = useTheme();
   const quest = theme === "quest";
   // "Questline" / "Course" / "Theater", and "Task" / "Assignment" — the wording lives in
   // @schoolquest/theme-language rather than in synonyms hard-coded here.

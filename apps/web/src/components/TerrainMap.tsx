@@ -1,16 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Course, ThemeName } from "@schoolquest/domain";
+import type { Course } from "@schoolquest/domain";
 import {
   buildTerrain,
-  DEFAULT_EFFORT_MINUTES,
   type BeaconState,
   type HeightField,
   type TerrainMarker,
 } from "@schoolquest/planning-engine";
 import { formatDueDay } from "../lib/due-time";
+import { terrainDueLine } from "../lib/due-label";
 import { courseChipFill } from "../lib/course-colour";
 import type { PlanResponse } from "../lib/types";
-import { appNow } from "../lib/clock";
+import { appNow, planTimeZone } from "../lib/clock";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * The next four weeks as a raised-relief model of the term.
@@ -247,28 +248,26 @@ function surfaceAt(field: HeightField, u: number, v: number): number {
   return Math.max(0, base * (1 + rough * 0.95) * groundOpacity(v));
 }
 
-function formatDue(iso: string | null, daysAway: number | null): string {
+function formatDue(marker: TerrainMarker): string {
+  const { dueAt: iso, daysAway } = marker;
   if (!iso || daysAway === null) return "no date known";
   // The stored calendar day, not the instant: rendering the instant in the browser's zone prints
-  // a different day here than the assignments table shows for the same deadline.
-  const when = formatDueDay(iso);
-  if (daysAway < 0) return `${when} · ${Math.abs(daysAway)}d ago`;
-  if (daysAway === 0) return `${when} · today`;
-  return `${when} · in ${daysAway}d`;
+  // a different day here than the assignments table shows for the same deadline. Whether it has
+  // passed is the beacon's state (the instant), never the date.
+  return terrainDueLine(formatDueDay(iso), { daysAway, pastDue: marker.state === "overdue" });
 }
 
 export function TerrainMap({
   plan,
-  theme,
   reducedMotion,
   hiddenCourseIds,
 }: {
   plan: PlanResponse;
-  theme: ThemeName;
   reducedMotion: boolean;
   /** Classes switched off at the tab level. See `LayerBar.tsx` for why off means gone *here*. */
   hiddenCourseIds?: ReadonlySet<string>;
 }) {
+  const theme = useTheme();
   const [focused, setFocused] = useState<TerrainMarker | null>(null);
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
 
@@ -294,7 +293,7 @@ export function TerrainMap({
     // toggle that moves the other layers is not a layer toggle.
     courseIds: plan.courses.map((c) => c.id),
     now: appNow(),
-    defaultEffortMinutes: DEFAULT_EFFORT_MINUTES,
+    timeZone: planTimeZone(),
   });
 
   /**
@@ -477,7 +476,7 @@ export function TerrainMap({
           <strong>{focused.title}</strong>{" "}
           <span className="muted">
             {coursesById.get(focused.courseId)?.code ?? coursesById.get(focused.courseId)?.name} ·{" "}
-            {formatDue(focused.dueAt, focused.daysAway)}
+            {formatDue(focused)}
           </span>
           <br />
           {focused.detail}
@@ -502,7 +501,7 @@ export function TerrainMap({
               />
               <strong>{m.title}</strong>{" "}
               <span className="muted">
-                {coursesById.get(m.courseId)?.code ?? ""} · {formatDue(m.dueAt, m.daysAway)}
+                {coursesById.get(m.courseId)?.code ?? ""} · {formatDue(m)}
               </span>
               <span className="muted" style={{ display: "block", fontSize: "0.84rem" }}>
                 {m.detail}

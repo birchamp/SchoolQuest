@@ -49,7 +49,14 @@ function progress(
   booked: { workItemId: string; minutes: number }[] = [],
   weeklyCapacityMinutes = WEEKLY_CAPACITY,
 ) {
-  return computeProjectProgress({ workItems, completed, booked, now: NOW, weeklyCapacityMinutes });
+  return computeProjectProgress({
+    workItems,
+    completed,
+    booked,
+    now: NOW,
+    timeZone: "UTC",
+    weeklyCapacityMinutes,
+  });
 }
 
 describe("what counts as a project", () => {

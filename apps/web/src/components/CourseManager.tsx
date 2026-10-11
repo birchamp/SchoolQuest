@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { type ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { CoursePaste } from "./CoursePaste";
 import { DayPicker, TimeRange } from "./DayPicker";
 import { courseTincture } from "../lib/course-colour";
-import { useBodyTheme } from "../lib/use-body-theme";
+import { initialsFor } from "../lib/format";
+import { Themed } from "./Themed";
+import { useTheme } from "../lib/theme-context";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -49,22 +50,6 @@ interface Snapshot {
   gradingCategories: SnapshotGrading[];
 }
 
-
-/**
- * Themed wording on screen, plain wording for assistive technology. Screen-reader output
- * must never depend on the visual theme (docs/02-prd.md §5 Accessibility), and inside a
- * control this is also what keeps the accessible name plain: the themed span is hidden
- * from the name computation, the plain one is not.
- */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
-}
 
 /** Quest palette, duplicated from the `--q-*` custom properties as literals (cf. Questline). */
 const Q = {
@@ -128,19 +113,6 @@ const SHIELD =
   "polygon(7% 0%, 93% 0%, 100% 7%, 100% 48%, 96% 66%, 86% 82%, 68% 94%, 50% 100%," +
   " 32% 94%, 14% 82%, 4% 66%, 0% 48%, 0% 7%)";
 
-/**
- * Sigil lettering, matched to the Week tab so the two screens agree. Digits are skipped
- * on purpose: "BIO 240" as a two-character mark reads as "B2", which looks like a typo.
- */
-function initialsFor(course: SnapshotCourse): string {
-  const source = course.code ?? course.name ?? course.id;
-  const words = source.match(/[A-Za-z]+/g) ?? [];
-  const first = words[0];
-  if (!first) return "?";
-  const second = words[1];
-  return (second ? first.slice(0, 1) + second.slice(0, 1) : first.slice(0, 3)).toUpperCase();
-}
-
 function CourseSigil({ course }: { course: SnapshotCourse }) {
   const tincture = courseTincture(course.id, course.colorToken, true);
   return (
@@ -182,7 +154,7 @@ function CourseSigil({ course }: { course: SnapshotCourse }) {
           textShadow: "0 1px 0 rgba(0, 0, 0, 0.55)",
         }}
       >
-        {initialsFor(course)}
+        {initialsFor(course, course.id)}
       </span>
     </span>
   );
@@ -215,14 +187,11 @@ function CardHeading({ quest, visible, plain }: { quest: boolean; visible: strin
 export function CourseManager({
   termId,
   onChanged,
-  theme: themeProp,
 }: {
   termId: string;
   onChanged: () => void;
-  /** Optional. Omitted by the current call site, which is why the theme is read off body. */
-  theme?: ThemeName;
 }) {
-  const theme = useBodyTheme(themeProp);
+  const theme = useTheme();
   const quest = theme === "quest";
   // "Questline" / "Course" / "Theater" — the wording lives in @schoolquest/theme-language
   // rather than in a synonym hard-coded here.
@@ -996,8 +965,11 @@ function MeetingTimesForm({
   );
   const [busy, setBusy] = useState(false);
 
-  async function save() {
-    const bad = rows.find((r) => r.endTime <= r.startTime || r.days.size === 0);
+  // Takes the rows to save rather than reading state: "Clear all" sets the rows to empty and
+  // saves in the same click, before React has applied that update, so reading `rows` here sent
+  // the old class times back and nothing was cleared (found in review on #39).
+  async function save(toSave: typeof rows = rows) {
+    const bad = toSave.find((r) => r.endTime <= r.startTime || r.days.size === 0);
     if (bad) {
       onError("Every class needs at least one day and an end after its start.");
       return;
@@ -1006,7 +978,7 @@ function MeetingTimesForm({
     onError(null);
     try {
       await api.put(`/api/courses/${courseId}/meeting-patterns`, {
-        patterns: rows.map((r) => ({
+        patterns: toSave.map((r) => ({
           daysOfWeek: [...r.days].sort(),
           startTime: r.startTime,
           endTime: r.endTime,
@@ -1125,7 +1097,7 @@ function MeetingTimesForm({
           Cancel
         </button>
         {rows.length > 0 && (
-          <button className="action" disabled={busy} onClick={() => { setRows([]); void save(); }}>
+          <button className="action" disabled={busy} onClick={() => { setRows([]); void save([]); }}>
             Clear all
           </button>
         )}
@@ -1159,10 +1131,12 @@ function GradingForm({
     categories.length > 0
       ? categories.map((cat, i) => ({
           key: `${cat.id ?? i}`,
+          // Sent back so a renamed category stays the same category, links and all.
+          id: cat.id as string | undefined,
           name: cat.name,
           weight: cat.weightPercent === null ? "" : String(cat.weightPercent),
         }))
-      : [{ key: "new", name: "", weight: "" }],
+      : [{ key: "new", id: undefined, name: "", weight: "" }],
   );
   const [busy, setBusy] = useState(false);
 
@@ -1184,6 +1158,7 @@ function GradingForm({
     try {
       await api.put(`/api/courses/${courseId}/grading`, {
         categories: named.map((r) => ({
+          ...(r.id ? { id: r.id } : {}),
           name: r.name.trim(),
           weightPercent: r.weight.trim() === "" ? null : Number(r.weight),
         })),
@@ -1258,7 +1233,7 @@ function GradingForm({
         <button
           type="button"
           className="action"
-          onClick={() => setRows((rs) => [...rs, { key: `new-${rs.length}`, name: "", weight: "" }])}
+          onClick={() => setRows((rs) => [...rs, { key: `new-${rs.length}`, id: undefined, name: "", weight: "" }])}
         >
           Add a category
         </button>

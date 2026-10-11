@@ -51,8 +51,6 @@ export interface PlanningInput {
   existingSessions: WorkSession[];
   /** Per-course standing, keyed by course id. Absent means "no grade data". */
   courseStandings?: Record<string, CourseStanding>;
-  /** Deterministic tie-breaking seed. Same inputs + same seed => same plan. */
-  seed?: number;
 }
 
 /** A contiguous stretch of time the student could actually work in. */

@@ -1,12 +1,9 @@
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, sql, type Table } from "drizzle-orm";
 import { z } from "zod";
 import { newId, termCalendar } from "@schoolquest/domain";
 import {
-  AiProviderError,
-  createOpenRouterProvider,
   extractSyllabus,
-  ExtractionError,
   isWithinTerm,
   parseStatedDate,
   calibrateWeeks,
@@ -22,31 +19,35 @@ import {
   gradingCategories,
   meetingPatterns,
   sourceDocuments,
-  terms,
   workItems,
 } from "../db/schema.js";
-import { getDb, insertInChunks, serializeDays, type Db } from "../db/repo.js";
+import { getDb, serializeDays, type Db } from "../db/repo.js";
+import {
+  asExtractedDate,
+  assignmentClaimPayload,
+  gradingCategoryClaimPayload,
+  meetingPatternClaimPayload,
+  questionClaimPayload,
+  scheduleAnchorClaimPayload,
+} from "../db/claim-payloads.js";
+import { loadOwnedClaim, loadOwnedDocument } from "../db/ownership.js";
+import { aiErrorResponse } from "../lib/ai-errors.js";
+import { jsonObject, parseJsonColumn, requireJsonColumn } from "../lib/json-column.js";
+import { openRouterFor } from "../lib/openrouter.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
+import { rateLimitPerUser } from "../rate-limit.js";
 import type { AppBindings } from "../env.js";
 
 export const extractionRoute = new Hono<AppBindings>();
 
-/** Rows per INSERT; claims carry many columns, so keep batches small for D1. */
-const CLAIM_INSERT_BATCH = 6;
-
 /**
- * Loads a document only if the signed-in user owns it, walking
- * document -> course -> term -> user.
+ * Stored claim payloads are read with `requireJsonColumn` throughout this file: every read here is
+ * followed by a write -- a rewrite of the claim, or its promotion into real records -- and a
+ * corrupt payload must stop that rather than be written back as defaults. Only `toClaimView`,
+ * which renders, falls back. See lib/json-column.ts.
  */
-async function loadOwnedDocument(db: Db, documentId: string, userId: string) {
-  const [row] = await db
-    .select({ document: sourceDocuments, course: courses, term: terms })
-    .from(sourceDocuments)
-    .innerJoin(courses, eq(courses.id, sourceDocuments.courseId))
-    .innerJoin(terms, eq(terms.id, courses.termId))
-    .where(and(eq(sourceDocuments.id, documentId), eq(terms.userId, userId)));
-  return row ?? null;
-}
+const PAYLOAD = "extraction_claims.payload_json";
+const CALENDAR = "terms.calendar_json";
 
 const extractBody = z.object({
   pages: z
@@ -54,6 +55,40 @@ const extractBody = z.object({
     .min(1)
     .max(60),
 });
+
+/**
+ * How much page text one extraction request may carry.
+ *
+ * The model is only ever shown the first 24 non-blank pages at 6,000 characters each
+ * (`preparePages` in @schoolquest/ai), so anything past that is parsed and held in memory for
+ * nothing. The caps are still far above it, because the web reader sends whatever the file held:
+ * a dense PDF page runs 3,000-6,000 characters, and a .docx with no forced page breaks arrives as
+ * a single "page" holding the whole document, which for a long course packet is well over 100,000.
+ * What they stop is a body nobody's syllabus produces.
+ */
+const MAX_PAGE_CHARS = 200_000;
+const MAX_TOTAL_CHARS = 600_000;
+
+/** A sentence for the student when the text is over a cap, or null when it fits. */
+function pagesTooLarge(pages: { page: number; text: string }[]): string | null {
+  const long = pages.find((p) => p.text.length > MAX_PAGE_CHARS);
+  if (long) {
+    return (
+      `Page ${long.page} holds ${long.text.length.toLocaleString("en-US")} characters of text, ` +
+      `more than the ${MAX_PAGE_CHARS.toLocaleString("en-US")} one page may carry. ` +
+      "Upload just the syllabus rather than the whole course packet."
+    );
+  }
+  const total = pages.reduce((sum, p) => sum + p.text.length, 0);
+  if (total > MAX_TOTAL_CHARS) {
+    return (
+      `This document holds ${total.toLocaleString("en-US")} characters of text, more than the ` +
+      `${MAX_TOTAL_CHARS.toLocaleString("en-US")} a syllabus can be read from at once. ` +
+      "Upload just the syllabus rather than the whole course packet."
+    );
+  }
+  return null;
+}
 
 /**
  * Runs extraction over page text the client pulled out of the PDF.
@@ -65,7 +100,7 @@ const extractBody = z.object({
  * Nothing here writes to confirmed academic records. Every claim lands in
  * `extraction_claims` with review_status "pending" and waits for a human.
  */
-extractionRoute.post("/documents/:id/extract", async (c) => {
+extractionRoute.post("/documents/:id/extract", rateLimitPerUser("syllabusExtract"), async (c) => {
   const db = getDb(c.env.DB);
   const documentId = c.req.param("id");
 
@@ -89,7 +124,7 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
    * are the kind nobody notices until the deadline has passed. So the API refuses, which is the
    * only place the rule actually holds regardless of which client is calling.
    */
-  const calendar = termCalendar.parse(JSON.parse(owned.term.calendarJson || "{}"));
+  const calendar = requireJsonColumn(termCalendar, owned.term.calendarJson || "{}", CALENDAR);
   if (calendar.exceptions.length === 0) {
     return c.json(
       {
@@ -105,19 +140,15 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
 
   const parsed = extractBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  const tooLarge = pagesTooLarge(parsed.data.pages);
+  if (tooLarge) return c.json({ error: tooLarge, code: "PAGE_TEXT_TOO_LARGE" }, 413);
 
   await db
     .update(sourceDocuments)
     .set({ processingStatus: "processing" })
     .where(eq(sourceDocuments.id, documentId));
 
-  const provider = createOpenRouterProvider({
-    apiKey: provider_.apiKey,
-    defaultModel: provider_.extractionModel,
-    appUrl: c.env.APP_URL,
-    appName: c.env.APP_NAME,
-    ...(c.env.OPENROUTER_BASE_URL ? { baseUrl: c.env.OPENROUTER_BASE_URL } : {}),
-  });
+  const provider = openRouterFor(c.env, provider_.apiKey, provider_.extractionModel);
 
   let outcome;
   try {
@@ -134,35 +165,32 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
       .set({ processingStatus: "failed" })
       .where(eq(sourceDocuments.id, documentId));
 
-    if (error instanceof ExtractionError) {
-      console.error("[extract]", error.message, error.cause);
-      return c.json({ error: error.message }, 422);
-    }
-    if (error instanceof AiProviderError) {
-      console.error("[extract] provider error", error.message);
-      return c.json(
-        {
-          error: "The extraction service is unreachable right now. Your file is saved — try again.",
-          retryable: error.retryable,
-        },
-        502,
-      );
-    }
+    const answer = aiErrorResponse(c, error, {
+      unreachable: "The extraction service is unreachable right now. Your file is saved — try again.",
+      logTag: "extract",
+    });
+    if (answer) return answer;
     throw error;
   }
 
-  // Re-running extraction replaces the previous batch rather than stacking duplicates.
-  await db.delete(extractionClaims).where(eq(extractionClaims.sourceDocumentId, documentId));
-
+  /**
+   * Re-running extraction replaces the previous batch rather than stacking duplicates.
+   *
+   * One transaction: deleting first and inserting after, as separate statements, meant a failure
+   * between the two left the document with no claims at all -- the old reading gone and the new
+   * one never written.
+   */
   const rows = buildClaimRows(documentId, outcome);
-  await insertInChunks(rows, CLAIM_INSERT_BATCH, (batch) =>
-    db.insert(extractionClaims).values(batch),
-  );
-
-  await db
-    .update(sourceDocuments)
-    .set({ processingStatus: "extracted" })
-    .where(eq(sourceDocuments.id, documentId));
+  await db.batch([
+    db.delete(extractionClaims).where(eq(extractionClaims.sourceDocumentId, documentId)),
+    ...insertStatements(rows, extractionClaims, (batch) =>
+      db.insert(extractionClaims).values(batch),
+    ),
+    db
+      .update(sourceDocuments)
+      .set({ processingStatus: "extracted" })
+      .where(eq(sourceDocuments.id, documentId)),
+  ]);
 
   return c.json({
     documentId,
@@ -211,21 +239,14 @@ extractionRoute.patch("/extraction-claims/:id", async (c) => {
   const db = getDb(c.env.DB);
   const claimId = c.req.param("id");
 
-  const [row] = await db
-    .select({ claim: extractionClaims })
-    .from(extractionClaims)
-    .innerJoin(sourceDocuments, eq(sourceDocuments.id, extractionClaims.sourceDocumentId))
-    .innerJoin(courses, eq(courses.id, sourceDocuments.courseId))
-    .innerJoin(terms, eq(terms.id, courses.termId))
-    .where(and(eq(extractionClaims.id, claimId), eq(terms.userId, c.get("userId"))));
-  if (!row) return c.json({ error: "Claim not found" }, 404);
+  const claim = await loadOwnedClaim(db, claimId, c.get("userId"));
+  if (!claim) return c.json({ error: "Claim not found" }, 404);
 
   const parsed = patchClaimBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const payload = parsed.data.payload
-    ? { ...(JSON.parse(row.claim.payloadJson) as Record<string, unknown>), ...parsed.data.payload }
-    : (JSON.parse(row.claim.payloadJson) as Record<string, unknown>);
+  const stored = requireJsonColumn(jsonObject, claim.payloadJson, PAYLOAD);
+  const payload = parsed.data.payload ? { ...stored, ...parsed.data.payload } : stored;
 
   const [updated] = await db
     .update(extractionClaims)
@@ -275,7 +296,7 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
     );
   }
 
-  const calendar = termCalendar.parse(JSON.parse(owned.term.calendarJson || "{}"));
+  const calendar = requireJsonColumn(termCalendar, owned.term.calendarJson || "{}", CALENDAR);
 
   /**
    * What this document means by "Week N", worked out before any claim is resolved.
@@ -289,11 +310,7 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
   ).filter((claim) => claim.claimType === "schedule_anchor");
   const calibration = calibrateWeeks(
     anchorRows.map((row) => {
-      const payload = JSON.parse(row.payloadJson) as {
-        weekNumber: number;
-        raw: string | null;
-        isBreak: boolean;
-      };
+      const payload = requireJsonColumn(scheduleAnchorClaimPayload, row.payloadJson, PAYLOAD);
       return {
         ...payload,
         evidence: { page: row.pageNumber ?? 1, excerpt: row.sourceExcerpt ?? "" },
@@ -322,13 +339,10 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
   const registrarPending: string[] = [];
 
   for (const claim of claims) {
-    const payload = JSON.parse(claim.payloadJson) as ClaimAssignmentPayload & {
-      issues?: string[];
-      confidenceStatus?: string;
-    };
+    const payload = requireJsonColumn(assignmentClaimPayload, claim.payloadJson, PAYLOAD);
     // Only items still missing a date are candidates; an already-dated item is left alone.
     if (payload.dueDate.iso !== null) continue;
-    if (payload.dueDate.raw === null) continue;
+    if (payload.dueDate.raw === null || payload.dueDate.raw === undefined) continue;
 
     const result = resolveWeekdayForClaim(payload.dueDate.raw, weekday, {
       startDate: owned.term.startDate,
@@ -443,7 +457,7 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
   ).filter((claim) => claim.claimType === "clarification_question");
 
   for (const question of questions) {
-    const payload = JSON.parse(question.payloadJson) as { kind?: string };
+    const payload = requireJsonColumn(questionClaimPayload, question.payloadJson, PAYLOAD);
     if (payload.kind !== "relative_date") continue;
     await db
       .update(extractionClaims)
@@ -499,7 +513,7 @@ async function raiseRegistrarQuestion(db: Db, documentId: string, titles: string
       .where(eq(extractionClaims.sourceDocumentId, documentId))
   ).find((claim) => {
     if (claim.claimType !== "clarification_question") return false;
-    return (JSON.parse(claim.payloadJson) as { source?: string }).source === "registrar_window";
+    return requireJsonColumn(questionClaimPayload, claim.payloadJson, PAYLOAD).source === "registrar_window";
   });
 
   if (existing) {
@@ -577,11 +591,7 @@ extractionRoute.post("/documents/:id/extraction/answer", async (c) => {
   );
   if (!question) return c.json({ error: "Question not found" }, 404);
 
-  const qPayload = JSON.parse(question.payloadJson) as {
-    kind?: string;
-    relatesToTitle?: string | null;
-    relatesToTitles?: string[];
-  };
+  const qPayload = requireJsonColumn(questionClaimPayload, question.payloadJson, PAYLOAD);
 
   await db
     .update(extractionClaims)
@@ -617,10 +627,7 @@ extractionRoute.post("/documents/:id/extraction/answer", async (c) => {
 
   for (const claim of claims) {
     if (claim.claimType !== "assignment") continue;
-    const payload = JSON.parse(claim.payloadJson) as ClaimAssignmentPayload & {
-      issues?: string[];
-      confidenceStatus?: string;
-    };
+    const payload = requireJsonColumn(assignmentClaimPayload, claim.payloadJson, PAYLOAD);
     if (!titles.has(payload.title)) continue;
 
     const issues = (payload.issues ?? []).filter(
@@ -684,17 +691,45 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
   const accepted = new Set(parsed.data.acceptedClaimIds);
-  const claims = (
+  const selected = (
     await db
       .select()
       .from(extractionClaims)
       .where(eq(extractionClaims.sourceDocumentId, documentId))
   ).filter((claim) => accepted.has(claim.id));
 
-  if (claims.length === 0) return c.json({ error: "No claims were selected." }, 400);
+  if (selected.length === 0) return c.json({ error: "No claims were selected." }, 400);
+
+  /**
+   * Only claims still waiting for review are promoted.
+   *
+   * Without this a double click, or a retry after the first response was lost, ran the whole
+   * promotion again: every meeting pattern and every assignment created a second time, a
+   * duplicate the planner then books hours for. A claim that has already been accepted is done;
+   * submitting it again is answered as a confirm that created nothing.
+   */
+  const claims = selected.filter((claim) => claim.reviewStatus === "pending");
 
   const courseId = owned.course.id;
   const created = { categories: 0, meetingPatterns: 0, workItems: 0 };
+  if (claims.length === 0) return c.json({ ok: true, created });
+
+  /**
+   * Every write below goes into one `db.batch`, which D1 runs as a single transaction.
+   *
+   * It used to be two sequential statements per claim with nothing tying them together, so a
+   * failure halfway through left some items created and their claims still pending -- and the
+   * retry that followed created those items again. Now the records and the claims that point at
+   * them land together or not at all.
+   */
+  const newCategories: (typeof gradingCategories.$inferInsert)[] = [];
+  const newPatterns: (typeof meetingPatterns.$inferInsert)[] = [];
+  const newItems: (typeof workItems.$inferInsert)[] = [];
+  const resolved: Record<ResolvedEntityType, { claimId: string; entityId: string }[]> = {
+    grading_category: [],
+    meeting_pattern: [],
+    work_item: [],
+  };
 
   // --- Grading categories first: assignments reference them by name.
   const existingCategories = await db
@@ -706,16 +741,12 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
   );
 
   for (const claim of claims.filter((c) => c.claimType === "grading_category")) {
-    const payload = JSON.parse(claim.payloadJson) as {
-      name: string;
-      weightPercent: number | null;
-      dropLowest: number | null;
-    };
+    const payload = requireJsonColumn(gradingCategoryClaimPayload, claim.payloadJson, PAYLOAD);
     const key = payload.name.trim().toLowerCase();
     if (categoryIdByName.has(key)) continue;
 
     const id = newId("gradingCategory");
-    await db.insert(gradingCategories).values({
+    newCategories.push({
       id,
       courseId,
       name: payload.name,
@@ -725,7 +756,7 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
     });
     categoryIdByName.set(key, id);
     created.categories++;
-    await markResolved(db, claim.id, "grading_category", id);
+    resolved.grading_category.push({ claimId: claim.id, entityId: id });
   }
 
   /**
@@ -741,23 +772,21 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
    * reading. That is the same standing the categories themselves get two lines above, and the
    * same one the confirm route gives a dated work item.
    */
-  if (categoryIdByName.size > 0) {
-    await db
-      .update(courses)
-      .set({ gradingConfidence: "high_inference" })
-      .where(and(eq(courses.id, courseId), eq(courses.gradingConfidence, "unknown")));
-  }
+  const gradingKnown =
+    categoryIdByName.size > 0
+      ? [
+          db
+            .update(courses)
+            .set({ gradingConfidence: "high_inference" })
+            .where(and(eq(courses.id, courseId), eq(courses.gradingConfidence, "unknown"))),
+        ]
+      : [];
 
   // --- Meeting patterns.
   for (const claim of claims.filter((c) => c.claimType === "meeting_pattern")) {
-    const payload = JSON.parse(claim.payloadJson) as {
-      daysOfWeek: number[];
-      startTime: string;
-      endTime: string;
-      location: string | null;
-    };
+    const payload = requireJsonColumn(meetingPatternClaimPayload, claim.payloadJson, PAYLOAD);
     const id = newId("meetingPattern");
-    await db.insert(meetingPatterns).values({
+    newPatterns.push({
       id,
       courseId,
       daysOfWeek: serializeDays(payload.daysOfWeek),
@@ -768,17 +797,17 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
       effectiveEnd: owned.term.endDate,
     });
     created.meetingPatterns++;
-    await markResolved(db, claim.id, "meeting_pattern", id);
+    resolved.meeting_pattern.push({ claimId: claim.id, entityId: id });
   }
 
   // --- Assignments. The syllabus's dates are the student's local ones; stored as UTC.
   const timeZone = c.get("timeZone");
   for (const claim of claims.filter((c) => c.claimType === "assignment")) {
-    const payload = JSON.parse(claim.payloadJson) as ClaimAssignmentPayload;
+    const payload = requireJsonColumn(assignmentClaimPayload, claim.payloadJson, PAYLOAD);
     const id = newId("workItem");
-    const dueAt = toDueAt(payload.dueDate, timeZone);
+    const dueAt = toDueAt(asExtractedDate(payload.dueDate), timeZone);
 
-    await db.insert(workItems).values({
+    newItems.push({
       id,
       courseId,
       parentWorkItemId: null,
@@ -823,44 +852,145 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
       userPriority: 0,
     });
     created.workItems++;
-    await markResolved(db, claim.id, "work_item", id);
+    resolved.work_item.push({ claimId: claim.id, entityId: id });
   }
 
-  await db
-    .update(sourceDocuments)
-    .set({ processingStatus: "confirmed" })
-    .where(eq(sourceDocuments.id, documentId));
+  const claimIds = claims.map((claim) => claim.id);
+  try {
+    await db.batch([
+      stillPendingGuard(db, documentId, claimIds),
+      db
+        .update(sourceDocuments)
+        .set({ processingStatus: "confirmed" })
+        .where(eq(sourceDocuments.id, documentId)),
+      ...insertStatements(newCategories, gradingCategories, (rows) =>
+        db.insert(gradingCategories).values(rows),
+      ),
+      ...gradingKnown,
+      ...insertStatements(newPatterns, meetingPatterns, (rows) =>
+        db.insert(meetingPatterns).values(rows),
+      ),
+      ...insertStatements(newItems, workItems, (rows) => db.insert(workItems).values(rows)),
+      ...(Object.keys(resolved) as ResolvedEntityType[]).flatMap((type) =>
+        markResolved(db, type, resolved[type]),
+      ),
+    ]);
+  } catch (error) {
+    /**
+     * The guard refused, or something else failed; either way nothing above was written. Which
+     * one is told by looking: if another submit promoted any of these claims between our read
+     * and our batch, that is the guard. Two simultaneous submits of the same list -- a double
+     * click that beat the button disabling -- leave the loser with nothing left to do, which is
+     * the same answer a repeat submit gets. A list that only partly overlapped is refused, so
+     * the student reloads and sees what is actually still waiting.
+     */
+    const now = await db
+      .select({ id: extractionClaims.id, reviewStatus: extractionClaims.reviewStatus })
+      .from(extractionClaims)
+      .where(eq(extractionClaims.sourceDocumentId, documentId));
+    const stillPending = now.filter(
+      (claim) => claim.reviewStatus === "pending" && claimIds.includes(claim.id),
+    ).length;
+    if (stillPending === claimIds.length) throw error;
+    const none = { categories: 0, meetingPatterns: 0, workItems: 0 };
+    if (stillPending === 0) return c.json({ ok: true, created: none });
+    return c.json(
+      { error: "Some of these were confirmed somewhere else meanwhile. Reload and try again." },
+      409,
+    );
+  }
 
   return c.json({ ok: true, created });
 });
 
-async function markResolved(db: Db, claimId: string, entityType: string, entityId: string) {
-  await db
+/**
+ * The first statement of the confirm batch: fails the whole batch unless every claim it is about
+ * to promote is still pending *at the moment the batch runs*.
+ *
+ * The route filters to pending claims when the request starts, but two submits arriving together
+ * both pass that read before either writes, and both batches then committed -- every assignment
+ * created twice. D1 runs a batch as one transaction and one writer at a time, so a check inside
+ * the batch sees the other submit's committed claims.
+ *
+ * SQLite has no RAISE outside a trigger, so the refusal is a constraint: when the count is wrong
+ * this sets this document's claim ids to NULL, which their NOT NULL constraint rejects, and the
+ * batch rolls back. When the count is right the WHERE matches no row and nothing changes. The ids travel as one JSON array so
+ * a long syllabus stays under D1's bound-parameter ceiling.
+ */
+function stillPendingGuard(db: Db, documentId: string, claimIds: string[]) {
+  const pending = sql`(
+    SELECT count(*) FROM extraction_claims
+    WHERE source_document_id = ${documentId}
+      AND review_status = 'pending'
+      AND id IN (SELECT value FROM json_each(${JSON.stringify(claimIds)}))
+  )`;
+  return db
     .update(extractionClaims)
-    .set({ reviewStatus: "accepted", resolvedEntityType: entityType, resolvedEntityId: entityId })
-    .where(eq(extractionClaims.id, claimId));
+    .set({ id: sql`NULL` })
+    .where(
+      and(eq(extractionClaims.sourceDocumentId, documentId), sql`${pending} != ${claimIds.length}`),
+    );
 }
 
-interface ClaimAssignmentPayload {
-  title: string;
-  type:
-    | "reading"
-    | "quiz"
-    | "problem_set"
-    | "paper"
-    | "presentation"
-    | "group_project"
-    | "exam"
-    | "lab"
-    | "discussion"
-    | "other";
-  dueDate: Parameters<typeof toDueAt>[0];
-  pointsPossible: number | null;
-  category: string | null;
-  isMajorProject: boolean;
-  issues?: string[];
-  duplicateOf?: string | null;
-  confidenceStatus?: string;
+/**
+ * D1 refuses a statement with more than 100 bound parameters, so a multi-row INSERT has to be
+ * split by the table's width: a work item binds 21 values a row, which is four rows a statement.
+ */
+const D1_MAX_BOUND_PARAMS = 100;
+
+function insertStatements<Row, Statement>(
+  rows: Row[],
+  table: Table,
+  build: (rows: Row[]) => Statement,
+): Statement[] {
+  const perStatement = Math.floor(D1_MAX_BOUND_PARAMS / Object.keys(getTableColumns(table)).length);
+  const statements: Statement[] = [];
+  for (let i = 0; i < rows.length; i += perStatement) {
+    statements.push(build(rows.slice(i, i + perStatement)));
+  }
+  return statements;
+}
+
+type ResolvedEntityType = "grading_category" | "meeting_pattern" | "work_item";
+
+/**
+ * Marks claims accepted and points each at the record it became.
+ *
+ * One UPDATE per group of claims rather than one per claim: the entity id differs per row, so it
+ * is chosen by a CASE on the claim id. Each claim binds three values (twice in the CASE, once in
+ * the IN list) plus two shared ones, which keeps a group of thirty under D1's ceiling.
+ */
+const CLAIMS_PER_RESOLVE = 30;
+
+function markResolved(
+  db: Db,
+  entityType: ResolvedEntityType,
+  pairs: { claimId: string; entityId: string }[],
+) {
+  const statements = [];
+  for (let i = 0; i < pairs.length; i += CLAIMS_PER_RESOLVE) {
+    const group = pairs.slice(i, i + CLAIMS_PER_RESOLVE);
+    const cases = sql.join(
+      group.map((p) => sql`WHEN ${p.claimId} THEN ${p.entityId}`),
+      sql` `,
+    );
+    statements.push(
+      db
+        .update(extractionClaims)
+        .set({
+          reviewStatus: "accepted",
+          resolvedEntityType: entityType,
+          resolvedEntityId: sql`CASE ${extractionClaims.id} ${cases} END`,
+        })
+        .where(
+          inArray(
+            extractionClaims.id,
+            group.map((p) => p.claimId),
+          ),
+        ),
+    );
+  }
+  return statements;
 }
 
 type ClaimRow = typeof extractionClaims.$inferInsert;
@@ -1015,7 +1145,8 @@ function toClaimView(claim: ClaimRow) {
   return {
     id: claim.id,
     claimType: claim.claimType,
-    payload: JSON.parse(claim.payloadJson) as Record<string, unknown>,
+    // Rendered, so an unreadable payload shows as empty rather than failing the whole queue.
+    payload: parseJsonColumn(jsonObject, claim.payloadJson, {}, PAYLOAD),
     pageNumber: claim.pageNumber ?? null,
     sourceExcerpt: claim.sourceExcerpt ?? null,
     confidence: claim.confidence ?? null,
