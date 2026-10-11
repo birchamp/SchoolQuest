@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useBodyTheme } from "../lib/use-body-theme";
 import { formatCalendarDate } from "../lib/clock";
+import { Themed } from "./Themed";
 
 /**
  * The semester's calendar: breaks, holidays, finals.
@@ -72,16 +73,6 @@ function span(startDate: string, endDate: string): string {
   if (startDate === endDate) return `${day(a)} ${month(a)}`;
   if (month(a) === month(b)) return `${day(a)}–${day(b)} ${month(a)}`;
   return `${day(a)} ${month(a)} – ${day(b)} ${month(b)}`;
-}
-
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
 }
 
 export function TermCalendar({ termId, onChanged }: { termId: string; onChanged: () => void }) {

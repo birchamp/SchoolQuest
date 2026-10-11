@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useBodyTheme } from "../lib/use-body-theme";
+import { Themed } from "./Themed";
 
 /**
  * Everything nobody has answered about this term, and the message to send about it.
@@ -62,17 +63,6 @@ interface OpenQuestionsResult {
   courses: CourseQuestions[];
   questionCount: number;
   coursesAffected: number;
-}
-
-/** Themed wording on screen, plain wording for assistive technology (docs/02-prd.md §5). */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
 }
 
 /**

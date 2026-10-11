@@ -3,6 +3,9 @@ import { explainBlockKind, explainDayLoad, plainDayLoad } from "@schoolquest/the
 import { formatDueDay } from "../lib/due-time";
 import type { DayShapeView, FallbackView, SessionBriefView } from "../lib/types";
 import { dateToEpochMinutes, dayOfWeekFor } from "@schoolquest/domain";
+import { QUEST_PALETTE as Q } from "../lib/quest-palette";
+import { courseNameWithCode, formatEffort } from "../lib/format";
+import { Themed } from "./Themed";
 
 /**
  * The week as prepared session notes (packages/planning-engine/src/session-brief.ts,
@@ -38,27 +41,6 @@ import { dateToEpochMinutes, dayOfWeekFor } from "@schoolquest/domain";
  *   guessed; and no figure is rounded into looking better than it is.
  */
 
-/**
- * Quest palette, duplicated from the `--q-*` custom properties in styles.css as literals.
- * These are only ever applied when `theme === "quest"`; hard-coding them keeps the
- * component readable in isolation, as Questline.tsx and Today.tsx already do.
- *
- * The two "dim" entries are measured, not chosen by eye: #5b4930 sits at 5.9:1 on the
- * darkest stop of the parchment tiles below, and #cbb98c at 9.7:1 on the leather banner.
- * Gold is absent on purpose — #c9a227 measures 1.6:1 on parchment, so it may only ever
- * fill a shape or mark a decoration, never carry a word.
- */
-const Q = {
-  ink: "#2a1f14",
-  parchment: "#efe3c8",
-  parchmentDeep: "#e4d4b0",
-  leather: "#16100b",
-  goldDim: "#8a6f1f",
-  wax: "#8c2f28",
-  inkDim: "#5b4930",
-  parchmentDim: "#cbb98c",
-} as const;
-
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_LONG = [
   "Sunday",
@@ -69,14 +51,6 @@ const DAY_LONG = [
   "Friday",
   "Saturday",
 ];
-
-/** "95" -> "1h 35m". The compact form, for the seven narrow day tiles. */
-function formatEffort(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
-}
 
 /**
  * "95" -> "1 hour 35 minutes". Used in every full sentence, because "1h 35m" inside prose
@@ -115,27 +89,9 @@ function formatDue(iso: string): string {
   return formatDueDay(iso, { weekday: "long", month: "short", day: "numeric" });
 }
 
-/** Course code appended only when the name does not already carry it (see WeekMap). */
+/** Null when the course is missing, so the sentence leaves the course out. */
 function courseLabel(course: Course | undefined): string | null {
-  if (!course) return null;
-  return course.code && !course.name.includes(course.code)
-    ? `${course.name} (${course.code})`
-    : course.name;
-}
-
-/**
- * Themed wording on screen, plain wording for assistive tech. Screen-reader output must
- * never depend on the visual theme (docs/02-prd.md §5 Accessibility). When the two agree —
- * which is most of this card, and by design — nothing is duplicated.
- */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
+  return course ? courseNameWithCode(course) : null;
 }
 
 /** Section rule inside the card. `.card h2` is the card's own title, so these are h3s. */

@@ -6,6 +6,8 @@ import { CoursePaste } from "./CoursePaste";
 import { DayPicker, TimeRange } from "./DayPicker";
 import { courseTincture } from "../lib/course-colour";
 import { useBodyTheme } from "../lib/use-body-theme";
+import { initialsFor } from "../lib/format";
+import { Themed } from "./Themed";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -49,22 +51,6 @@ interface Snapshot {
   gradingCategories: SnapshotGrading[];
 }
 
-
-/**
- * Themed wording on screen, plain wording for assistive technology. Screen-reader output
- * must never depend on the visual theme (docs/02-prd.md §5 Accessibility), and inside a
- * control this is also what keeps the accessible name plain: the themed span is hidden
- * from the name computation, the plain one is not.
- */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
-}
 
 /** Quest palette, duplicated from the `--q-*` custom properties as literals (cf. Questline). */
 const Q = {
@@ -128,19 +114,6 @@ const SHIELD =
   "polygon(7% 0%, 93% 0%, 100% 7%, 100% 48%, 96% 66%, 86% 82%, 68% 94%, 50% 100%," +
   " 32% 94%, 14% 82%, 4% 66%, 0% 48%, 0% 7%)";
 
-/**
- * Sigil lettering, matched to the Week tab so the two screens agree. Digits are skipped
- * on purpose: "BIO 240" as a two-character mark reads as "B2", which looks like a typo.
- */
-function initialsFor(course: SnapshotCourse): string {
-  const source = course.code ?? course.name ?? course.id;
-  const words = source.match(/[A-Za-z]+/g) ?? [];
-  const first = words[0];
-  if (!first) return "?";
-  const second = words[1];
-  return (second ? first.slice(0, 1) + second.slice(0, 1) : first.slice(0, 3)).toUpperCase();
-}
-
 function CourseSigil({ course }: { course: SnapshotCourse }) {
   const tincture = courseTincture(course.id, course.colorToken, true);
   return (
@@ -182,7 +155,7 @@ function CourseSigil({ course }: { course: SnapshotCourse }) {
           textShadow: "0 1px 0 rgba(0, 0, 0, 0.55)",
         }}
       >
-        {initialsFor(course)}
+        {initialsFor(course, course.id)}
       </span>
     </span>
   );

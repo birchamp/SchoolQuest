@@ -3,6 +3,9 @@ import { type Course, type ThemeName } from "@schoolquest/domain";
 import type { MilestoneView, UndatedMilestoneView } from "../lib/types";
 import { courseTincture } from "../lib/course-colour";
 import { formatDueDay } from "../lib/due-time";
+import { QUEST_PALETTE as Q } from "../lib/quest-palette";
+import { courseLabel, formatEffort, initialsFor } from "../lib/format";
+import { Themed } from "./Themed";
 
 /**
  * The term's major work as a timeline (docs/07-session-prep-design.md §3).
@@ -35,32 +38,6 @@ import { formatDueDay } from "../lib/due-time";
  * in the summary band are identical whatever is switched off. Rows for a switched-off class
  * recede — they keep every word, and lose colour and weight. See `recessedInk`.
  */
-
-/**
- * Quest palette, duplicated from the `--q-*` custom properties in styles.css as literals.
- * These are only ever applied when `theme === "quest"`; hard-coding them keeps the file
- * readable in isolation, the way Today.tsx and Questline.tsx already do.
- */
-const Q = {
-  ink: "#2a1f14",
-  parchment: "#efe3c8",
-  leather: "#16100b",
-  gold: "#c9a227",
-  goldBright: "#e8c95a",
-  goldDim: "#8a6f1f",
-  wax: "#8c2f28",
-  /**
-   * Dim ink for text sitting on a *tinted* patch of parchment rather than bare parchment.
-   * The card's own `--text-dim` (#6b5636) measures 4.77:1 on the darker parchment stop,
-   * which is above the floor — but a 6% wax wash under it drops the same ink to 4.37:1.
-   * Tinted regions therefore get this darker value instead of `var(--text-dim)`.
-   */
-  inkDim: "#5b4930",
-  /** Cream that clears 4.5:1 on filled wax and forest chips. */
-  chipCream: "#f2ead6",
-  /** Dark ink for text on gold leaf; the shipped risk-chip pairing. */
-  onGold: "#3a2b00",
-} as const;
 
 /**
  * The single colour lookup for this file. Every use site goes through here so the palette
@@ -129,14 +106,6 @@ const BANDS: {
   },
 ];
 
-/** "95" -> "1h 35m". Matches Today.tsx, so the same minutes read the same on both screens. */
-function formatEffort(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
-}
-
 /** The same figure spelled out, for screen readers: "1h 35m" is not speech. */
 function spellEffort(minutes: number): string {
   if (minutes < 60) return `${minutes} minutes`;
@@ -168,42 +137,6 @@ function workTypeLabel(workType: string): string {
  */
 function formatDue(dueAt: string): string {
   return formatDueDay(dueAt, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
-}
-
-/** Course code appended only when the name does not already carry it (see WeekMap). */
-function courseLabel(course: Course | undefined, courseId: string): string {
-  if (!course) return `Course ${courseId.slice(0, 6)}`;
-  return course.code && !course.name.includes(course.code)
-    ? `${course.name} (${course.code})`
-    : course.name;
-}
-
-/**
- * Sigil lettering, matched to Questline.tsx and CourseManager.tsx so the three screens
- * agree. Digits are skipped on purpose: "BIO 240" as a two-character mark reads as "B2",
- * which looks like a typo rather than a course.
- */
-function initialsFor(course: Course | undefined, courseId: string): string {
-  const source = course?.code ?? course?.name ?? courseId;
-  const words = source.match(/[A-Za-z]+/g) ?? [];
-  const first = words[0];
-  if (!first) return "?";
-  const second = words[1];
-  return (second ? first.slice(0, 1) + second.slice(0, 1) : first.slice(0, 3)).toUpperCase();
-}
-
-/**
- * Themed wording on screen, plain wording for assistive tech. Copied from Questline.tsx:
- * screen-reader output must never depend on the visual theme (docs/02-prd.md §5).
- */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
 }
 
 /**

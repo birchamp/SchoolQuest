@@ -7,6 +7,7 @@ import { extractPdfText, type DocumentPage } from "../lib/pdf-text";
 import type { ExtractionResponse } from "../lib/extraction-types";
 import { ExtractionReview } from "./ExtractionReview";
 import { useBodyTheme } from "../lib/use-body-theme";
+import { Themed } from "./Themed";
 
 /**
  * Syllabus upload and extraction.
@@ -61,17 +62,6 @@ function statusWord(status: string): string {
   }
 }
 
-
-/** Themed wording on screen, plain wording for assistive technology. */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
-}
 
 const Q = {
   gold: "#c9a227",
