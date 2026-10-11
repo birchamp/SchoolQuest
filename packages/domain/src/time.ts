@@ -169,11 +169,12 @@ const calendars = new Map<string, ZoneCalendar>();
 
 /** The calendar for an IANA zone. An unknown or missing zone is UTC, never an error. */
 export function zoneCalendar(timeZone: string | null | undefined): ZoneCalendar {
-  if (!timeZone || timeZone === "UTC" || timeZone === "Etc/UTC" || !isTimeZone(timeZone)) {
-    return utcCalendar;
-  }
+  if (!timeZone || timeZone === "UTC" || timeZone === "Etc/UTC") return utcCalendar;
+  // The cache first: validating a name builds an `Intl.DateTimeFormat`, which is the very cost
+  // the cache is for, and the planner asks for the same calendar thousands of times.
   const cached = calendars.get(timeZone);
   if (cached) return cached;
+  if (!isTimeZone(timeZone)) return utcCalendar;
 
   const format = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -184,15 +185,9 @@ export function zoneCalendar(timeZone: string | null | undefined): ZoneCalendar 
     hour: "2-digit",
     minute: "2-digit",
   });
-  // Offsets only change on transitions, which land on a quarter hour in every zone in use (Lord
-  // Howe Island changes at half past), so one lookup per quarter hour is exact and keeps `Intl`
-  // -- slow -- out of the planner's inner loops. Hourly buckets were half an hour wrong there.
-  const byQuarter = new Map<number, number>();
-  const offset = (epochMinutes: number): number => {
-    const quarter = Math.floor(epochMinutes / 15);
-    const known = byQuarter.get(quarter);
-    if (known !== undefined) return known;
-    const at = quarter * 15 * 60_000;
+  /** The zone's offset at one minute, straight from `Intl` -- slow. */
+  const lookUp = (epochMinutes: number): number => {
+    const at = epochMinutes * 60_000;
     const parts = Object.fromEntries(format.formatToParts(new Date(at)).map((p) => [p.type, p.value]));
     const local = Date.UTC(
       Number(parts.year),
@@ -201,9 +196,42 @@ export function zoneCalendar(timeZone: string | null | undefined): ZoneCalendar 
       Number(parts.hour),
       Number(parts.minute),
     );
-    const value = Math.round((local - at) / 60_000);
-    byQuarter.set(quarter, value);
-    return value;
+    return Math.round((local - at) / 60_000);
+  };
+  /**
+   * Offsets per UTC day: the offset the day starts with, the minute it changes (if it does), and
+   * the offset after. Two lookups for an ordinary day, and a binary search to the exact minute
+   * for a day with a transition in it -- which lands on any minute at all, not only a quarter
+   * hour: before standard time, zones kept local mean time and changed at odd minutes. The
+   * quarter-hour cache this replaces was inexact there and grew without limit over a long run;
+   * this one holds a few years of days and starts over past that. Found in review.
+   */
+  const byDay = new Map<number, { change: number; before: number; after: number }>();
+  const offset = (epochMinutes: number): number => {
+    const day = Math.floor(epochMinutes / MINUTES_PER_DAY);
+    let known = byDay.get(day);
+    if (!known) {
+      if (byDay.size >= 2048) byDay.clear();
+      const start = day * MINUTES_PER_DAY;
+      const end = start + MINUTES_PER_DAY;
+      const before = lookUp(start);
+      const after = lookUp(end);
+      let change = end;
+      if (before !== after) {
+        // The first minute on the new offset: `lo` always reads `before`, `hi` never does.
+        let lo = start;
+        let hi = end;
+        while (hi - lo > 1) {
+          const mid = Math.floor((lo + hi) / 2);
+          if (lookUp(mid) === before) lo = mid;
+          else hi = mid;
+        }
+        change = hi;
+      }
+      known = { change, before, after };
+      byDay.set(day, known);
+    }
+    return epochMinutes < known.change ? known.before : known.after;
   };
 
   const at = (date: string, minuteOfDay: number): number => {
