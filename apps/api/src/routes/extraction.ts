@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, sql, type Table } from "drizzle-orm";
 import { z } from "zod";
 import { newId, termCalendar } from "@schoolquest/domain";
 import {
@@ -25,15 +25,12 @@ import {
   terms,
   workItems,
 } from "../db/schema.js";
-import { getDb, insertInChunks, serializeDays, type Db } from "../db/repo.js";
+import { getDb, serializeDays, type Db } from "../db/repo.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import { studentZone } from "../student-zone.js";
 import type { AppBindings } from "../env.js";
 
 export const extractionRoute = new Hono<AppBindings>();
-
-/** Rows per INSERT; claims carry many columns, so keep batches small for D1. */
-const CLAIM_INSERT_BATCH = 6;
 
 /**
  * Loads a document only if the signed-in user owns it, walking
@@ -55,6 +52,40 @@ const extractBody = z.object({
     .min(1)
     .max(60),
 });
+
+/**
+ * How much page text one extraction request may carry.
+ *
+ * The model is only ever shown the first 24 non-blank pages at 6,000 characters each
+ * (`preparePages` in @schoolquest/ai), so anything past that is parsed and held in memory for
+ * nothing. The caps are still far above it, because the web reader sends whatever the file held:
+ * a dense PDF page runs 3,000-6,000 characters, and a .docx with no forced page breaks arrives as
+ * a single "page" holding the whole document, which for a long course packet is well over 100,000.
+ * What they stop is a body nobody's syllabus produces.
+ */
+const MAX_PAGE_CHARS = 200_000;
+const MAX_TOTAL_CHARS = 600_000;
+
+/** A sentence for the student when the text is over a cap, or null when it fits. */
+function pagesTooLarge(pages: { page: number; text: string }[]): string | null {
+  const long = pages.find((p) => p.text.length > MAX_PAGE_CHARS);
+  if (long) {
+    return (
+      `Page ${long.page} holds ${long.text.length.toLocaleString("en-US")} characters of text, ` +
+      `more than the ${MAX_PAGE_CHARS.toLocaleString("en-US")} one page may carry. ` +
+      "Upload just the syllabus rather than the whole course packet."
+    );
+  }
+  const total = pages.reduce((sum, p) => sum + p.text.length, 0);
+  if (total > MAX_TOTAL_CHARS) {
+    return (
+      `This document holds ${total.toLocaleString("en-US")} characters of text, more than the ` +
+      `${MAX_TOTAL_CHARS.toLocaleString("en-US")} a syllabus can be read from at once. ` +
+      "Upload just the syllabus rather than the whole course packet."
+    );
+  }
+  return null;
+}
 
 /**
  * Runs extraction over page text the client pulled out of the PDF.
@@ -106,6 +137,8 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
 
   const parsed = extractBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  const tooLarge = pagesTooLarge(parsed.data.pages);
+  if (tooLarge) return c.json({ error: tooLarge, code: "PAGE_TEXT_TOO_LARGE" }, 413);
 
   await db
     .update(sourceDocuments)
@@ -152,18 +185,24 @@ extractionRoute.post("/documents/:id/extract", async (c) => {
     throw error;
   }
 
-  // Re-running extraction replaces the previous batch rather than stacking duplicates.
-  await db.delete(extractionClaims).where(eq(extractionClaims.sourceDocumentId, documentId));
-
+  /**
+   * Re-running extraction replaces the previous batch rather than stacking duplicates.
+   *
+   * One transaction: deleting first and inserting after, as separate statements, meant a failure
+   * between the two left the document with no claims at all -- the old reading gone and the new
+   * one never written.
+   */
   const rows = buildClaimRows(documentId, outcome);
-  await insertInChunks(rows, CLAIM_INSERT_BATCH, (batch) =>
-    db.insert(extractionClaims).values(batch),
-  );
-
-  await db
-    .update(sourceDocuments)
-    .set({ processingStatus: "extracted" })
-    .where(eq(sourceDocuments.id, documentId));
+  await db.batch([
+    db.delete(extractionClaims).where(eq(extractionClaims.sourceDocumentId, documentId)),
+    ...insertStatements(rows, extractionClaims, (batch) =>
+      db.insert(extractionClaims).values(batch),
+    ),
+    db
+      .update(sourceDocuments)
+      .set({ processingStatus: "extracted" })
+      .where(eq(sourceDocuments.id, documentId)),
+  ]);
 
   return c.json({
     documentId,
@@ -685,17 +724,45 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
   const accepted = new Set(parsed.data.acceptedClaimIds);
-  const claims = (
+  const selected = (
     await db
       .select()
       .from(extractionClaims)
       .where(eq(extractionClaims.sourceDocumentId, documentId))
   ).filter((claim) => accepted.has(claim.id));
 
-  if (claims.length === 0) return c.json({ error: "No claims were selected." }, 400);
+  if (selected.length === 0) return c.json({ error: "No claims were selected." }, 400);
+
+  /**
+   * Only claims still waiting for review are promoted.
+   *
+   * Without this a double click, or a retry after the first response was lost, ran the whole
+   * promotion again: every meeting pattern and every assignment created a second time, a
+   * duplicate the planner then books hours for. A claim that has already been accepted is done;
+   * submitting it again is answered as a confirm that created nothing.
+   */
+  const claims = selected.filter((claim) => claim.reviewStatus === "pending");
 
   const courseId = owned.course.id;
   const created = { categories: 0, meetingPatterns: 0, workItems: 0 };
+  if (claims.length === 0) return c.json({ ok: true, created });
+
+  /**
+   * Every write below goes into one `db.batch`, which D1 runs as a single transaction.
+   *
+   * It used to be two sequential statements per claim with nothing tying them together, so a
+   * failure halfway through left some items created and their claims still pending -- and the
+   * retry that followed created those items again. Now the records and the claims that point at
+   * them land together or not at all.
+   */
+  const newCategories: (typeof gradingCategories.$inferInsert)[] = [];
+  const newPatterns: (typeof meetingPatterns.$inferInsert)[] = [];
+  const newItems: (typeof workItems.$inferInsert)[] = [];
+  const resolved: Record<ResolvedEntityType, { claimId: string; entityId: string }[]> = {
+    grading_category: [],
+    meeting_pattern: [],
+    work_item: [],
+  };
 
   // --- Grading categories first: assignments reference them by name.
   const existingCategories = await db
@@ -716,7 +783,7 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
     if (categoryIdByName.has(key)) continue;
 
     const id = newId("gradingCategory");
-    await db.insert(gradingCategories).values({
+    newCategories.push({
       id,
       courseId,
       name: payload.name,
@@ -726,7 +793,7 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
     });
     categoryIdByName.set(key, id);
     created.categories++;
-    await markResolved(db, claim.id, "grading_category", id);
+    resolved.grading_category.push({ claimId: claim.id, entityId: id });
   }
 
   /**
@@ -742,12 +809,15 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
    * reading. That is the same standing the categories themselves get two lines above, and the
    * same one the confirm route gives a dated work item.
    */
-  if (categoryIdByName.size > 0) {
-    await db
-      .update(courses)
-      .set({ gradingConfidence: "high_inference" })
-      .where(and(eq(courses.id, courseId), eq(courses.gradingConfidence, "unknown")));
-  }
+  const gradingKnown =
+    categoryIdByName.size > 0
+      ? [
+          db
+            .update(courses)
+            .set({ gradingConfidence: "high_inference" })
+            .where(and(eq(courses.id, courseId), eq(courses.gradingConfidence, "unknown"))),
+        ]
+      : [];
 
   // --- Meeting patterns.
   for (const claim of claims.filter((c) => c.claimType === "meeting_pattern")) {
@@ -758,7 +828,7 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
       location: string | null;
     };
     const id = newId("meetingPattern");
-    await db.insert(meetingPatterns).values({
+    newPatterns.push({
       id,
       courseId,
       daysOfWeek: serializeDays(payload.daysOfWeek),
@@ -769,7 +839,7 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
       effectiveEnd: owned.term.endDate,
     });
     created.meetingPatterns++;
-    await markResolved(db, claim.id, "meeting_pattern", id);
+    resolved.meeting_pattern.push({ claimId: claim.id, entityId: id });
   }
 
   // --- Assignments. The syllabus's dates are the student's local ones; stored as UTC.
@@ -779,7 +849,7 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
     const id = newId("workItem");
     const dueAt = toDueAt(payload.dueDate, timeZone);
 
-    await db.insert(workItems).values({
+    newItems.push({
       id,
       courseId,
       parentWorkItemId: null,
@@ -824,22 +894,89 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
       userPriority: 0,
     });
     created.workItems++;
-    await markResolved(db, claim.id, "work_item", id);
+    resolved.work_item.push({ claimId: claim.id, entityId: id });
   }
 
-  await db
-    .update(sourceDocuments)
-    .set({ processingStatus: "confirmed" })
-    .where(eq(sourceDocuments.id, documentId));
+  await db.batch([
+    db
+      .update(sourceDocuments)
+      .set({ processingStatus: "confirmed" })
+      .where(eq(sourceDocuments.id, documentId)),
+    ...insertStatements(newCategories, gradingCategories, (rows) =>
+      db.insert(gradingCategories).values(rows),
+    ),
+    ...gradingKnown,
+    ...insertStatements(newPatterns, meetingPatterns, (rows) =>
+      db.insert(meetingPatterns).values(rows),
+    ),
+    ...insertStatements(newItems, workItems, (rows) => db.insert(workItems).values(rows)),
+    ...(Object.keys(resolved) as ResolvedEntityType[]).flatMap((type) =>
+      markResolved(db, type, resolved[type]),
+    ),
+  ]);
 
   return c.json({ ok: true, created });
 });
 
-async function markResolved(db: Db, claimId: string, entityType: string, entityId: string) {
-  await db
-    .update(extractionClaims)
-    .set({ reviewStatus: "accepted", resolvedEntityType: entityType, resolvedEntityId: entityId })
-    .where(eq(extractionClaims.id, claimId));
+/**
+ * D1 refuses a statement with more than 100 bound parameters, so a multi-row INSERT has to be
+ * split by the table's width: a work item binds 21 values a row, which is four rows a statement.
+ */
+const D1_MAX_BOUND_PARAMS = 100;
+
+function insertStatements<Row, Statement>(
+  rows: Row[],
+  table: Table,
+  build: (rows: Row[]) => Statement,
+): Statement[] {
+  const perStatement = Math.floor(D1_MAX_BOUND_PARAMS / Object.keys(getTableColumns(table)).length);
+  const statements: Statement[] = [];
+  for (let i = 0; i < rows.length; i += perStatement) {
+    statements.push(build(rows.slice(i, i + perStatement)));
+  }
+  return statements;
+}
+
+type ResolvedEntityType = "grading_category" | "meeting_pattern" | "work_item";
+
+/**
+ * Marks claims accepted and points each at the record it became.
+ *
+ * One UPDATE per group of claims rather than one per claim: the entity id differs per row, so it
+ * is chosen by a CASE on the claim id. Each claim binds three values (twice in the CASE, once in
+ * the IN list) plus two shared ones, which keeps a group of thirty under D1's ceiling.
+ */
+const CLAIMS_PER_RESOLVE = 30;
+
+function markResolved(
+  db: Db,
+  entityType: ResolvedEntityType,
+  pairs: { claimId: string; entityId: string }[],
+) {
+  const statements = [];
+  for (let i = 0; i < pairs.length; i += CLAIMS_PER_RESOLVE) {
+    const group = pairs.slice(i, i + CLAIMS_PER_RESOLVE);
+    const cases = sql.join(
+      group.map((p) => sql`WHEN ${p.claimId} THEN ${p.entityId}`),
+      sql` `,
+    );
+    statements.push(
+      db
+        .update(extractionClaims)
+        .set({
+          reviewStatus: "accepted",
+          resolvedEntityType: entityType,
+          resolvedEntityId: sql`CASE ${extractionClaims.id} ${cases} END`,
+        })
+        .where(
+          inArray(
+            extractionClaims.id,
+            group.map((p) => p.claimId),
+          ),
+        ),
+    );
+  }
+  return statements;
 }
 
 interface ClaimAssignmentPayload {
