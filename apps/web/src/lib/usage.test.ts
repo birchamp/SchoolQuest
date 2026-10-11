@@ -169,21 +169,14 @@ describe("saveShareUsage", () => {
     expect(tracker.pending()).toEqual({});
   });
 
-  it("resumes counting if the opt-out did not save", async () => {
+  it("stays off for the session if the opt-out did not save, whatever lands meanwhile", async () => {
     const tracker = createUsageTracker(async () => undefined);
     tracker.setEnabled(true);
-    await saveShareUsage(false, async () => false, tracker);
-    tracker.track("tab.week");
-    expect(tracker.pending()).toEqual({ "tab.week": 1 });
-  });
-
-  it("stays off if the student signed out while the failed opt-out was saving", async () => {
-    const tracker = createUsageTracker(async () => undefined);
-    tracker.setEnabled(true);
+    // A second Off and a sign-out both arrive while the first save is in flight; it then fails.
     await saveShareUsage(
       false,
       async () => {
-        // Sign-out asks for counting off (already off) while the PATCH is in flight; it fails.
+        await saveShareUsage(false, async () => false, tracker);
         tracker.setEnabled(false);
         return false;
       },
