@@ -257,9 +257,12 @@ tiny classification instead of a full turn. Refusals render as ordinary replies,
 errors — being told "not that" should not feel like being told off. Every verdict is
 persisted (`coach_messages.guard_verdict`) so the gate can be tuned against real traffic.
 
-If the classifier call fails outright (provider outage), the gate **fails open** to ALLOW
-and records that it did; the system prompt is the backstop. Hard-refusing every message
-during a provider blip would break the app for legitimate use.
+If the classifier call fails or returns something that is not a label, the gate **fails
+closed**: the message is not sent to the coach, the student is asked calmly to send it again,
+and the verdict is recorded as `UNCHECKED`. Only messages the prefilter could not judge ever
+reach the classifier, so plain planning and app questions keep working through a classifier
+failure; failing open would instead let a message that breaks the classifier's output skip the
+gate entirely. The reasoning is spelled out in `packages/ai/src/guardrail.ts`.
 
 **One deliberate exception:** messages expressing self-harm or crisis are routed to a
 distress branch that responds warmly and points to real help (988, campus counseling)
