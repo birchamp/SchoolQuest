@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { setPlanTimeZone } from "./clock";
-import { composeDueAt, DEFAULT_DUE_TIME, dueDatePart, dueTimePart, formatDueDay } from "./due-time";
+import { composeDueAt, DEFAULT_DUE_TIME, dueAfterEdit, dueDatePart, dueTimePart, formatDueDay } from "./due-time";
 
 /**
  * A due date is a UTC instant; the editor shows and takes it in the student's zone. The pairing
@@ -56,5 +56,22 @@ describe("due time, edge cases", () => {
     setPlanTimeZone("UTC");
     expect(composeDueAt("2026-10-05", "24:00")).toBe("2026-10-05T23:59:00.000Z");
     expect(composeDueAt("2026-10-05", "9:00")).toBe("2026-10-05T23:59:00.000Z");
+  });
+});
+
+describe("editing a deadline", () => {
+  afterEach(() => setPlanTimeZone(null));
+
+  it("saves nothing when nothing was changed, even at the second 1:30 the night the clocks go back", () => {
+    setPlanTimeZone("America/New_York");
+    const second = "2026-11-01T06:30:00.000Z"; // 1:30 EST, an hour after the first 1:30
+    expect(dueAfterEdit(second, dueDatePart(second), dueTimePart(second))).toBeUndefined();
+  });
+
+  it("saves what was typed when something was", () => {
+    setPlanTimeZone("America/New_York");
+    expect(dueAfterEdit("2026-10-05T13:00:00.000Z", "2026-10-06", "09:00")).toBe("2026-10-06T13:00:00.000Z");
+    expect(dueAfterEdit(null, "2026-10-06", "09:00")).toBe("2026-10-06T13:00:00.000Z");
+    expect(dueAfterEdit("2026-10-05T13:00:00.000Z", "", "09:00")).toBeNull();
   });
 });

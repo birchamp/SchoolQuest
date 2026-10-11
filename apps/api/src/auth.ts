@@ -2,7 +2,7 @@ import { eq, lt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { MiddlewareHandler } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import { newId } from "@schoolquest/domain";
+import { isTimeZone, newId } from "@schoolquest/domain";
 import { authSessions, loginTokens, users } from "./db/schema.js";
 import type { AppBindings, Env } from "./env.js";
 import { ensureUtcStandard } from "./db/utc-conversion.js";
@@ -190,13 +190,29 @@ export const requireAuth: MiddlewareHandler<AppBindings> = async (c, next) => {
   const [user] = await db.select().from(users).where(eq(users.id, session.userId));
   if (!user) return c.json({ error: "Not signed in" }, 401);
 
-  // An account from before every stored time was UTC is converted on its first request. Not on
-  // `/api/me`: that is where the app reports which zone the student is in, and the conversion
-  // has to read their times in that zone, not in the sign-up default.
-  if (user.timeStandard < 1 && !c.req.path.startsWith("/api/me")) {
-    // Never at the cost of the request: unconverted times are wrong by a few hours, a failed
-    // request is a broken app. The next request tries again.
-    await ensureUtcStandard(db, c.env.DB, user.id).catch((error: unknown) => {
+  /**
+   * An account from before every stored time was UTC (migration 0008).
+   *
+   * Converted on the first request from an app that says where the device is -- every request
+   * from the updated app carries `X-Device-Time-Zone` -- in that zone, or in the zone the student
+   * pinned. Not before: the stored zone may be the sign-up default, and a conversion in the wrong
+   * zone is permanent. And an older app, which sends no zone, is not served at all until it is
+   * reloaded: it would read UTC records as local ones, and anything it made the server write --
+   * a replan, a moved block -- would be stored as UTC and then shifted a second time by the
+   * conversion. Found in review.
+   */
+  if (user.timeStandard < 1) {
+    const device = c.req.header("X-Device-Time-Zone");
+    if (!device || !isTimeZone(device)) {
+      return c.json(
+        { error: "SchoolQuest was updated. Reload this page (or restart the app) to carry on." },
+        409,
+      );
+    }
+    const zone = user.timezoneMode === "pinned" && isTimeZone(user.timezone) ? user.timezone : device;
+    // Never at the cost of the request beyond this point: a failed conversion is retried on the
+    // next request, and the account stays unconverted until one succeeds.
+    await ensureUtcStandard(db, c.env.DB, user.id, zone).catch((error: unknown) => {
       console.error("utc conversion failed", user.id, error);
     });
   }

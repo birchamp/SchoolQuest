@@ -31,7 +31,7 @@ app.use("*", async (c, next) => {
     origin: (origin) => (allowed.includes(origin) ? origin : allowed[0]!),
     credentials: true,
     allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Device-Time-Zone"],
   })(c, next);
 });
 

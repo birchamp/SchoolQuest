@@ -39,6 +39,24 @@ export function composeDueAt(date: string, time: string): string | null {
   return fromLocal(date, clock);
 }
 
+/**
+ * What a deadline becomes after the student edits the two boxes, or undefined when nothing
+ * changed and nothing should be saved.
+ *
+ * Judged by what the boxes show, not by rejoining them: on the night the clocks go back the
+ * boxes cannot tell the two 1:30s apart, so a deadline at the second one rejoined as the first,
+ * and tabbing past the row moved it an hour earlier. Found in review.
+ */
+export function dueAfterEdit(
+  stored: string | null | undefined,
+  date: string,
+  time: string,
+): string | null | undefined {
+  if (stored && date === dueDatePart(stored) && time === dueTimePart(stored)) return undefined;
+  const next = composeDueAt(date, time);
+  return next === (stored ?? null) ? undefined : next;
+}
+
 /** A deadline as a short day, on the student's calendar: "Oct 5". */
 export function formatDueDay(
   dueAt: string,

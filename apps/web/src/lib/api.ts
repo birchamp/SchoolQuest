@@ -7,6 +7,7 @@
  */
 
 import { recordDiagnostic } from "./diagnostics";
+import { browserTimeZone } from "./clock";
 
 const TOKEN_KEY = "sq_session_token";
 
@@ -50,6 +51,19 @@ export function setStoredToken(token: string | null): void {
   }
 }
 
+/**
+ * The device's IANA zone, on every request.
+ *
+ * Tells the server this is an app that knows every time is UTC, and where the device is: an
+ * account still holding old local-time records is converted only on a request that carries it,
+ * in that zone, and an older app gets "reload" instead of a server acting on records it would
+ * misread (see `apps/api/src/auth.ts`).
+ */
+function deviceZoneHeader(): Record<string, string> {
+  const zone = browserTimeZone();
+  return zone ? { "X-Device-Time-Zone": zone } : {};
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = storedToken();
   const isFormData = init.body instanceof FormData;
@@ -60,6 +74,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers: {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...deviceZoneHeader(),
       ...init.headers,
     },
   });
@@ -101,7 +116,7 @@ export const api = {
     const token = storedToken();
     const response = await fetch(`${API_BASE}${path}`, {
       credentials: "include",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...deviceZoneHeader() },
     });
     recordDiagnostic("api", `GET ${path} -> ${response.status}`);
     if (!response.ok) {
