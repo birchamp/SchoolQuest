@@ -298,6 +298,12 @@ describe("grades", () => {
     expect(concern.detail).toContain('"Lab safety" was recorded as a Fail');
     expect(failed.level).not.toBe("steady");
 
+    const dropped = build({
+      items: [item({ id: "wi_a", title: "Lab safety", status: "completed" })],
+      grades: [{ ...passFail("wi_a", "Fail"), dropped: true }],
+    });
+    expect(codes(dropped)).not.toContain("PASS_FAIL_FAILED");
+
     const optional = build({
       items: [item({ id: "wi_a", title: "Lab safety", status: "optional" })],
       grades: [passFail("wi_a", "Fail")],

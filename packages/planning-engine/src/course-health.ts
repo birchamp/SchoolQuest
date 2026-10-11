@@ -200,9 +200,10 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
   const now = toEpochMinutes(input.now);
   const loadById = new Map(input.load.map((l) => [l.courseId, l]));
   const gradedItemIds = new Set(input.grades.map((g) => g.workItemId));
-  // A Fail moves no percentage, so without this it would read exactly like a Pass.
+  // A Fail moves no percentage, so without this it would read exactly like a Pass. A dropped
+  // result is excluded from the grade, so its Fail is too.
   const failedItemIds = new Set(
-    input.grades.filter((g) => passFailOf(g) === "fail").map((g) => g.workItemId),
+    input.grades.filter((g) => !g.dropped && passFailOf(g) === "fail").map((g) => g.workItemId),
   );
 
   const courses = input.courses.map((course) => {

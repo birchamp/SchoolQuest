@@ -220,7 +220,26 @@ function setupGauge(facts: CourseSetupFacts, calendarEntries: number): Gauge {
  */
 const MEANINGFUL_GRADED_FRACTION = 0.15;
 
+/**
+ * The grade dial, with a recorded Fail folded in.
+ *
+ * A Fail on Pass/Fail work moves no percentage, so the dial computed from the percentage alone
+ * would read "nothing graded yet" -- or "good" -- beside a course the engine says needs
+ * attention for exactly that Fail. Below "watch", the Fail is what the dial says.
+ */
 function gradeGauge(health: CourseHealthLike): Gauge {
+  const gauge = gradeGaugeFromPercent(health);
+  const failed = health.concerns.find((c) => c.code === "PASS_FAIL_FAILED");
+  if (!failed || SEVERITY[gauge.level] >= SEVERITY.watch) return gauge;
+  return {
+    ...gauge,
+    level: "watch",
+    detail: failed.detail,
+    action: { label: "Look at the failed work", target: "work" },
+  };
+}
+
+function gradeGaugeFromPercent(health: CourseHealthLike): Gauge {
   if (health.gradePercent === null) {
     return {
       key: "grade",

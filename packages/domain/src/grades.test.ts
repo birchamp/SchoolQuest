@@ -140,6 +140,8 @@ describe("Pass/Fail results", () => {
   it("reads the outcome only from a pointless result carrying the Pass/Fail letter", () => {
     expect(passFailOf(grade({ id: "g", workItemId: "wi", letterGrade: PASS_LETTER }))).toBe("pass");
     expect(passFailOf(grade({ id: "g", workItemId: "wi", letterGrade: FAIL_LETTER }))).toBe("fail");
+    // A "Fail" letter with a total attached is a letter grade, not a Pass/Fail outcome.
+    expect(passFailOf(grade({ id: "g", workItemId: "wi", pointsPossible: 10, letterGrade: FAIL_LETTER }))).toBeNull();
     // "F" is a letter grade, not a Pass/Fail outcome.
     expect(passFailOf(grade({ id: "g", workItemId: "wi", letterGrade: "F" }))).toBeNull();
     expect(

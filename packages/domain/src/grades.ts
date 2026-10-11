@@ -55,9 +55,14 @@ export const FAIL_LETTER = "Fail";
 
 export type PassFail = "pass" | "fail";
 
-/** The Pass/Fail outcome of a result, or null when it is a scored (or pending) result. */
-export function passFailOf(grade: Pick<GradeResult, "pointsEarned" | "letterGrade">): PassFail | null {
-  if (grade.pointsEarned !== null) return null;
+/**
+ * The Pass/Fail outcome of a result, or null when it is a scored (or pending) result. Both point
+ * fields must be empty: a "Fail" letter with a total attached is a letter grade, not this.
+ */
+export function passFailOf(
+  grade: Pick<GradeResult, "pointsEarned" | "pointsPossible" | "letterGrade">,
+): PassFail | null {
+  if (grade.pointsEarned !== null || grade.pointsPossible !== null) return null;
   if (grade.letterGrade === PASS_LETTER) return "pass";
   if (grade.letterGrade === FAIL_LETTER) return "fail";
   return null;

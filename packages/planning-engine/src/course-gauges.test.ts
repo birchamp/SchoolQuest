@@ -110,6 +110,25 @@ describe("courseGauges", () => {
       const g = run(health({ gradePercent: null, ungradedResults: 3 }));
       expect(g.gauges.grade.detail).toContain("3 finished items have no result");
     });
+
+    it("shows a recorded Fail, which no percentage would", () => {
+      const fail = {
+        code: "PASS_FAIL_FAILED" as const,
+        level: "needs_attention" as const,
+        detail: '"Lab safety" was recorded as a Fail. Check whether it can be redone or must be passed.',
+      };
+      const only = run(health({ level: "needs_attention", gradePercent: null, concerns: [fail] }));
+      expect(only.gauges.grade.level).toBe("watch");
+      expect(only.gauges.grade.detail).toContain("recorded as a Fail");
+      expect(only.gauges.grade.action?.target).toBe("work");
+      expect(only.gauges.overall.detail).toContain("recorded as a Fail");
+
+      // Beside a good percentage it still shows; beside a worse verdict, the worse one stands.
+      expect(run(health({ concerns: [fail] })).gauges.grade.level).toBe("watch");
+      const below = run(health({ gradePercent: 55, concerns: [fail] }));
+      expect(below.gauges.grade.level).toBe("bad");
+      expect(below.gauges.grade.detail).toContain("below");
+    });
   });
 
   describe("planning", () => {
