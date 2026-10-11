@@ -3,6 +3,7 @@ import { passFailOf, type Course, type PassFail, type WorkItem } from "@schoolqu
 import { buildWeekCalendar, defaultEffortFor, type SlotKind } from "@schoolquest/planning-engine";
 import { appToday, formatTime, localMinuteOfDay, planTimeZone } from "../lib/clock";
 import { api } from "../lib/api";
+import { track } from "../lib/usage";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
 import { noPercentReading, onDefaultList, parseScoreEntry } from "../lib/record-results";
@@ -319,6 +320,7 @@ export function AssignmentsTable({
     setError(null);
     try {
       await api.put(`/api/work-items/${item.id}/grade`, score);
+      track("grade.record");
       setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
       setEditingGrade(null);
       onChanged();

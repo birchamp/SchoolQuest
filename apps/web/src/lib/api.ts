@@ -106,6 +106,13 @@ export const api = {
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  /**
+   * A POST that may outlive the page: `keepalive` lets the browser finish it after the tab is
+   * hidden or closed. Used for the usage log's last flush. Not `sendBeacon`, which cannot carry
+   * the desktop shell's bearer header, so the desktop app's counts would never arrive.
+   */
+  postKeepalive: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: "POST", body: JSON.stringify(body), keepalive: true }),
   upload: <T>(path: string, form: FormData) =>
     request<T>(path, { method: "POST", body: form }),
   /**

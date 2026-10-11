@@ -42,6 +42,7 @@ import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 import { CampaignRadar } from "./components/CampaignRadar";
 import { PlanChanges } from "./components/PlanChanges";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Seen, setUsageEnabled, track } from "./lib/usage";
 import { afterOvertaken, latestRequest } from "./lib/latest-request";
 import { errorMessage, runAction } from "./lib/run-action";
 import { labelOf, TimeZoneSettings } from "./components/TimeZoneSettings";
@@ -190,6 +191,7 @@ export function App() {
         stats: ["stats"],
       };
       const [tabId, elementId] = routes[target];
+      track("stats.go_fix");
       goTo(tabId, elementId);
     },
     [goTo],
@@ -363,6 +365,21 @@ export function App() {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  /**
+   * The usage log counts only for a signed-in student who has not switched it off on Setup.
+   * Signing out or opting out stops it and discards anything counted and not yet sent.
+   */
+  const shareUsage = me !== null && me.shareUsage !== false;
+  useEffect(() => {
+    setUsageEnabled(shareUsage);
+  }, [shareUsage]);
+
+  // Counted from the tab itself rather than the buttons, so a hash link or Back counts too.
+  const tabShown = me && term ? tab : null;
+  useEffect(() => {
+    if (tabShown) track(`tab.${tabShown}` as const);
+  }, [tabShown]);
 
   useEffect(() => {
     document.body.dataset["reducedMotion"] = String(me?.reducedMotion ?? false);
@@ -551,10 +568,18 @@ export function App() {
   );
 
   async function changeTheme(next: ThemeName) {
+    track("theme.change");
     await run(async () => {
       const { user } = await api.patch<{ user: Me }>("/api/me", { theme: next });
       setMe(user);
     }, "Your theme did not save.");
+  }
+
+  async function changeShareUsage(next: boolean) {
+    await run(async () => {
+      const { user } = await api.patch<{ user: Me }>("/api/me", { shareUsage: next });
+      setMe(user);
+    }, "That setting did not save.");
   }
 
   async function signOut() {
@@ -661,11 +686,20 @@ export function App() {
         <div className="view-switch" role="group" aria-label="How to show your data">
           <button
             aria-pressed={viewMode === "visual"}
-            onClick={() => setViewMode("visual")}
+            onClick={() => {
+              track("view_mode.visual");
+              setViewMode("visual");
+            }}
           >
             Visual
           </button>
-          <button aria-pressed={viewMode === "table"} onClick={() => setViewMode("table")}>
+          <button
+            aria-pressed={viewMode === "table"}
+            onClick={() => {
+              track("view_mode.table");
+              setViewMode("table");
+            }}
+          >
             Tables
           </button>
         </div>
@@ -729,6 +763,7 @@ export function App() {
         <>
           {tab === "radar" &&
             (plan.radar ? (
+              <Seen event="card_seen.radar">
               <CampaignRadar
                 radar={plan.radar}
                 courses={plan.courses}
@@ -737,6 +772,7 @@ export function App() {
                 onPrioritize={prioritize}
                 onHandIn={handIn}
               />
+              </Seen>
             ) : (
               // The radar is built on saved-plan reads. A plan generated a moment ago in this
               // session has not been read back yet, so say that rather than drawing an empty
@@ -768,36 +804,49 @@ export function App() {
           {tab === "week" && (
             <>
               {lastDiff && (
+                <Seen event="card_seen.plan_changes">
                 <PlanChanges
                   diff={lastDiff}
                   plan={plan}
                   risksNow={countAtRisk(plan)}
                   onDismiss={() => setLastDiff(null)}
                 />
+                </Seen>
               )}
               {/* Before the week ahead, what the weeks behind have to say about it. First
                   because its answers change the plan below it, and a question the student
                   has to scroll to find is a question nobody answers. It renders nothing at
                   all when the weeks went as planned. */}
               {plan.review && (
+                <Seen event="card_seen.weekly_review">
                 <WeeklyReview
                   review={plan.review}
                   termId={term.id}
                   onAnswered={replan}
                 />
+                </Seen>
               )}
               {viewMode === "table" ? (
                 <>
-                  <WeekTable plan={plan} />
-                  <LookaheadTable plan={plan} />
-                  <AssignmentsTable plan={plan} onChanged={replan} />
+                  <Seen event="card_seen.week_table">
+                    <WeekTable plan={plan} />
+                  </Seen>
+                  <Seen event="card_seen.lookahead_table">
+                    <LookaheadTable plan={plan} />
+                  </Seen>
+                  <Seen event="card_seen.assignments_table">
+                    <AssignmentsTable plan={plan} onChanged={replan} />
+                  </Seen>
                 </>
               ) : (
                 <>
                   {plan.brief && (
+                    <Seen event="card_seen.session_brief">
                     <SessionBrief brief={plan.brief} courses={plan.courses} />
+                    </Seen>
                   )}
                   {plan.courseLoad && (
+                    <Seen event="card_seen.course_table">
                     <ErrorBoundary area={label("courseTable", theme)}>
                     <CampaignTable
                       load={plan.courseLoad}
@@ -815,8 +864,10 @@ export function App() {
                       }
                     />
                     </ErrorBoundary>
+                    </Seen>
                   )}
 
+                  <Seen event="card_seen.layer_bar">
                   <LayerBar
                     layers={buildLayers(plan, hiddenCourseIds)}
                     onToggle={(courseId) =>
@@ -829,6 +880,7 @@ export function App() {
                     }
                     onAll={() => setHiddenCourseIds(new Set())}
                   />
+                  </Seen>
 
                   {/* The week has two honest shapes and neither replaces the other: the map
                       says what the work is, the calendar says where the hours go. */}
@@ -836,21 +888,30 @@ export function App() {
                     <button
                       className={`action${weekView === "map" ? " primary" : ""}`}
                       aria-pressed={weekView === "map"}
-                      onClick={() => setWeekView("map")}
+                      onClick={() => {
+                        track("week_view.map");
+                        setWeekView("map");
+                      }}
                     >
                       {label("weekMap", theme)}
                     </button>
                     <button
                       className={`action${weekView === "calendar" ? " primary" : ""}`}
                       aria-pressed={weekView === "calendar"}
-                      onClick={() => setWeekView("calendar")}
+                      onClick={() => {
+                        track("week_view.calendar");
+                        setWeekView("calendar");
+                      }}
                     >
                       Hour by hour
                     </button>
                     <button
                       className={`action${weekView === "terrain" ? " primary" : ""}`}
                       aria-pressed={weekView === "terrain"}
-                      onClick={() => setWeekView("terrain")}
+                      onClick={() => {
+                        track("week_view.terrain");
+                        setWeekView("terrain");
+                      }}
                     >
                       The road ahead
                     </button>
@@ -858,6 +919,7 @@ export function App() {
 
                   {/* Each large drawing gets its own boundary, so one that fails leaves the rest
                       of the week standing. */}
+                  <Seen event="card_seen.week_drawing">
                   <ErrorBoundary
                     key={weekView}
                     area={
@@ -891,8 +953,10 @@ export function App() {
                     />
                   )}
                   </ErrorBoundary>
+                  </Seen>
 
                   {plan.brief && (
+                    <Seen event="card_seen.term_map">
                     <ErrorBoundary area={label("termMap", theme)}>
                       <CampaignArc
                         milestones={plan.brief.milestones}
@@ -901,6 +965,7 @@ export function App() {
                         hiddenCourseIds={hiddenCourseIds}
                       />
                     </ErrorBoundary>
+                    </Seen>
                   )}
                   {plan.progress && (
                     <ErrorBoundary area={label("progress", theme)}>
@@ -920,8 +985,13 @@ export function App() {
               underneath a seven-day grid buries it. */}
           {/* The term page opens with the one question no other screen answers — which
               course needs me — and only then goes into the detail behind it. */}
-          {tab === "stats" && viewMode === "table" && <CoursesTable plan={plan} />}
+          {tab === "stats" && viewMode === "table" && (
+            <Seen event="card_seen.courses_table">
+              <CoursesTable plan={plan} />
+            </Seen>
+          )}
           {tab === "stats" && viewMode === "visual" && plan.health && (
+            <Seen event="card_seen.class_board">
             <ErrorBoundary area="How each class is doing">
               <CourseGaugeBoard
                 termId={term.id}
@@ -931,6 +1001,7 @@ export function App() {
                 refreshKey={setupSaves}
               />
             </ErrorBoundary>
+            </Seen>
           )}
           {tab === "stats" && viewMode === "visual" && plan.health && (
             <ErrorBoundary area={label("dashboard", theme)}>
@@ -944,6 +1015,7 @@ export function App() {
             </ErrorBoundary>
           )}
           {tab === "stats" && viewMode === "visual" && plan.projects && (
+            <Seen event="card_seen.stats">
             <ErrorBoundary area={label("statsPage", theme)}>
               <Stats
                 projects={plan.projects}
@@ -952,6 +1024,7 @@ export function App() {
                 standings={plan.standings}
               />
             </ErrorBoundary>
+            </Seen>
           )}
           {tab === "coach" && (
             <Coach termId={term.id} onPlanChanged={refreshPlan} />
@@ -1054,11 +1127,31 @@ export function App() {
                   Themes change wording only. Your courses, assignments, and plan are
                   untouched.
                 </p>
+                <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.9rem" }}>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={me.shareUsage !== false}
+                    onChange={(e) => void changeShareUsage(e.target.checked)}
+                    data-testid="share-usage"
+                  />
+                  Share anonymous usage counts
+                </label>
+                <p className="muted" style={{ margin: "0.3rem 0 0" }}>
+                  This counts which screens and buttons are used, totalled per day, and never
+                  what you type or any details of your courses.
+                </p>
               </section>
               <section className="card">
                 <h2>Account</h2>
                 <div className="button-row">
-                  <button className="action" onClick={() => void replan()}>
+                  <button
+                    className="action"
+                    onClick={() => {
+                      track("plan.rebuild");
+                      void replan();
+                    }}
+                  >
                     Rebuild this week&apos;s plan
                   </button>
                   <button className="action" onClick={() => setConfirmNewTerm((v) => !v)}>

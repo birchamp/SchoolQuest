@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
+import { track } from "../lib/usage";
 import type { CoachActionView, CoachMessageView, CoachReplyResponse } from "../lib/types";
 import { useTheme } from "../lib/theme-context";
 
@@ -86,6 +87,7 @@ export function Coach({
     ]);
 
     try {
+      track("coach.send");
       const reply = await api.post<CoachReplyResponse>("/api/coach/messages", {
         termId,
         message,
@@ -116,6 +118,7 @@ export function Coach({
         case "START_SESSION":
           if (typeof sessionId === "string") {
             await api.post(`/api/work-sessions/${sessionId}/start`);
+            track("session.start");
           }
           break;
         case "SKIP_SESSION":
