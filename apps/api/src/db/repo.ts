@@ -50,6 +50,29 @@ export async function insertInChunks<T>(
 }
 
 /**
+ * `rows` in runs of `chunkSize`, for statements that go into one `db.batch` rather than being
+ * awaited one by one. Same parameter ceiling as `insertInChunks`; a batch does not lift it.
+ */
+export function chunk<T>(rows: T[], chunkSize: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < rows.length; i += chunkSize) out.push(rows.slice(i, i + chunkSize));
+  return out;
+}
+
+/**
+ * Whether `error` is SQLite refusing a duplicate in the unique index over `columns`, such as
+ * "UNIQUE constraint failed: plan_versions.term_id, plan_versions.version_number". The cause
+ * chain is searched too, in case the driver wraps the D1 error.
+ */
+export function isUniqueViolation(error: unknown, columns: string[]): boolean {
+  const expected = `UNIQUE constraint failed: ${columns.join(", ")}`;
+  for (let e = error; e instanceof Error; e = e.cause) {
+    if (e.message.includes(expected)) return true;
+  }
+  return false;
+}
+
+/**
  * The read-side twin of `insertInChunks`. An `IN (...)` clause binds one parameter per id, so a
  * single `inArray(col, ids)` over a large id set trips the very same "too many SQL variables"
  * ceiling -- silently, until a term grows enough. A student with several syllabuses easily passes

@@ -191,6 +191,16 @@ export const workItems = sqliteTable(
     courseId: text("course_id")
       .notNull()
       .references(() => courses.id, { onDelete: "cascade" }),
+    /**
+     * No foreign key here or on `gradingCategoryId`, deliberately (issue #24). SQLite adds one
+     * only by rebuilding the table, and on D1 -- which enforces foreign keys and ignores
+     * `PRAGMA foreign_keys = OFF` inside a migration -- dropping `work_items` deletes every row
+     * through the `on delete cascade` of `work_sessions` and `grade_results`: the rebuild would
+     * erase every block and grade. `gradingCategoryId` also dangles in ordinary use, since saving
+     * a grading scheme replaces the course's categories with new ids, so the copy into the rebuilt
+     * table would fail on live data even if the cascade did not fire. `deleteWorkItems` removes
+     * a project's stages with it instead.
+     */
     parentWorkItemId: text("parent_work_item_id"),
     title: text("title").notNull(),
     description: text("description"),
@@ -220,8 +230,12 @@ export const dependencies = sqliteTable(
   "dependencies",
   {
     id: text("id").primaryKey(),
-    predecessorWorkItemId: text("predecessor_work_item_id").notNull(),
-    successorWorkItemId: text("successor_work_item_id").notNull(),
+    predecessorWorkItemId: text("predecessor_work_item_id")
+      .notNull()
+      .references(() => workItems.id, { onDelete: "cascade" }),
+    successorWorkItemId: text("successor_work_item_id")
+      .notNull()
+      .references(() => workItems.id, { onDelete: "cascade" }),
     dependencyType: text("dependency_type").notNull().default("finish_to_start"),
   },
   (t) => [index("dependencies_successor_idx").on(t.successorWorkItemId)],
@@ -243,7 +257,9 @@ export const planVersions = sqliteTable(
     summaryJson: text("summary_json").notNull().default("{}"),
     createdAt: text("created_at").notNull(),
   },
-  (t) => [index("plan_versions_term_idx").on(t.termId, t.versionNumber)],
+  // Unique: two replans racing for one term both read the same latest number, and the second to
+  // commit must fail rather than leave two "version 7"s (issue #19). The generate route retries.
+  (t) => [uniqueIndex("plan_versions_term_idx").on(t.termId, t.versionNumber)],
 );
 
 export const workSessions = sqliteTable(
@@ -253,7 +269,9 @@ export const workSessions = sqliteTable(
     workItemId: text("work_item_id")
       .notNull()
       .references(() => workItems.id, { onDelete: "cascade" }),
-    planVersionId: text("plan_version_id").notNull(),
+    planVersionId: text("plan_version_id")
+      .notNull()
+      .references(() => planVersions.id, { onDelete: "cascade" }),
     startAt: text("start_at").notNull(),
     endAt: text("end_at").notNull(),
     status: text("status").notNull().default("planned"),
