@@ -1087,12 +1087,15 @@ function buildRecommendations(
 ): PlanRecommendation[] {
   const itemsById = new Map(input.workItems.map((w) => [w.id, w]));
 
-  const chosen = selectRecommendedSessions(sessions, now, (a, b) => {
-    const aScore = priorityById.get(a.workItemId)?.score ?? 0;
-    const bScore = priorityById.get(b.workItemId)?.score ?? 0;
-    // The next block in the day wins ties — the plan is meant to be followed in order.
-    return a.startAt.localeCompare(b.startAt) || bScore - aScore;
-  }, 3, input.timeZone);
+  const chosen = selectRecommendedSessions(sessions, now, {
+    compare: (a, b) => {
+      const aScore = priorityById.get(a.workItemId)?.score ?? 0;
+      const bScore = priorityById.get(b.workItemId)?.score ?? 0;
+      // The next block in the day wins ties — the plan is meant to be followed in order.
+      return a.startAt.localeCompare(b.startAt) || bScore - aScore;
+    },
+    timeZone: input.timeZone,
+  });
 
   return chosen.map((session, index) => ({
     rank: index,
@@ -1131,10 +1134,16 @@ export interface RecommendableSession {
 export function selectRecommendedSessions<T extends RecommendableSession>(
   sessions: readonly T[],
   now: number,
-  compare: (a: T, b: T) => number = (a, b) => a.startAt.localeCompare(b.startAt),
-  limit = 3,
-  /** The student's zone: "today" ends at their midnight, not Greenwich's. Absent means UTC. */
-  timeZone?: string,
+  {
+    compare = (a, b) => a.startAt.localeCompare(b.startAt),
+    limit = 3,
+    timeZone,
+  }: {
+    compare?: (a: T, b: T) => number;
+    limit?: number;
+    /** The student's zone: "today" ends at their midnight, not Greenwich's. Absent means UTC. */
+    timeZone?: string;
+  } = {},
 ): T[] {
   const calendar = zoneCalendar(timeZone);
   const endOfToday = calendar.dayStart(addDays(calendar.dateOf(now), 1));

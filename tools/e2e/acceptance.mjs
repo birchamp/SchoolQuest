@@ -241,7 +241,7 @@ await runJourney("acceptance steps", async ({ browser }) => {
   check("the course standing counts the Pass as a Pass/Fail result", passFailInStanding === 1, `passFailCount ${passFailInStanding}`);
   const empty = await fetch(`${API}/api/work-items/${labSafety.id}/grade`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+    headers: { "X-SchoolQuest-Client": "2", "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
     body: "{}",
   });
   check("an empty grade body is refused rather than recorded", empty.status === 400, `status ${empty.status}`);

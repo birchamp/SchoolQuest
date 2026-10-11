@@ -38,7 +38,7 @@ let token = null;
 async function api(path, method = "GET", body) {
   const res = await fetch(API + path, {
     method,
-    headers: {
+    headers: { "X-SchoolQuest-Client": "2",
       "content-type": "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
@@ -158,7 +158,7 @@ async function main() {
     form.set("type", "syllabus");
     const upload = await fetch(`${API}/api/courses/${row.id}/documents`, {
       method: "POST",
-      headers: { authorization: `Bearer ${token}` },
+      headers: { "X-SchoolQuest-Client": "2", authorization: `Bearer ${token}` },
       body: form,
     });
     if (!upload.ok) throw new Error(`upload ${course.key} -> ${upload.status}: ${await upload.text()}`);

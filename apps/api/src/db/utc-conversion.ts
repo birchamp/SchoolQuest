@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import {
+  dateToEpochMinutes,
   fromEpochMinutes,
-  isTimeZone,
   toEpochMinutes,
   zoneCalendar,
   type ZoneCalendar,
@@ -31,70 +31,76 @@ export async function ensureUtcStandard(
   db: Db,
   d1: D1Database,
   userId: string,
-  /** The zone the records were written in: the device's, or the one the student pinned. */
+  /** The zone the records were written in; see `conversionZone`. */
   timeZone: string,
+  /** Whether the account takes `timeZone` as its own: only when it replaces the sign-up default. */
+  adopt = false,
 ): Promise<boolean> {
   const [user] = await db
-    .select({ timezone: users.timezone, timeStandard: users.timeStandard })
+    .select({ timeStandard: users.timeStandard })
     .from(users)
     .where(eq(users.id, userId));
   if (!user || user.timeStandard >= 1) return false;
 
-  const calendar = zoneCalendar(isTimeZone(timeZone) ? timeZone : "UTC");
+  const calendar = zoneCalendar(timeZone);
+  // Every lookup in chunks: D1 binds at most 100 parameters to a statement, and an account with a
+  // long history of terms and courses would otherwise fail its conversion on every request.
   const termIds = (await db.select({ id: terms.id }).from(terms).where(eq(terms.userId, userId))).map(
     (t) => t.id,
   );
-  const courseIds =
-    termIds.length === 0
-      ? []
-      : (await db.select({ id: courses.id }).from(courses).where(inArray(courses.termId, termIds))).map(
-          (row) => row.id,
-        );
-
-  const items =
-    courseIds.length === 0
-      ? []
-      : await db
-          .select({ id: workItems.id, dueAt: workItems.dueAt, availableAt: workItems.availableAt })
-          .from(workItems)
-          .where(inArray(workItems.courseId, courseIds));
-  const itemIds = items.map((i) => i.id);
-  const sessions: { id: string; startAt: string; endAt: string }[] = [];
-  for (let i = 0; i < itemIds.length; i += 90) {
-    sessions.push(
-      ...(await db
+  const courseIds = (
+    await inChunks(termIds, (ids) => db.select({ id: courses.id }).from(courses).where(inArray(courses.termId, ids)))
+  ).map((row) => row.id);
+  const items = await inChunks(courseIds, (ids) =>
+    db
+      .select({ id: workItems.id, dueAt: workItems.dueAt, availableAt: workItems.availableAt })
+      .from(workItems)
+      .where(inArray(workItems.courseId, ids)),
+  );
+  const sessions = await inChunks(
+    items.map((i) => i.id),
+    (ids) =>
+      db
         .select({ id: workSessions.id, startAt: workSessions.startAt, endAt: workSessions.endAt })
         .from(workSessions)
-        .where(inArray(workSessions.workItemId, itemIds.slice(i, i + 90)))),
-    );
-  }
-  const reported =
-    termIds.length === 0
-      ? []
-      : await db
-          .select({ id: interruptions.id, startAt: interruptions.startAt, endAt: interruptions.endAt })
-          .from(interruptions)
-          .where(inArray(interruptions.termId, termIds));
+        .where(inArray(workSessions.workItemId, ids)),
+  );
+  const reported = await inChunks(termIds, (ids) =>
+    db
+      .select({ id: interruptions.id, startAt: interruptions.startAt, endAt: interruptions.endAt })
+      .from(interruptions)
+      .where(inArray(interruptions.termId, ids)),
+  );
 
-  // Every change, as (table, column, id, from, to). Only values that actually move.
-  const changes: { table: "work_items" | "work_sessions" | "interruptions"; column: string; id: string; to: string }[] = [];
-  const note = (table: (typeof changes)[number]["table"], column: string, id: string, before: string | null) => {
-    if (!before) return;
-    const after = floatingToUtc(before, calendar);
-    if (after !== before) changes.push({ table, column, id, to: after });
+  // Every change, as (table, column, id, to). Only values that actually move.
+  type Table = "work_items" | "work_sessions" | "interruptions";
+  const changes: { table: Table; column: string; id: string; to: string }[] = [];
+  const put = (table: Table, column: string, id: string, before: string | null, after: string | null) => {
+    if (before && after && after !== before) changes.push({ table, column, id, to: after });
   };
   for (const item of items) {
-    note("work_items", "due_at", item.id, item.dueAt);
-    note("work_items", "available_at", item.id, item.availableAt);
+    put("work_items", "due_at", item.id, item.dueAt, item.dueAt ? floatingToUtc(item.dueAt, calendar) : null);
+    put("work_items", "available_at", item.id, item.availableAt, item.availableAt ? floatingToUtc(item.availableAt, calendar) : null);
   }
-  for (const session of sessions) {
-    note("work_sessions", "start_at", session.id, session.startAt);
-    note("work_sessions", "end_at", session.id, session.endAt);
-  }
-  for (const row of reported) {
-    note("interruptions", "start_at", row.id, row.startAt);
-    note("interruptions", "end_at", row.id, row.endAt);
-  }
+  /**
+   * A block keeps its length. Converting its start and end separately stretched an hour-long
+   * block in the repeated hour on the night the clocks go back into two hours, and shrank one
+   * across the spring-forward gap -- while its stored minutes still said sixty. Found in review.
+   */
+  const span = (row: { id: string; startAt: string | null; endAt: string | null }, table: Table) => {
+    if (!row.startAt || !row.endAt) {
+      put(table, "start_at", row.id, row.startAt, row.startAt ? floatingToUtc(row.startAt, calendar) : null);
+      put(table, "end_at", row.id, row.endAt, row.endAt ? floatingToUtc(row.endAt, calendar) : null);
+      return;
+    }
+    const start = floatingToUtc(row.startAt, calendar);
+    const length = Date.parse(row.endAt) - Date.parse(row.startAt);
+    if (start === null || !Number.isFinite(length)) return;
+    put(table, "start_at", row.id, row.startAt, start);
+    put(table, "end_at", row.id, row.endAt, new Date(Date.parse(start) + length).toISOString());
+  };
+  for (const session of sessions) span(session, "work_sessions");
+  for (const row of reported) span(row, "interruptions");
 
   /**
    * One transaction, guarded by the flag *inside* it.
@@ -114,7 +120,9 @@ export async function ensureUtcStandard(
   const groups = new Map<string, typeof changes>();
   for (const change of changes) {
     const key = `${change.table}.${change.column}`;
-    groups.set(key, [...(groups.get(key) ?? []), change]);
+    const group = groups.get(key);
+    if (group) group.push(change);
+    else groups.set(key, [change]);
   }
   for (const [key, group] of groups) {
     const [table, column] = key.split(".") as [string, string];
@@ -132,27 +140,41 @@ export async function ensureUtcStandard(
       );
     }
   }
-  // The zone the records were read in becomes the account's, so the screens show them in it.
+  // The zone the records were read in becomes the account's only when it replaced the sign-up
+  // default; a zone the student had is left for the app to compare with the device and ask.
   statements.push(
-    d1
-      .prepare("UPDATE users SET time_standard = 1, timezone = ? WHERE id = ? AND time_standard = 0")
-      .bind(timeZone, userId),
+    adopt
+      ? d1
+          .prepare("UPDATE users SET time_standard = 1, timezone = ? WHERE id = ? AND time_standard = 0")
+          .bind(timeZone, userId)
+      : d1.prepare("UPDATE users SET time_standard = 1 WHERE id = ? AND time_standard = 0").bind(userId),
   );
 
   await d1.batch(statements);
   return changes.length > 0;
 }
 
+/** Runs a lookup over ids in chunks small enough for D1's bound-parameter limit. */
+async function inChunks<T>(ids: string[], query: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let i = 0; i < ids.length; i += 90) rows.push(...(await query(ids.slice(i, i + 90))));
+  return rows;
+}
+
 /**
- * A stored local wall-clock time, as the UTC instant it named.
+ * A stored local wall-clock time, as the UTC instant it named; null for a value that is not a
+ * time at all.
  *
  * The characters are the student's local date and time of day. A time that never happened (inside
  * a spring-forward gap) moves past the jump, as a clock would; one that happened twice is its first.
+ * An unreadable value is left alone rather than thrown on: one bad row must not stop an account's
+ * conversion, and with it the account, for good.
  */
-export function floatingToUtc(value: string, calendar: ZoneCalendar): string {
-  const date = value.slice(0, 10);
+export function floatingToUtc(value: string, calendar: ZoneCalendar): string | null {
   const floating = toEpochMinutes(value);
-  const minuteOfDay = floating - toEpochMinutes(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(floating) || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
+  const date = value.slice(0, 10);
+  const minuteOfDay = floating - dateToEpochMinutes(date);
   const seconds = value.slice(17, 23);
   const converted = fromEpochMinutes(calendar.at(date, minuteOfDay));
   // Keep any seconds the old value carried; the calendar works in whole minutes.

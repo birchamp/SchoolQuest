@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Course, ThemeName } from "@schoolquest/domain";
-import { addDays, formatTimeOfDay, fromEpochMinutes, toEpochMinutes } from "@schoolquest/domain";
+import { addDays, toEpochMinutes } from "@schoolquest/domain";
 import {
   buildWeekCalendar,
   type CalendarDeadline,
@@ -9,12 +9,11 @@ import {
 } from "@schoolquest/planning-engine";
 import {
   appToday,
-  formatClock,
+  formatMinuteOfDay,
   formatInstant,
   formatTime,
   fromLocal,
   localDate,
-  localMinuteOfDay,
   localTime,
   planTimeZone,
 } from "../lib/clock";
@@ -118,14 +117,6 @@ function formatMinutes(minutes: number): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
-}
-
-/** A minute of the student's day as a clock reading: "9 AM", "9:30 AM". */
-function clockOf(minuteOfDay: number): string {
-  return formatClock(formatTimeOfDay(minuteOfDay), {
-    hour: "numeric",
-    ...(minuteOfDay % 60 === 0 ? {} : { minute: "2-digit" as const }),
-  });
 }
 
 /** A study band is moved in these steps: a quarter hour up or down, a whole day across. */
@@ -396,7 +387,7 @@ export function WeekCalendar({
                   fontSize: "0.66rem",
                 }}
               >
-                {clockOf(m)}
+                {formatMinuteOfDay(m)}
               </span>
             ))}
           </div>
@@ -514,10 +505,10 @@ export function WeekCalendar({
             <button className="action" disabled={busy} onClick={() => void moveBy(selected, NUDGE_MINUTES)}>
               Later
             </button>
-            <button className="action" disabled={busy} onClick={() => void moveBy(selected, -24 * 60)}>
+            <button className="action" disabled={busy} onClick={() => void moveByDays(selected, -1)}>
               Previous day
             </button>
-            <button className="action" disabled={busy} onClick={() => void moveBy(selected, 24 * 60)}>
+            <button className="action" disabled={busy} onClick={() => void moveByDays(selected, 1)}>
               Next day
             </button>
             <button className="action" disabled={busy} onClick={() => void toggleLock(selected)} aria-pressed={selected.locked}>
@@ -564,7 +555,7 @@ function DueChip({
   course: Course | undefined;
 }) {
   const edge = course ? courseTincture(course.id, course.colorToken, quest) : "var(--text-dim)";
-  const clock = deadline.timeStated ? clockOf(deadline.minuteOfDay) : null;
+  const clock = deadline.timeStated ? formatMinuteOfDay(deadline.minuteOfDay) : null;
 
   return (
     <div
@@ -641,11 +632,12 @@ function Band({
   onKey?: (e: React.KeyboardEvent) => void;
 }) {
   const interactive = Boolean(session && onSelect);
-  // Where the band starts on the student's clock -- exact on a day the clocks change, where
-  // minutes counted from midnight run an hour ahead of, or behind, the clock on the wall.
-  const startMinute = localMinuteOfDay(fromEpochMinutes(slot.start));
+  // Placed and sized on the student's clock face, which the hour labels down the side are too.
+  // On a day the clocks change, elapsed minutes run an hour off it, and a band sized by them
+  // overlapped the next band or ran off the bottom of the window. Found in review.
+  const { startMinute } = slot;
   const top = (startMinute - windowStart) * PIXELS_PER_MINUTE;
-  const height = slot.minutes * PIXELS_PER_MINUTE;
+  const height = (slot.endMinute - startMinute) * PIXELS_PER_MINUTE;
   const own = bandStyle(slot.kind);
   /**
    * A switched-off class recedes to the neutral "off" look — a muted surface with dim ink —
@@ -716,7 +708,7 @@ function Band({
           competes with the label, and the band's height already carries it visually. */}
       <span className="sr-only">
         {KIND_WORD[slot.kind]}: {label}, {formatMinutes(slot.minutes)} from{" "}
-        {clockOf(startMinute)}
+        {formatMinuteOfDay(startMinute)}
         {session?.locked ? ", locked in place" : ""}
         {interactive ? ". Press Enter to select, arrow keys to move, L to lock." : ""}
       </span>
@@ -726,7 +718,7 @@ function Band({
               put it at 4.27:1 — the third time this codebase has shipped transparency as
               de-emphasis and measured below the floor for it. The band's own colour is
               already the quiet one; the prefix simply shares it. */}
-          {slot.kind !== "free" && <span>{clockOf(startMinute)} </span>}
+          {slot.kind !== "free" && <span>{formatMinuteOfDay(startMinute)} </span>}
           {session?.locked && <span title="Locked in place">&#9646; </span>}
           {label}
           {course && height > 40 && (

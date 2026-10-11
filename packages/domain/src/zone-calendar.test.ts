@@ -69,7 +69,43 @@ describe("zoneCalendar, found in review", () => {
     // Santiago springs forward at midnight; 6 September 2026 starts at 1am.
     const santiago = zoneCalendar("America/Santiago");
     const start = santiago.dayStart("2026-09-06");
+    // The label says where the day starts, so that is what is checked: at 1am (04:00 UTC), not
+    // merely somewhere on the right date.
+    expect(fromEpochMinutes(start)).toBe("2026-09-06T04:00:00.000Z");
+    expect(santiago.minuteOfDay(start)).toBe(60);
     expect(santiago.dateOf(start)).toBe("2026-09-06");
     expect(santiago.dateOf(start - 1)).toBe("2026-09-05");
+  });
+});
+
+describe("offsets at every minute, not only on the quarter hour", () => {
+  /** The offset straight from `Intl`, independently of the calendar's cache. */
+  function direct(timeZone: string, epochMinutes: number): number {
+    const at = epochMinutes * 60_000;
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+      })
+        .formatToParts(new Date(at))
+        .map((p) => [p.type, p.value]),
+    );
+    const local = Date.UTC(+parts.year!, +parts.month! - 1, +parts.day!, +parts.hour!, +parts.minute!);
+    return Math.round((local - at) / 60_000);
+  }
+
+  it.each([
+    // Dublin left Dublin Mean Time (+0:34:39) for Greenwich at 02:25:21 UTC: no quarter hour.
+    ["Europe/Dublin", "1916-10-01T01:00:00.000Z"],
+    // Lord Howe Island moves its clocks by half an hour, at 2am.
+    ["Australia/Lord_Howe", "2026-10-03T14:00:00.000Z"],
+    ["America/Chicago", "2026-11-01T05:00:00.000Z"],
+  ])("agrees with Intl around a transition in %s", (timeZone, from) => {
+    const calendar = zoneCalendar(timeZone);
+    const start = toEpochMinutes(from);
+    const wrong: number[] = [];
+    for (let m = start; m < start + 4 * 60; m += 1) {
+      if (calendar.offset(m) !== direct(timeZone, m)) wrong.push(m);
+    }
+    expect(wrong).toEqual([]);
   });
 });

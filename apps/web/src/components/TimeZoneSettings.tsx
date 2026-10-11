@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { browserTimeZone } from "../lib/clock";
 import type { Me } from "../lib/types";
@@ -15,6 +15,9 @@ export function TimeZoneSettings({ me, onChanged }: { me: Me; onChanged: () => P
   const device = browserTimeZone();
   const pinned = me.timezoneMode === "pinned";
   const [zone, setZone] = useState(me.timezone);
+  // Back in step whenever the saved zone changes: after "Follow this device" the picker went on
+  // showing the old pin, and "Pin it" would have pinned that instead. Found in review.
+  useEffect(() => setZone(me.timezone), [me.timezone, me.timezoneMode]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const zones = useMemo(() => allZones(me.timezone, device), [me.timezone, device]);

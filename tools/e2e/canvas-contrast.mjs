@@ -22,7 +22,7 @@ const EMAIL = process.env.SQ_EMAIL ?? "terrain-demo@example.edu";
 async function api(path, method = "GET", body, token) {
   const res = await fetch(API + path, {
     method,
-    headers: {
+    headers: { "X-SchoolQuest-Client": "2",
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },

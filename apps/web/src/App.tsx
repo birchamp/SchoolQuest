@@ -274,6 +274,10 @@ export function App() {
           `/api/terms/${termId}/plans/current${when ? `?now=${encodeURIComponent(when)}` : ""}`,
         );
       const current = await read();
+      // The zone the server read the plan in is the one it is shown in. Another device may have
+      // pinned or moved the zone since this one loaded, and a plan drawn in a different zone
+      // from the one it was made in puts every block at the wrong hour. Found in review.
+      if (current.timeZone) setPlanTimeZone(current.timeZone);
       // No plan yet, or one from an earlier day: build today's. The comment here used to say
       // "or the horizon has rolled over" while the code checked only for no plan at all, so a
       // finished week's plan was shown indefinitely and nothing new was ever booked.
@@ -312,9 +316,9 @@ export function App() {
        * Which zone the student's times are shown in, and their weekly hours are read in.
        *
        * The device's, kept in step on every load, unless they pinned one. Before this the zone
-       * was stored at sign-up as New York for everyone and nothing ever changed it. Reported
-       * before anything else is asked for: the server converts an account's old local-time
-       * records to UTC on its first other request, and has to do it in the right zone.
+       * was stored at sign-up as New York for everyone and nothing ever changed it. (An old
+       * account's records were already converted to UTC by the request above, in its stored
+       * zone; see `conversionZone` in the API.)
        */
       const device = browserTimeZone();
       let zone = user.timezone;
@@ -451,6 +455,18 @@ export function App() {
     setLastDiff(generated.diff ?? null);
     await loadPlan(term.id);
   }, [term, loadPlan]);
+
+  /**
+   * After the student's zone is saved, from Setup or the "zone moved" banner: shown in the new
+   * zone, and the week rebuilt, because the same weekly hours now fall at different instants.
+   * One path, so the two places cannot disagree about what changing the zone does.
+   */
+  const adoptSavedZone = useCallback(async () => {
+    const { user } = await api.get<{ user: Me }>("/api/me");
+    setPlanTimeZone(user.timezone);
+    setMe(user);
+    await regenerate();
+  }, [regenerate]);
 
   /**
    * The radar's one action: put these items at the front of the queue and replan.
@@ -647,12 +663,17 @@ export function App() {
               type="button"
               className="action"
               onClick={async () => {
-                const back = zoneMoved.from;
+                const moved = zoneMoved;
                 setZoneMoved(null);
-                await api.patch("/api/me", { timezone: back, timezoneMode: "pinned" });
-                setPlanTimeZone(back);
-                setMe({ ...me, timezone: back, timezoneMode: "pinned" });
-                await regenerate();
+                try {
+                  await api.patch("/api/me", { timezone: moved.from, timezoneMode: "pinned" });
+                  await adoptSavedZone();
+                } catch (e) {
+                  // Said, and offered again: a pin that silently failed leaves the student
+                  // believing their plan is on home time when it is not.
+                  setZoneMoved(moved);
+                  setError(e instanceof Error ? e.message : "Could not keep your time zone.");
+                }
               }}
             >
               I'm visiting -- keep {labelOf(zoneMoved.from)}
@@ -907,13 +928,7 @@ export function App() {
               {me && (
                 <TimeZoneSettings
                   me={me}
-                  onChanged={async () => {
-                    const { user } = await api.get<{ user: Me }>("/api/me");
-                    setPlanTimeZone(user.timezone);
-                    setMe(user);
-                    // The same hours now fall at different instants, so the week is rebuilt.
-                    await regenerate();
-                  }}
+                  onChanged={adoptSavedZone}
                 />
               )}
               <TermSettings

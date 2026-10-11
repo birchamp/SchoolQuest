@@ -1,11 +1,13 @@
 import {
   durationMinutes,
+  MINUTES_PER_DAY,
   mergeIntervals,
   subtractIntervals,
   toEpochMinutes,
   type Commitment,
   type Interval,
   type MeetingPattern,
+  type ZoneCalendar,
 } from "@schoolquest/domain";
 import { calendarOf, horizonBounds, horizonDays, type LocalDay } from "./local-days.js";
 import type { MealBreak } from "./meals.js";
@@ -58,7 +60,8 @@ export type SlotKind =
   /** Outside the hours the student said they are around. */
   | "off";
 
-export interface CalendarSlot {
+/** A slot as it is worked out, before it is placed on the student's clock. */
+interface Slot {
   kind: SlotKind;
   /** Epoch minutes. */
   start: number;
@@ -72,6 +75,19 @@ export interface CalendarSlot {
   workItemId: string | null;
   /** Set for `commitment`, e.g. "work" or "club". */
   commitmentType: string | null;
+}
+
+/** One band on one day, with where it sits on the student's clock face. */
+export interface CalendarSlot extends Slot {
+  /**
+   * Minutes since midnight on the student's clock, where the band is drawn: its top and bottom.
+   *
+   * Not `start` minus midnight. On the day the clocks change the two run an hour apart, and a
+   * band placed by one and sized by elapsed minutes ran past the window or floated above it.
+   * A band that runs to the next midnight ends at 1440.
+   */
+  startMinute: number;
+  endMinute: number;
 }
 
 /**
@@ -210,7 +226,7 @@ export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
   for (const day of horizonDays(input)) {
     const { date, dayOfWeek: dow, start: dayStart, end: dayEnd } = day;
 
-    const claims: CalendarSlot[] = [
+    const claims: Slot[] = [
       ...classSlots(input.meetingPatterns, day, dow, date),
       ...commitmentSlots(input.commitments, day, dow, date),
       ...mealSlots(input.meals, date),
@@ -229,7 +245,7 @@ export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
     const claimed = mergeIntervals(resolved.map((s) => ({ start: s.start, end: s.end })));
 
     // Whatever the day's declared hours still hold after everything else is subtracted.
-    const free: CalendarSlot[] = [];
+    const free: Slot[] = [];
     for (const window of available) {
       for (const gap of subtractIntervals(window, [...claimed])) {
         if (durationMinutes(gap) <= 0) continue;
@@ -237,7 +253,9 @@ export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
       }
     }
 
-    const slots = [...resolved, ...free].sort((a, b) => a.start - b.start || a.end - b.end);
+    const slots = [...resolved, ...free]
+      .sort((a, b) => a.start - b.start || a.end - b.end)
+      .map((slot) => onClock(slot, calendar, dayEnd));
     days.push({
       date,
       dayOfWeek: dow,
@@ -248,11 +266,8 @@ export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
       // On the student's clock, which is where the bands are drawn. Minutes counted from midnight
       // run an hour off it after the clocks change, and a 9am block on the morning they went back
       // was drawn above a window that started at ten -- off the calendar entirely.
-      firstMinute: slots.length > 0 ? calendar.minuteOfDay(slots[0]!.start) : null,
-      lastMinute:
-        slots.length > 0
-          ? Math.max(...slots.map((s) => calendar.minuteOfDay(s.start) + (s.end - s.start)))
-          : null,
+      firstMinute: slots.length > 0 ? slots[0]!.startMinute : null,
+      lastMinute: slots.length > 0 ? Math.max(...slots.map((s) => s.endMinute)) : null,
     });
   }
 
@@ -349,8 +364,8 @@ function classSlots(
   day: LocalDay,
   dow: number,
   date: string,
-): CalendarSlot[] {
-  const slots: CalendarSlot[] = [];
+): Slot[] {
+  const slots: Slot[] = [];
   for (const pattern of patterns) {
     if (!pattern.daysOfWeek.includes(dow)) continue;
     // A pattern that has not started, or has finished, is not on this day's calendar.
@@ -378,8 +393,8 @@ function commitmentSlots(
   day: LocalDay,
   dow: number,
   date: string,
-): CalendarSlot[] {
-  const slots: CalendarSlot[] = [];
+): Slot[] {
+  const slots: Slot[] = [];
   for (const commitment of commitments) {
     if (commitment.specificDate) {
       if (commitment.specificDate !== date) continue;
@@ -407,8 +422,8 @@ function commitmentSlots(
 }
 
 /** Only time the engine actually held; the student's own meals arrive as commitments. */
-function mealSlots(meals: readonly MealBreak[], date: string): CalendarSlot[] {
-  const slots: CalendarSlot[] = [];
+function mealSlots(meals: readonly MealBreak[], date: string): Slot[] {
+  const slots: Slot[] = [];
   for (const meal of meals) {
     if (meal.date !== date) continue;
     if (meal.start === null || meal.end === null) continue;
@@ -431,8 +446,8 @@ function studySlots(
   sessions: WeekCalendarInput["sessions"],
   dayStart: number,
   dayEnd: number,
-): CalendarSlot[] {
-  const slots: CalendarSlot[] = [];
+): Slot[] {
+  const slots: Slot[] = [];
   for (const session of sessions) {
     const start = toEpochMinutes(session.startAt);
     const end = toEpochMinutes(session.endAt);
@@ -458,7 +473,7 @@ function studySlots(
  * feeding the same day, pairwise subtraction depends on the order the pairs are visited and
  * quietly produces a different calendar for the same week.
  */
-function resolveOverlaps(claims: readonly CalendarSlot[]): CalendarSlot[] {
+function resolveOverlaps(claims: readonly Slot[]): Slot[] {
   if (claims.length === 0) return [];
 
   const edges = new Set<number>();
@@ -468,13 +483,13 @@ function resolveOverlaps(claims: readonly CalendarSlot[]): CalendarSlot[] {
   }
   const points = [...edges].sort((a, b) => a - b);
 
-  const pieces: CalendarSlot[] = [];
+  const pieces: Slot[] = [];
   for (let i = 0; i < points.length - 1; i++) {
     const start = points[i]!;
     const end = points[i + 1]!;
     if (end <= start) continue;
 
-    let winner: CalendarSlot | null = null;
+    let winner: Slot | null = null;
     for (const claim of claims) {
       if (claim.start > start || claim.end < end) continue;
       if (!winner || PRECEDENCE[claim.kind] > PRECEDENCE[winner.kind]) winner = claim;
@@ -485,7 +500,7 @@ function resolveOverlaps(claims: readonly CalendarSlot[]): CalendarSlot[] {
 
   // Rejoin neighbouring pieces that came from the same claim, so a class interrupted by a
   // boundary that turned out not to matter is not drawn as two adjacent boxes.
-  const merged: CalendarSlot[] = [];
+  const merged: Slot[] = [];
   for (const piece of pieces) {
     const previous = merged[merged.length - 1];
     if (
@@ -505,7 +520,21 @@ function resolveOverlaps(claims: readonly CalendarSlot[]): CalendarSlot[] {
   return merged;
 }
 
-function blank(kind: SlotKind, interval: Interval): CalendarSlot {
+/**
+ * A slot placed on the student's clock face.
+ *
+ * In the repeated hour on the night the clocks go back, a band's end can read earlier on the
+ * clock than its start; it is drawn for its real length from where it starts instead.
+ */
+function onClock(slot: Slot, calendar: ZoneCalendar, dayEnd: number): CalendarSlot {
+  const startMinute = calendar.minuteOfDay(slot.start);
+  const clockEnd = slot.end >= dayEnd ? MINUTES_PER_DAY : calendar.minuteOfDay(slot.end);
+  const endMinute =
+    clockEnd > startMinute ? clockEnd : Math.min(MINUTES_PER_DAY, startMinute + (slot.end - slot.start));
+  return { ...slot, startMinute, endMinute };
+}
+
+function blank(kind: SlotKind, interval: Interval): Slot {
   return {
     kind,
     start: interval.start,
@@ -518,7 +547,7 @@ function blank(kind: SlotKind, interval: Interval): CalendarSlot {
   };
 }
 
-function totalsOf(slots: readonly CalendarSlot[]): Record<SlotKind, number> {
+function totalsOf(slots: readonly Slot[]): Record<SlotKind, number> {
   const totals: Record<SlotKind, number> = {
     class: 0,
     commitment: 0,

@@ -4,7 +4,7 @@
 import { chromium } from "playwright";
 const APP = "http://127.0.0.1:5173", API = "http://127.0.0.1:8787";
 const api = async (p, m = "GET", b, t) => {
-  const r = await fetch(API + p, { method: m, headers: { "Content-Type": "application/json", ...(t ? { Authorization: `Bearer ${t}` } : {}) }, body: b ? JSON.stringify(b) : undefined });
+  const r = await fetch(API + p, { method: m, headers: { "X-SchoolQuest-Client": "2", "Content-Type": "application/json", ...(t ? { Authorization: `Bearer ${t}` } : {}) }, body: b ? JSON.stringify(b) : undefined });
   const x = await r.text();
   if (!r.ok) throw new Error(`${m} ${p} -> ${r.status} ${x.slice(0, 200)}`);
   return x ? JSON.parse(x) : null;

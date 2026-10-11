@@ -1,5 +1,6 @@
 import {
   formatTimeOfDay,
+  addDays,
   MINUTES_PER_DAY,
   parseTimeOfDay,
   toEpochMinutes,
@@ -293,8 +294,12 @@ function contiguousRuns(
   for (const [, dateEntries] of [...byDate].sort((a, b) => a[0].localeCompare(b[0]))) {
     const sorted = [...dateEntries].sort((a, b) => a.start - b.start);
     for (const entry of sorted) {
+      // Both ends on the clock, which is what the slot keys and alignment compare. Start plus
+      // elapsed minutes ran an hour off it across a clock change. Found in review.
       const start = cal.minuteOfDay(entry.start);
-      const end = start + Math.max(0, entry.end - entry.start);
+      const nextMidnight = cal.dayStart(addDays(cal.dateOf(entry.start), 1));
+      const clockEnd = entry.end >= nextMidnight ? MINUTES_PER_DAY : cal.minuteOfDay(entry.end);
+      const end = clockEnd >= start ? clockEnd : start + Math.max(0, entry.end - entry.start);
       const open = runs[runs.length - 1];
       const sameRun =
         open !== undefined &&
