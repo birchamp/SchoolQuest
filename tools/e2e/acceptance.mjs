@@ -259,6 +259,54 @@ try {
   const standing = (await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken)).standings[course.id];
   check("a recorded grade produces a course standing", typeof standing?.estimatedPercent === "number", `estimated ${standing?.estimatedPercent}`);
 
+  // 9b. Record a Pass from the assignments table, for work marked Pass/Fail rather than scored.
+  //     It counts as recorded but moves no percentage; a Fail raises a concern instead.
+  const { workItem: labSafety } = await api(
+    "/api/work-items",
+    "POST",
+    { courseId: course.id, title: "Lab safety quiz", workType: "quiz", dueAt: `${dateFromToday(-2)}T23:59:00.000Z`, pointsPossible: 5 },
+    sessionToken,
+  );
+  // Made through the API, so reload to read it, in the table view the Pass button lives in.
+  await page.evaluate(() => localStorage.setItem("sq_view_mode", "table"));
+  await page.reload();
+  await nav.waitFor({ timeout: 30_000 });
+  await go("Assignments");
+  const labRow = page.locator("tr", { hasText: "Lab safety quiz" });
+  // Handed in first, as a student would; that is what brings up the result box.
+  await labRow.getByRole("button", { name: /^Handed in$/ }).click({ timeout: 15_000 });
+  await labRow.getByRole("button", { name: /^Pass$/ }).click({ timeout: 15_000 }).catch(async (e) => {
+    await page.screenshot({ path: "/tmp/claude-0/pass-fail-step.png", fullPage: true });
+    throw e;
+  });
+  await page.waitForTimeout(1500);
+  const afterPass = await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken);
+  const passGrade = (afterPass.grades ?? []).find((g) => g.workItemId === labSafety.id);
+  check(
+    "Pass in the assignments table records a Pass with no points",
+    passGrade?.letterGrade === "Pass" && passGrade.pointsEarned === null && passGrade.pointsPossible === null,
+    JSON.stringify(passGrade ?? null),
+  );
+  check(
+    "a Pass leaves the course standing where the score put it",
+    afterPass.standings[course.id]?.estimatedPercent === standing?.estimatedPercent,
+    `estimated ${afterPass.standings[course.id]?.estimatedPercent}`,
+  );
+  const empty = await fetch(`${API}/api/work-items/${labSafety.id}/grade`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+    body: "{}",
+  });
+  check("an empty grade body is refused rather than recorded", empty.status === 400, `status ${empty.status}`);
+  await api(`/api/work-items/${labSafety.id}/grade`, "PUT", { passFail: "fail" }, sessionToken);
+  const afterFail = await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken);
+  const courseHealth = afterFail.health?.courses.find((h) => h.courseId === course.id);
+  check(
+    "a recorded Fail is raised as a concern on the course",
+    (courseHealth?.concerns ?? []).some((x) => x.code === "PASS_FAIL_FAILED"),
+    (courseHealth?.concerns ?? []).map((x) => x.code).join(", "),
+  );
+
   // 10. Switch themes from Setup.
   await go("Setup");
   await page.getByRole("button", { name: /^quest$/i }).first().click();
