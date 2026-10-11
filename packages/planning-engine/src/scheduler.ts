@@ -1,14 +1,16 @@
 import {
+  addDays,
   durationMinutes,
-  epochMinutesToDate,
   fromEpochMinutes,
   MINUTES_PER_DAY,
-  dateToEpochMinutes,
   mergeIntervals,
   subtractIntervals,
   toEpochMinutes,
+  zoneCalendar,
   type WorkItem,
+  type ZoneCalendar,
 } from "@schoolquest/domain";
+import { calendarOf, horizonBounds } from "./local-days.js";
 import { buildCapacity, totalCapacityMinutes } from "./capacity.js";
 // The scheduler's "not yet worth starting" and the terrain's "starting to ask for attention"
 // are the same judgement seen from two sides, so they share one number rather than drifting.
@@ -29,10 +31,12 @@ import type {
  * v2 adds the first-touch pass: in an oversubscribed week every course gets one block before
  * any course gets a second. v3 adds the deadline rescue (work short of its deadline may displace
  * work due later), the buffer falling back to the real deadline, short work booked at its own
- * length, and skipped hours held as busy. Stamped on every plan, so a plan made under the old
- * rule is identifiable rather than silently assumed to be comparable.
+ * length, and skipped hours held as busy. v4 plans in UTC with the student's zone (issue #4): a plan
+ * stamped earlier holds local wall-clock times, and is rebuilt rather than read. Stamped on every
+ * plan, so a plan made under the old rule is identifiable rather than silently assumed to be
+ * comparable.
  */
-export const ALGORITHM_VERSION = "heuristic-v3";
+export const ALGORITHM_VERSION = "heuristic-v4";
 
 /** Fallback effort by work type, used only when the student has given us nothing better. */
 const DEFAULT_EFFORT_MINUTES: Record<string, number> = {
@@ -72,8 +76,9 @@ interface PendingWork {
  */
 export function generatePlan(input: PlanningInput, planVersionId: string): PlanningResult {
   const now = toEpochMinutes(input.now);
-  const horizonStartMinutes = dateToEpochMinutes(input.horizonStart);
-  const horizonEndMinutes = horizonStartMinutes + input.horizonDays * MINUTES_PER_DAY;
+  // The student's days, as UTC instants: the horizon runs from their midnight to their midnight.
+  const calendar = calendarOf(input);
+  const { start: horizonStartMinutes, end: horizonEndMinutes } = horizonBounds(input);
 
   const { windows, meals } = buildCapacity(input);
   const priorities = scoreWorkItems(input);
@@ -91,7 +96,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
   for (const session of carried) {
     sessions.push(session);
     consumeWithBreak(remainingWindows, toEpochMinutes(session.startAt), toEpochMinutes(session.endAt), input);
-    addDaily(dailyMinutes, session.startAt, session.minutes);
+    addDaily(dailyMinutes, calendar, toEpochMinutes(session.startAt), session.minutes);
   }
 
   // --- Work out what still needs time.
@@ -226,7 +231,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
   if (input.termEndDate) {
     const weeksLeft = Math.max(
       1,
-      Math.ceil((dateToEpochMinutes(input.termEndDate) - now) / MINUTES_PER_DAY / 7),
+      Math.ceil((calendar.dayStart(input.termEndDate) - now) / MINUTES_PER_DAY / 7),
     );
     const byCourse = new Map<string, PendingWork[]>();
     for (const work of pending) {
@@ -291,7 +296,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
    */
   /** Places one chunk of this work, or returns null when nothing will hold it. */
   const placeChunk = (work: PendingWork, chunk: number, earliest: number): number | null => {
-    const ctx = { input, dailyMinutes };
+    const ctx = { input, dailyMinutes, calendar };
     let placement = findBestPlacement(work, chunk, earliest, remainingWindows, ctx);
     /**
      * The buffer is a margin, not a second deadline. When keeping it leaves no free time at
@@ -328,7 +333,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
     });
 
     consumeWithBreak(remainingWindows, placement.start, placement.end, input);
-    addDaily(dailyMinutes, fromEpochMinutes(placement.start), placement.end - placement.start);
+    addDaily(dailyMinutes, calendar, placement.start, placement.end - placement.start);
     work.minutesRemaining -= placement.end - placement.start;
     return placement.end;
   };
@@ -424,7 +429,9 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
     }
     remainingWindows.splice(0, remainingWindows.length, ...free.sort((a, b) => a.start - b.start));
     dailyMinutes.clear();
-    for (const session of sessions) addDaily(dailyMinutes, session.startAt, session.minutes);
+    for (const session of sessions) {
+      addDaily(dailyMinutes, calendar, toEpochMinutes(session.startAt), session.minutes);
+    }
   };
 
   /**
@@ -570,7 +577,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
     const placedAny = sessions.some(
       (session) => session.workItemId === work.item.id && !carriedSessions.has(session),
     );
-    const risk = unscheduledRisk(work, placedAny, horizonEndMinutes);
+    const risk = unscheduledRisk(work, placedAny, horizonEndMinutes, calendar);
     risks.push(risk);
     /**
      * Work waiting its turn is not work that failed to fit.
@@ -595,7 +602,8 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
     planVersionId,
     algorithmVersion: ALGORITHM_VERSION,
     horizonStart: input.horizonStart,
-    horizonEnd: epochMinutesToDate(horizonEndMinutes),
+    // The last day's *next* date, as before: a date, in the student's calendar.
+    horizonEnd: addDays(input.horizonStart, input.horizonDays),
     sessions,
     recommendations: buildRecommendations(sessions, input, priorityById, now),
     // Reported, not silent. Time the engine held on the student's behalf has to be
@@ -787,7 +795,7 @@ function findBestPlacement(
   chunkMinutes: number,
   earliest: number,
   windows: CapacityWindow[],
-  ctx: { input: PlanningInput; dailyMinutes: Map<string, number> },
+  ctx: { input: PlanningInput; dailyMinutes: Map<string, number>; calendar: ZoneCalendar },
 ): Placement | null {
   const prefs = ctx.input.preferences;
   let best: { placement: Placement; utility: number } | null = null;
@@ -821,7 +829,8 @@ function findBestPlacement(
     if (work.latestEnd !== null && end > work.latestEnd) continue;
 
     // Daily ceiling is a hard constraint: we shorten to fit, or skip the day entirely.
-    const date = epochMinutesToDate(start);
+    // The daily limit is per day of the student's life, not per UTC date.
+    const date = ctx.calendar.dateOf(start);
     const usedToday = ctx.dailyMinutes.get(date) ?? 0;
     const roomToday = prefs.maxDailyAcademicMinutes - usedToday;
     if (roomToday < floor) continue;
@@ -1011,6 +1020,7 @@ function unscheduledRisk(
   work: PendingWork,
   placedAny: boolean,
   horizonEndMinutes: number,
+  calendar: ZoneCalendar,
 ): PlanRisk {
   if (!placedAny) {
     /**
@@ -1043,7 +1053,7 @@ function unscheduledRisk(
         level: "safe",
         code: "WAITING_ITS_TURN",
         workItemId: work.item.id,
-        detail: `"${work.item.title}" is not due until ${work.item.dueAt!.slice(0, 10)}, so nothing is booked for it this week.`,
+        detail: `"${work.item.title}" is not due until ${calendar.dateOf(dueMinutes)}, so nothing is booked for it this week.`,
       };
     }
     return {
@@ -1082,7 +1092,7 @@ function buildRecommendations(
     const bScore = priorityById.get(b.workItemId)?.score ?? 0;
     // The next block in the day wins ties — the plan is meant to be followed in order.
     return a.startAt.localeCompare(b.startAt) || bScore - aScore;
-  });
+  }, 3, input.timeZone);
 
   return chosen.map((session, index) => ({
     rank: index,
@@ -1123,8 +1133,11 @@ export function selectRecommendedSessions<T extends RecommendableSession>(
   now: number,
   compare: (a: T, b: T) => number = (a, b) => a.startAt.localeCompare(b.startAt),
   limit = 3,
+  /** The student's zone: "today" ends at their midnight, not Greenwich's. Absent means UTC. */
+  timeZone?: string,
 ): T[] {
-  const endOfToday = dateToEpochMinutes(epochMinutesToDate(now)) + MINUTES_PER_DAY;
+  const calendar = zoneCalendar(timeZone);
+  const endOfToday = calendar.dayStart(addDays(calendar.dateOf(now), 1));
 
   // A block the student has started stays on Today until its outcome is recorded, however long
   // ago it was booked. The 30-minute grace below used to be the only thing keeping it there, so
@@ -1136,7 +1149,10 @@ export function selectRecommendedSessions<T extends RecommendableSession>(
     .filter((s) => s.status !== "started" && toEpochMinutes(s.startAt) >= now - 30)
     .sort(compare);
   const todays = upcoming.filter((s) => toEpochMinutes(s.startAt) < endOfToday);
-  const chosen = [...underway, ...(todays.length > 0 ? todays : nextScheduledDay(upcoming))];
+  const chosen = [
+    ...underway,
+    ...(todays.length > 0 ? todays : nextScheduledDay(upcoming, calendar)),
+  ];
 
   // One session per work item. Long assignments are split into several blocks on the same
   // day, which made Today offer "Lab Notebook" as the next action and then again as both
@@ -1154,11 +1170,15 @@ export function selectRecommendedSessions<T extends RecommendableSession>(
 }
 
 /** All sessions on the earliest upcoming date, so the fallback reads as one coherent day. */
-function nextScheduledDay<T extends RecommendableSession>(upcoming: readonly T[]): T[] {
+function nextScheduledDay<T extends RecommendableSession>(
+  upcoming: readonly T[],
+  calendar: ZoneCalendar,
+): T[] {
   const first = upcoming[0];
   if (!first) return [];
-  const date = first.startAt.slice(0, 10);
-  return upcoming.filter((s) => s.startAt.slice(0, 10) === date);
+  const dayOf = (s: T) => calendar.dateOf(toEpochMinutes(s.startAt));
+  const date = dayOf(first);
+  return upcoming.filter((s) => dayOf(s) === date);
 }
 
 function mergeReasonCodes(a: ReasonCode[], b: ReasonCode[]): ReasonCode[] {
@@ -1201,8 +1221,13 @@ function consume(windows: CapacityWindow[], start: number, end: number): void {
   windows.sort((a, b) => a.start - b.start);
 }
 
-function addDaily(dailyMinutes: Map<string, number>, startIso: string, minutes: number): void {
-  const date = startIso.slice(0, 10);
+function addDaily(
+  dailyMinutes: Map<string, number>,
+  calendar: ZoneCalendar,
+  start: number,
+  minutes: number,
+): void {
+  const date = calendar.dateOf(start);
   dailyMinutes.set(date, (dailyMinutes.get(date) ?? 0) + minutes);
 }
 

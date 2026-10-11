@@ -1,17 +1,13 @@
 import {
-  dateToEpochMinutes,
-  dayOfWeekFor,
   durationMinutes,
-  epochMinutesToDate,
-  MINUTES_PER_DAY,
   mergeIntervals,
-  parseTimeOfDay,
   subtractIntervals,
   toEpochMinutes,
   type Commitment,
   type Interval,
   type MeetingPattern,
 } from "@schoolquest/domain";
+import { calendarOf, horizonBounds, horizonDays, type LocalDay } from "./local-days.js";
 import type { MealBreak } from "./meals.js";
 
 /**
@@ -125,6 +121,8 @@ export interface CalendarDay {
   due: CalendarDeadline[];
   /** Totals for the day, in minutes. Every kind, so the row always adds up. */
   totals: Record<SlotKind, number>;
+  /** UTC instant of the student's midnight starting this day; slots are drawn relative to it. */
+  start: number;
   /** Earliest and latest minute-of-day the day has anything in it. */
   firstMinute: number | null;
   lastMinute: number | null;
@@ -151,6 +149,8 @@ export interface DeadlineInput {
 export interface WeekCalendarInput {
   horizonStart: string;
   horizonDays: number;
+  /** The student's zone: where their days begin and when their weekly rules fall. Absent is UTC. */
+  timeZone?: string;
   meetingPatterns: readonly MeetingPattern[];
   commitments: readonly Commitment[];
   availability: readonly { dayOfWeek: number; startTime: string; endTime: string }[];
@@ -198,23 +198,20 @@ const HOUR = 60;
 const END_OF_DAY_MINUTE = 23 * HOUR + 59;
 
 export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
-  const horizonStart = dateToEpochMinutes(input.horizonStart);
   const days: CalendarDay[] = [];
   const due = deadlinesByDay(input.deadlines ?? [], {
     horizonStart: input.horizonStart,
     horizonDays: input.horizonDays,
     sessions: input.sessions,
+    ...(input.timeZone ? { timeZone: input.timeZone } : {}),
   });
 
-  for (let day = 0; day < input.horizonDays; day++) {
-    const dayStart = horizonStart + day * MINUTES_PER_DAY;
-    const dayEnd = dayStart + MINUTES_PER_DAY;
-    const dow = dayOfWeekFor(dayStart);
-    const date = epochMinutesToDate(dayStart);
+  for (const day of horizonDays(input)) {
+    const { date, dayOfWeek: dow, start: dayStart, end: dayEnd } = day;
 
     const claims: CalendarSlot[] = [
-      ...classSlots(input.meetingPatterns, dayStart, dow, date),
-      ...commitmentSlots(input.commitments, dayStart, dow, date),
+      ...classSlots(input.meetingPatterns, day, dow, date),
+      ...commitmentSlots(input.commitments, day, dow, date),
       ...mealSlots(input.meals, date),
       ...studySlots(input.sessions, dayStart, dayEnd),
     ];
@@ -223,10 +220,7 @@ export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
     const available = mergeIntervals(
       input.availability
         .filter((rule) => rule.dayOfWeek === dow)
-        .map((rule) => ({
-          start: dayStart + parseTimeOfDay(rule.startTime),
-          end: dayStart + parseTimeOfDay(rule.endTime),
-        }))
+        .map((rule) => ({ start: day.at(rule.startTime), end: day.at(rule.endTime) }))
         .filter((i) => i.end > i.start),
     );
 
@@ -249,6 +243,7 @@ export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
       slots,
       due: due.get(date) ?? [],
       totals: totalsOf(slots),
+      start: dayStart,
       firstMinute: slots.length > 0 ? slots[0]!.start - dayStart : null,
       lastMinute: slots.length > 0 ? Math.max(...slots.map((s) => s.end)) - dayStart : null,
     });
@@ -278,14 +273,12 @@ export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
  * end up disagreeing about whether a quiz is on Wednesday, and this codebase has already paid
  * for one colour map kept in seven copies.
  *
- * ## The day comes from the characters, never from the epoch
+ * ## The day is the student's, from the instant
  *
- * `dueAt.slice(0, 10)` is the day, and `dueAt.slice(11, 16)` is the clock, exactly as the
- * assignments board reads them. Re-deriving either through a `Date` renders in the reader's
- * zone: a deadline stored at 23:59 shows as the *next* day in Tokyo and one stored at 01:00 as
- * the previous day in Los Angeles, while the board -- formatting from the same ten characters
- * this does -- goes on showing the day the student typed. One assignment, two dates, two
- * screens of one app. `packages/domain/src/time.ts` states the convention; this obeys it.
+ * A due date is a UTC instant; the day it falls on and its time of day are read in the
+ * student's zone, the same way every screen reads them. An essay due at midnight in Chicago is
+ * stored as 04:59 or 05:59 UTC the next day, and belongs on the Chicago day. Taking the day from
+ * the stored characters gave the UTC date, which is the student's only at UTC+0 (issue #4).
  */
 export function deadlinesByDay(
   deadlines: readonly DeadlineInput[],
@@ -294,10 +287,12 @@ export function deadlinesByDay(
     horizonDays: number;
     /** This week's blocks, so a deadline can say whether anything is booked behind it. */
     sessions: readonly { workItemId: string; startAt: string; endAt: string }[];
+    /** The student's zone. Absent is UTC. */
+    timeZone?: string;
   },
 ): Map<string, CalendarDeadline[]> {
-  const horizonStart = dateToEpochMinutes(window.horizonStart);
-  const horizonEnd = horizonStart + window.horizonDays * MINUTES_PER_DAY;
+  const calendar = calendarOf(window);
+  const { start: horizonStart, end: horizonEnd } = horizonBounds(window);
 
   // Booked *in the drawn week*. A block last month is history, not preparation the student can
   // see on this screen, and counting it would mark a bare Thursday as covered.
@@ -308,21 +303,17 @@ export function deadlinesByDay(
     booked.add(session.workItemId);
   }
 
-  const dates = new Set<string>();
-  for (let day = 0; day < window.horizonDays; day++) {
-    dates.add(epochMinutesToDate(horizonStart + day * MINUTES_PER_DAY));
-  }
+  const dates = new Set(horizonDays(window).map((day) => day.date));
 
   const byDay = new Map<string, CalendarDeadline[]>();
   for (const item of deadlines) {
-    const date = item.dueAt.slice(0, 10);
+    const at = toEpochMinutes(item.dueAt);
+    const date = calendar.dateOf(at);
     if (!dates.has(date)) continue;
 
-    const clock = item.dueAt.slice(11, 16);
-    const timeStated = /^([01]\d|2[0-3]):[0-5]\d$/.test(clock)
-      ? parseTimeOfDay(clock) !== END_OF_DAY_MINUTE
-      : false;
-    const minuteOfDay = timeStated ? parseTimeOfDay(clock) : END_OF_DAY_MINUTE;
+    // 23:59 is what "due Friday" means when nobody said a time, so it is not a time anyone stated.
+    const minuteOfDay = calendar.minuteOfDay(at);
+    const timeStated = minuteOfDay !== END_OF_DAY_MINUTE;
 
     const list = byDay.get(date) ?? [];
     list.push({
@@ -330,7 +321,7 @@ export function deadlinesByDay(
       courseId: item.courseId,
       title: item.title,
       workType: item.workType,
-      at: dateToEpochMinutes(date) + minuteOfDay,
+      at,
       minuteOfDay,
       timeStated,
       nothingBooked: !booked.has(item.workItemId),
@@ -348,7 +339,7 @@ export function deadlinesByDay(
 
 function classSlots(
   patterns: readonly MeetingPattern[],
-  dayStart: number,
+  day: LocalDay,
   dow: number,
   date: string,
 ): CalendarSlot[] {
@@ -358,8 +349,8 @@ function classSlots(
     // A pattern that has not started, or has finished, is not on this day's calendar.
     if (pattern.effectiveStart && date < pattern.effectiveStart) continue;
     if (pattern.effectiveEnd && date > pattern.effectiveEnd) continue;
-    const start = dayStart + parseTimeOfDay(pattern.startTime);
-    const end = dayStart + parseTimeOfDay(pattern.endTime);
+    const start = day.at(pattern.startTime);
+    const end = day.at(pattern.endTime);
     if (end <= start) continue;
     slots.push({
       kind: "class",
@@ -377,7 +368,7 @@ function classSlots(
 
 function commitmentSlots(
   commitments: readonly Commitment[],
-  dayStart: number,
+  day: LocalDay,
   dow: number,
   date: string,
 ): CalendarSlot[] {
@@ -391,8 +382,8 @@ function commitmentSlots(
     // Optional commitments are not subtracted from capacity, so drawing them as solid
     // would contradict the plan sitting underneath them.
     if (commitment.flexibility === "optional") continue;
-    const start = dayStart + parseTimeOfDay(commitment.startTime);
-    const end = dayStart + parseTimeOfDay(commitment.endTime);
+    const start = day.at(commitment.startTime);
+    const end = day.at(commitment.endTime);
     if (end <= start) continue;
     slots.push({
       kind: commitment.commitmentType === "meal" ? "meal" : "commitment",

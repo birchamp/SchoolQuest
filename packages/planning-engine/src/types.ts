@@ -28,6 +28,12 @@ export interface PlanningInput {
   /** "Now" as an ISO instant. Nothing is scheduled before it. */
   now: string;
   /**
+   * The student's IANA zone. Every time the engine handles is a UTC instant; this says only where
+   * the student's days begin and when their weekly rules ("Mondays three to ten", a nine o'clock
+   * class, lunch around noon) fall, which `local-days.ts` turns into instants. Absent means UTC.
+   */
+  timeZone?: string;
+  /**
    * Last day of the term, "YYYY-MM-DD". Optional, and its absence costs something specific:
    * work with no due date cannot be paced across the time that is left, so it all becomes
    * eligible at once and races to the front of the term.

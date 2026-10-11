@@ -20,7 +20,10 @@ import {
   workType,
 } from "./enums.js";
 
-/** ISO-8601 instant, always stored in UTC. Local rendering uses the user's timezone. */
+/**
+ * A moment in time: an ISO-8601 instant in UTC. Every stored time is one (the rule is at the top
+ * of `time.ts`); the student's zone is applied only when one is shown or typed in.
+ */
 export const isoDateTime = z.string().datetime({ offset: true });
 /** Calendar date with no time component, e.g. "2026-09-07". */
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
@@ -33,7 +36,9 @@ export const user = z.object({
   id: z.string(),
   email: z.string().email(),
   displayName: z.string().nullable(),
+  /** The zone the student sees times in, and their weekly rules are read in; see `time.ts`. */
   timezone: z.string(),
+  timezoneMode: z.enum(["device", "pinned"]).default("device"),
   theme: themeName.default("plain"),
   reducedMotion: z.boolean().default(false),
   detailMode: detailMode.default("standard"),
