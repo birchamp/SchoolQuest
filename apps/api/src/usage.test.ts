@@ -87,20 +87,20 @@ describe("upsert statements", () => {
     const counts = new Map(USAGE_EVENTS.map((e) => [e, 1] as [UsageEvent, number]));
     // More rows than fit one statement, whatever the allowlist's current length.
     expect(counts.size).toBeGreaterThan(25);
-    const statements = upsertStatements("2026-10-11", "s", counts);
+    const statements = upsertStatements("2026-10-11", "s", counts, "u");
     expect(statements.length).toBeGreaterThan(1);
     for (const s of statements) {
       expect(s.params.length).toBeLessThanOrEqual(D1_MAX_PARAMS);
       expect(s.sql.split("?").length - 1).toBe(s.params.length);
     }
-    const events = statements.flatMap((s) => s.params.filter((_, i) => i % 4 === 1));
+    const events = statements.flatMap((s) => s.params.slice(0, -1).filter((_, i) => i % 4 === 1));
     expect(events.sort()).toEqual([...USAGE_EVENTS].sort());
   });
 
   it("add to an existing count rather than replacing it", () => {
-    const [s] = upsertStatements("2026-10-11", "s", new Map([["tab.week", 3]]));
+    const [s] = upsertStatements("2026-10-11", "s", new Map([["tab.week", 3]]), "u");
     expect(s!.sql).toContain("ON CONFLICT (day, event, subject) DO UPDATE SET count = usage_daily.count + excluded.count");
-    expect(s!.params).toEqual(["2026-10-11", "tab.week", "s", 3]);
+    expect(s!.params).toEqual(["2026-10-11", "tab.week", "s", 3, "u"]);
   });
 });
 
@@ -131,8 +131,10 @@ describe("recording a report", () => {
     expect(batches).toHaveLength(1);
     expect(batches[0]).toHaveLength(2);
     const params = batches[0]![0]!.params;
-    expect(params).toEqual(["2026-10-11", "tab.week", await usageSubject("user-123", SECRET), 2]);
-    expect(params).not.toContain("user-123");
+    // The stored row: the HMAC subject, never the id. The id is bound last, only for the opt-out check.
+    expect(params.slice(0, 4)).toEqual(["2026-10-11", "tab.week", await usageSubject("user-123", SECRET), 2]);
+    expect(params.slice(0, 4)).not.toContain("user-123");
+    expect(params.at(-1)).toBe("user-123");
   });
 
   it("prunes rows past the window on every write, in the same batch", async () => {

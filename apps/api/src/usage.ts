@@ -108,16 +108,23 @@ export interface Statement {
 /** D1 refuses a statement with more than 100 bound parameters. */
 export const D1_MAX_PARAMS = 100;
 const PARAMS_PER_ROW = 4;
-export const ROWS_PER_STATEMENT = Math.floor(D1_MAX_PARAMS / PARAMS_PER_ROW);
+/** One parameter per statement is the user id the opt-out check reads. */
+export const ROWS_PER_STATEMENT = Math.floor((D1_MAX_PARAMS - 1) / PARAMS_PER_ROW);
 
 /**
  * Upsert-increments, chunked so no statement binds more than D1 allows. Each row adds its count
  * to whatever is already there for that day, event and person.
+ *
+ * Each statement writes only while the account still shares usage, checked inside the statement
+ * itself. The route reads the switch first, but another device can turn it off between that read
+ * and this write (the HMAC is an await in between), and an opted-out account must record nothing
+ * (found in review on #41). The user id is bound only for that check; it is never a stored value.
  */
 export function upsertStatements(
   day: string,
   subject: string,
   counts: ReadonlyMap<UsageEvent, number>,
+  userId: string,
 ): Statement[] {
   const rows = [...counts];
   const statements: Statement[] = [];
@@ -125,10 +132,12 @@ export function upsertStatements(
     const chunk = rows.slice(i, i + ROWS_PER_STATEMENT);
     statements.push({
       sql:
-        "INSERT INTO usage_daily (day, event, subject, count) VALUES " +
+        "INSERT INTO usage_daily (day, event, subject, count) " +
+        "SELECT v.column1, v.column2, v.column3, v.column4 FROM (VALUES " +
         chunk.map(() => "(?, ?, ?, ?)").join(", ") +
+        ") AS v WHERE EXISTS (SELECT 1 FROM users WHERE id = ? AND share_usage = 1)" +
         " ON CONFLICT (day, event, subject) DO UPDATE SET count = usage_daily.count + excluded.count",
-      params: chunk.flatMap(([event, count]) => [day, event, subject, count]),
+      params: [...chunk.flatMap(([event, count]) => [day, event, subject, count]), userId],
     });
   }
   return statements;
@@ -154,7 +163,7 @@ export async function recordUsage(
 ): Promise<void> {
   if (input.counts.size === 0) return;
   const subject = await usageSubject(input.userId, input.authSecret);
-  const statements = upsertStatements(utcDay(input.nowMs), subject, input.counts);
+  const statements = upsertStatements(utcDay(input.nowMs), subject, input.counts, input.userId);
   statements.push(pruneStatement(input.nowMs));
   await db.batch(statements.map((s) => db.prepare(s.sql).bind(...s.params)));
 }
