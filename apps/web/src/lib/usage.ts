@@ -99,6 +99,24 @@ export function track(event: UsageEvent): void {
   }
 }
 
+/**
+ * Saves the "share usage" switch. Off takes effect before the save: waiting for the response left
+ * the tracker on, so closing the page straight after the switch sent the unsent counts while the
+ * server still had sharing on (found in review on #41). Turning it off also discards what was
+ * counted; if the save fails, counting resumes, since the account is still opted in. Turning it on
+ * is left to the caller's state, which enables the tracker once the save has landed.
+ */
+export async function saveShareUsage(
+  next: boolean,
+  save: () => Promise<boolean>,
+  setEnabled: (enabled: boolean) => void = (enabled) => tracker.setEnabled(enabled),
+): Promise<boolean> {
+  if (!next) setEnabled(false);
+  const saved = await save();
+  if (!saved && !next) setEnabled(true);
+  return saved;
+}
+
 export const flushUsage = (): Promise<void> => tracker.flush();
 export const setUsageEnabled = (enabled: boolean): void => tracker.setEnabled(enabled);
 

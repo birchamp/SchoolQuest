@@ -4,6 +4,7 @@ import {
   createUsageTracker,
   FLUSH_INTERVAL_MS,
   isSeen,
+  saveShareUsage,
   seenThresholds,
   type UsageSender,
 } from "./usage";
@@ -143,5 +144,36 @@ describe("seenThresholds", () => {
     expect(t[0]).toBe(0);
     expect(t.at(-1)).toBe(1);
     expect([...t].sort((a, b) => a - b)).toEqual(t);
+  });
+});
+
+describe("saveShareUsage", () => {
+  it("stops counting and drops unsent counts before the opt-out is saved", async () => {
+    const sent: Record<string, number>[] = [];
+    const tracker = createUsageTracker(async (events) => void sent.push(events));
+    tracker.setEnabled(true);
+    tracker.track("tab.week");
+
+    let flushedDuringSave: Record<string, number> = {};
+    await saveShareUsage(
+      false,
+      async () => {
+        // The page is closed while the PATCH is in flight: whatever flushes now must be nothing.
+        await tracker.flush();
+        flushedDuringSave = Object.assign({}, ...sent);
+        return true;
+      },
+      tracker.setEnabled,
+    );
+    expect(flushedDuringSave).toEqual({});
+    expect(tracker.pending()).toEqual({});
+  });
+
+  it("resumes counting if the opt-out did not save", async () => {
+    const tracker = createUsageTracker(async () => undefined);
+    tracker.setEnabled(true);
+    await saveShareUsage(false, async () => false, tracker.setEnabled);
+    tracker.track("tab.week");
+    expect(tracker.pending()).toEqual({ "tab.week": 1 });
   });
 });

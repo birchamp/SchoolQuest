@@ -40,7 +40,7 @@ import { DiagnosticsButton } from "./components/DiagnosticsButton";
 import { CampaignRadar } from "./components/CampaignRadar";
 import { PlanChanges } from "./components/PlanChanges";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { Seen, setUsageEnabled, track } from "./lib/usage";
+import { saveShareUsage, Seen, setUsageEnabled, track } from "./lib/usage";
 import { afterOvertaken, latestRequest } from "./lib/latest-request";
 import { errorMessage, runAction } from "./lib/run-action";
 import { labelOf, TimeZoneSettings } from "./components/TimeZoneSettings";
@@ -574,10 +574,12 @@ export function App() {
   }
 
   async function changeShareUsage(next: boolean) {
-    await run(async () => {
-      const { user } = await api.patch<{ user: Me }>("/api/me", { shareUsage: next });
-      setMe(user);
-    }, "That setting did not save.");
+    await saveShareUsage(next, () =>
+      run(async () => {
+        const { user } = await api.patch<{ user: Me }>("/api/me", { shareUsage: next });
+        setMe(user);
+      }, "That setting did not save."),
+    );
   }
 
   async function signOut() {
