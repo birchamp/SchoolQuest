@@ -27,6 +27,7 @@ import {
   workItems,
   workSessions,
 } from "./schema.js";
+import { jsonObject, requireJsonColumn } from "../lib/json-column.js";
 
 export type Db = DrizzleD1Database<Record<string, never>>;
 
@@ -247,7 +248,11 @@ export async function loadTermSnapshot(
     courseId: g.courseId,
     name: g.name,
     weightPercent: g.weightPercent,
-    dropRule: g.dropRuleJson ? (JSON.parse(g.dropRuleJson) as Record<string, unknown>) : null,
+    // Thrown on, like the preferences below: both feed the planner and grade projections, where
+    // a silent default would change a student's plan or standing with nothing said.
+    dropRule: g.dropRuleJson
+      ? requireJsonColumn(jsonObject, g.dropRuleJson, "grading_categories.drop_rule_json")
+      : null,
     confidenceStatus: g.confidenceStatus as GradingCategory["confidenceStatus"],
   }));
 
@@ -353,7 +358,11 @@ export async function loadTermSnapshot(
     })),
     standings,
     // Preferences are stored as JSON; parsing applies the schema defaults for missing keys.
-    preferences: planningPreferences.parse(JSON.parse(termRow.planningPreferencesJson || "{}")),
+    preferences: requireJsonColumn(
+      planningPreferences,
+      termRow.planningPreferencesJson || "{}",
+      "terms.planning_preferences_json",
+    ),
     termEndDate: termRow.endDate,
     termStartDate: termRow.startDate,
   };

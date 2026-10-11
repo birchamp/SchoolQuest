@@ -192,6 +192,187 @@ describe("ownership over HTTP", () => {
   });
 });
 
+/**
+ * One read and one write per route file that used to be routes/terms.ts (issue #35), as the owner
+ * and as a stranger. The split moved every handler and its ownership check; this is what says each
+ * file is still mounted, still at its old path, and still asks whose record it is.
+ */
+describe("split route files, owner and stranger", () => {
+  let a: Client;
+  let b: Client;
+  let owned: Awaited<ReturnType<typeof buildTerm>>;
+
+  beforeAll(async () => {
+    a = await signIn("split-owner@example.com");
+    b = await signIn("split-stranger@example.com");
+    owned = await buildTerm(a);
+  }, 60_000);
+
+  /** The owner gets `ok`; the stranger, sending the identical request, gets 404. */
+  async function both(method: string, path: string, ok: number, body?: unknown) {
+    const send = (client: Client) =>
+      method === "GET" ? client.get(path) : client.send(method, path, body);
+    const stranger = await send(b);
+    const owner = await send(a);
+    expect({ path, owner: owner.status, stranger: stranger.status }).toEqual({
+      path,
+      owner: ok,
+      stranger: 404,
+    });
+    return (await owner.json()) as Json;
+  }
+
+  it("routes/terms.ts", async () => {
+    await both("GET", `/api/terms/${owned.termId}/readiness`, 200);
+    await both("PATCH", `/api/terms/${owned.termId}`, 200, { name: "Fall (renamed)" });
+    await both("POST", `/api/terms/${owned.termId}/archive`, 200);
+    await both("POST", `/api/terms/${owned.termId}/unarchive`, 200);
+  });
+
+  it("routes/questions.ts", async () => {
+    await both("GET", `/api/terms/${owned.termId}/open-questions`, 200);
+    await both("GET", `/api/terms/${owned.termId}/effort-survey`, 200);
+    await both("POST", `/api/terms/${owned.termId}/effort-answers`, 200, {
+      answers: [{ questionId: "no-such-question", minutes: 30 }],
+    });
+  });
+
+  it("routes/calendar.ts", async () => {
+    const calendar = await both("GET", `/api/terms/${owned.termId}/calendar`, 200);
+    expect(calendar["startDate"]).toBe("2026-09-01");
+    // The paste needs a model, so only the ownership refusal is exercised here.
+    expect(
+      (await b.send("POST", `/api/terms/${owned.termId}/calendar/paste`, { text: "x".repeat(40) }))
+        .status,
+    ).toBe(404);
+  });
+
+  it("routes/courses.ts", async () => {
+    const made = await both("POST", `/api/terms/${owned.termId}/courses`, 201, { name: "Chemistry" });
+    const courseId = (made["course"] as { id: string }).id;
+    await both("PATCH", `/api/courses/${courseId}`, 200, { code: "CHEM 101" });
+    await both("PUT", `/api/courses/${courseId}/meeting-patterns`, 200, {
+      patterns: [{ daysOfWeek: [2, 4], startTime: "09:00", endTime: "10:15" }],
+    });
+    await both("PUT", `/api/courses/${courseId}/grading`, 200, {
+      categories: [{ name: "Exams", weightPercent: 60 }],
+    });
+    await both("POST", `/api/courses/${courseId}/reset-academics`, 200);
+    await both("DELETE", `/api/courses/${courseId}`, 200);
+  });
+
+  it("routes/commitments.ts", async () => {
+    const made = await both("POST", `/api/terms/${owned.termId}/commitments`, 201, {
+      title: "Shift",
+      commitmentType: "work",
+      daysOfWeek: [5],
+      startTime: "17:00",
+      endTime: "21:00",
+    });
+    const id = (made["commitment"] as { id: string }).id;
+    await both("PATCH", `/api/commitments/${id}`, 200, { startTime: "18:00" });
+    await both("PUT", `/api/terms/${owned.termId}/availability-rules`, 200, {
+      rules: [{ dayOfWeek: 1, startTime: "13:00", endTime: "17:00" }],
+    });
+    await both("DELETE", `/api/commitments/${id}`, 200);
+  });
+
+  it("routes/work-items.ts", async () => {
+    const made = await both("POST", "/api/work-items", 201, {
+      courseId: owned.courseId,
+      title: "Term paper",
+      workType: "paper",
+      estimatedMinutes: 600,
+    });
+    const id = (made["workItem"] as { id: string }).id;
+    await both("PATCH", `/api/work-items/${id}`, 200, { title: "Term paper (draft)" });
+    await both("GET", `/api/work-items/${id}/stage-proposal`, 200);
+    await both("POST", `/api/work-items/${id}/dependencies`, 201, {
+      predecessorWorkItemId: owned.workItemId,
+    });
+    await both("POST", `/api/work-items/${id}/stages`, 201, {
+      stages: [{ title: "Outline", estimatedMinutes: 60 }],
+    });
+    await both("DELETE", `/api/work-items/${id}`, 200);
+  });
+
+  it("routes/grades.ts", async () => {
+    await both("PUT", `/api/work-items/${owned.workItemId}/grade`, 201, {
+      pointsEarned: 8,
+      pointsPossible: 10,
+    });
+    await both("DELETE", `/api/work-items/${owned.workItemId}/grade`, 200);
+  });
+
+  it("the routes that now share db/ownership.ts", async () => {
+    await both("GET", `/api/courses/${owned.courseId}/documents`, 200);
+    expect(
+      (await b.send("PATCH", "/api/extraction-claims/claim_nobody_has", { reviewStatus: "rejected" }))
+        .status,
+    ).toBe(404);
+    expect((await b.send("POST", "/api/work-sessions/session_nobody_has/start")).status).toBe(404);
+    expect(
+      (await b.send("POST", "/api/work-sessions/session_nobody_has/interrupted", { title: "x" }))
+        .status,
+    ).toBe(404);
+  });
+});
+
+/**
+ * What an unreadable stored JSON column does (lib/json-column.ts): a screen that only shows the
+ * value falls back, and a route that is about to act on it refuses rather than writing defaults.
+ */
+describe("unreadable stored JSON", () => {
+  let a: Client;
+  let owned: Awaited<ReturnType<typeof buildTerm>>;
+
+  beforeAll(async () => {
+    a = await signIn("corrupt-json@example.com");
+    owned = await buildTerm(a);
+    const env = await server.getWorker<{ DB: D1Database }>().getEnv();
+    await env.DB.prepare("UPDATE terms SET calendar_json = ? WHERE id = ?")
+      .bind('{"exceptions": [', owned.termId)
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO extraction_claims (id, source_document_id, claim_type, payload_json, review_status) VALUES (?, ?, 'assignment', ?, 'pending')",
+    )
+      .bind("claim_corrupt", owned.documentId, "not json at all")
+      .run();
+  }, 60_000);
+
+  it("falls back where the value is only displayed", async () => {
+    const list = await a.get("/api/terms");
+    expect(list.status).toBe(200);
+    const terms = ((await list.json()) as { terms: { id: string; calendar: { exceptions: [] } }[] })
+      .terms;
+    expect(terms.find((t) => t.id === owned.termId)?.calendar.exceptions).toEqual([]);
+
+    expect((await a.get(`/api/terms/${owned.termId}/calendar`)).status).toBe(200);
+    const readiness = await a.get(`/api/terms/${owned.termId}/readiness`);
+    expect(readiness.status).toBe(200);
+    expect(((await readiness.json()) as Json)["calendarEntries"]).toBe(0);
+
+    const review = await a.get(`/api/documents/${owned.documentId}/extraction`);
+    expect(review.status).toBe(200);
+    const claims = ((await review.json()) as { claims: { id: string; payload: unknown }[] }).claims;
+    expect(claims.find((claim) => claim.id === "claim_corrupt")?.payload).toEqual({});
+  });
+
+  it("refuses where the value would be merged or promoted", async () => {
+    const merge = await a.send("PATCH", `/api/terms/${owned.termId}`, {
+      calendar: { exceptions: [] },
+    });
+    expect(merge.status).toBe(500);
+    expect(await count("terms", "id = ? AND calendar_json = ?", owned.termId, '{"exceptions": [')).toBe(1);
+
+    const confirm = await a.send("POST", `/api/documents/${owned.documentId}/extraction/confirm`, {
+      acceptedClaimIds: ["claim_corrupt"],
+    });
+    expect(confirm.status).toBe(500);
+    expect(await count("extraction_claims", "id = ? AND review_status = 'pending'", "claim_corrupt")).toBe(1);
+  });
+});
+
 describe("syllabus confirm", () => {
   let a: Client;
   let owned: Awaited<ReturnType<typeof buildTerm>>;

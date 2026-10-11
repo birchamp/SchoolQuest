@@ -2,36 +2,21 @@ import { Hono } from "hono";
 import { and, eq, gte, inArray, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { addDays, fromEpochMinutes, newId, outcomeCode, zoneCalendar } from "@schoolquest/domain";
-import { auditEvents, commitments, courses, meetingPatterns, terms, workItems, workSessions } from "../db/schema.js";
-import { getDb, type Db } from "../db/repo.js";
+import { auditEvents, commitments, courses, meetingPatterns, workItems, workSessions } from "../db/schema.js";
+import { getDb } from "../db/repo.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
 import { findMoveConflict } from "../db/move-check.js";
 import { remainingAfterOutcome } from "../db/remaining-effort.js";
 import { isOpenOnDay } from "../db/lost-day.js";
 import { assertTermOwner } from "../db/repo.js";
+import { loadOwnedSession } from "../db/ownership.js";
 import { studentZone } from "../student-zone.js";
 import type { AppBindings } from "../env.js";
 
 export const sessionsRoute = new Hono<AppBindings>();
 
-/**
- * Loads a session only if it belongs to this user, walking
- * session -> work item -> course -> term -> user in a single join.
- *
- * Every mutating route below goes through this. Without it, a session id from another
- * account would be editable by anyone who guessed it.
- */
-async function loadOwnedSession(db: Db, sessionId: string, userId: string) {
-  const [row] = await db
-    .select({ session: workSessions, item: workItems, term: terms })
-    .from(workSessions)
-    .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
-    .innerJoin(courses, eq(courses.id, workItems.courseId))
-    .innerJoin(terms, eq(terms.id, courses.termId))
-    .where(and(eq(workSessions.id, sessionId), eq(terms.userId, userId)));
-
-  return row ?? null;
-}
+// Every mutating route below loads its session through `loadOwnedSession` (db/ownership.ts).
+// Without it, a session id from another account would be editable by anyone who guessed it.
 
 const completeBody = z.object({
   outcome: outcomeCode,
