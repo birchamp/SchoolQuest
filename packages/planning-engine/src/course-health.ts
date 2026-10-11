@@ -1,5 +1,4 @@
 import {
-  isGraded,
   MINUTES_PER_DAY,
   passFailOf,
   toEpochMinutes,
@@ -201,10 +200,6 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
   const now = toEpochMinutes(input.now);
   const loadById = new Map(input.load.map((l) => [l.courseId, l]));
   const gradedItemIds = new Set(input.grades.map((g) => g.workItemId));
-  // Only results the percentage was actually drawn from may count toward the number it is
-  // judged on. A Pass/Fail outcome, a bare letter or a total with no score answers "was it
-  // recorded" but adds nothing to the average -- the same test computeCourseStanding uses.
-  const scoredItemIds = new Set(input.grades.filter(isGraded).map((g) => g.workItemId));
   // A Fail moves no percentage, so without this it would read exactly like a Pass.
   const failedItemIds = new Set(
     input.grades.filter((g) => passFailOf(g) === "fail").map((g) => g.workItemId),
@@ -220,9 +215,14 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
     const gradedWeightFraction = standing?.gradedWeightFraction ?? 0;
     const gradePercent = standing?.estimatedPercent ?? null;
     const ungradedResults = countUngradedResults(items, gradedItemIds, now);
-    const gradedCount = items.filter((w) => scoredItemIds.has(w.id)).length;
+    // Only results the percentage was actually drawn from may count toward the number it is
+    // judged on, so the count is read from the standing itself: after the drop rule, without
+    // canceled or optional work, and without Pass/Fail outcomes, bare letters or totals with no
+    // score -- all of which say "recorded" but add nothing to the average.
+    const gradedCount = (standing?.categories ?? []).reduce((sum, c) => sum + c.gradedCount, 0);
+    // Optional and canceled work cannot sink a course, so a Fail on it is not a concern.
     const failedTitles = items
-      .filter((w) => failedItemIds.has(w.id) && w.status !== "canceled")
+      .filter((w) => failedItemIds.has(w.id) && w.status !== "canceled" && w.status !== "optional")
       .map((w) => w.title);
 
     const concerns: CourseConcern[] = [

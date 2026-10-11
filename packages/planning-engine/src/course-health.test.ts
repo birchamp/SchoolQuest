@@ -83,6 +83,21 @@ function standing(overrides: Partial<CourseStanding> = {}): CourseStanding {
   };
 }
 
+/** One uncategorized bucket of a standing, holding `gradedCount` scored results. */
+function scored(gradedCount: number): CourseStanding["categories"][number] {
+  return {
+    categoryId: null,
+    categoryName: "Uncategorized",
+    weightPercent: null,
+    pointsEarned: 0,
+    pointsPossible: 0,
+    percent: null,
+    gradedCount,
+    passFailCount: 0,
+    pendingCount: 0,
+  };
+}
+
 function category(weightPercent: number | null, id = "gcat_1"): GradingCategory {
   return { id, courseId: COURSE_ID, name: "Exams", weightPercent, dropRule: null, confidenceStatus: "confirmed" };
 }
@@ -283,6 +298,12 @@ describe("grades", () => {
     expect(concern.detail).toContain('"Lab safety" was recorded as a Fail');
     expect(failed.level).not.toBe("steady");
 
+    const optional = build({
+      items: [item({ id: "wi_a", title: "Lab safety", status: "optional" })],
+      grades: [passFail("wi_a", "Fail")],
+    });
+    expect(codes(optional)).not.toContain("PASS_FAIL_FAILED");
+
     const passed = build({
       items: [item({ id: "wi_a", title: "Lab safety", status: "completed" })],
       grades: [passFail("wi_a", "Pass")],
@@ -456,7 +477,7 @@ describe("judging a standing with no declared weights", () => {
     // so computeCourseStanding reports a percentage with a graded-weight fraction of zero.
     // Gating on weight alone would have made this alarm unreachable for most students.
     const c = build({
-      standing: standing({ estimatedPercent: 71, gradedWeightFraction: 0 }),
+      standing: standing({ estimatedPercent: 71, gradedWeightFraction: 0, categories: [scored(3)] }),
       items: [item({ id: "wi_a" }), item({ id: "wi_b" }), item({ id: "wi_c" })],
       grades: ["wi_a", "wi_b", "wi_c"].map((workItemId, i) => ({
         id: `grd_${i}`,
@@ -479,7 +500,7 @@ describe("judging a standing with no declared weights", () => {
     // One scored quiz and two bare letters: the 60% comes from one result, and one result is
     // not enough to call the course below target.
     const c = build({
-      standing: standing({ estimatedPercent: 60, gradedWeightFraction: 0 }),
+      standing: standing({ estimatedPercent: 60, gradedWeightFraction: 0, categories: [scored(1)] }),
       items: [item({ id: "wi_a" }), item({ id: "wi_b" }), item({ id: "wi_c" })],
       grades: [
         { workItemId: "wi_a", pointsEarned: 60, pointsPossible: 100, letterGrade: null },
@@ -495,6 +516,28 @@ describe("judging a standing with no declared weights", () => {
       })),
     });
     expect(c.gradedCount).toBe(1);
+    expect(codes(c)).not.toContain("GRADE_BELOW_TARGET");
+  });
+
+  it("judges on the results the standing kept, after the drop rule", () => {
+    // Three quizzes scored, the lowest dropped: the percentage rests on two, and two is not
+    // enough to call the course below target.
+    const c = build({
+      standing: standing({ estimatedPercent: 55, gradedWeightFraction: 0, categories: [scored(2)] }),
+      items: [item({ id: "wi_a" }), item({ id: "wi_b" }), item({ id: "wi_c" })],
+      grades: ["wi_a", "wi_b", "wi_c"].map((workItemId, i) => ({
+        id: `grd_${i}`,
+        workItemId,
+        pointsEarned: 55,
+        pointsPossible: 100,
+        letterGrade: null,
+        postedAt: null,
+        confirmationStatus: "confirmed" as const,
+        sourceDocumentId: null,
+        dropped: false,
+      })),
+    });
+    expect(c.gradedCount).toBe(2);
     expect(codes(c)).not.toContain("GRADE_BELOW_TARGET");
   });
 
