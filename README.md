@@ -204,6 +204,11 @@ npx wrangler d1 migrations apply schoolquest --remote
 npx wrangler deploy
 ```
 
+Apply migrations **before** `wrangler deploy`, as above: a new Worker can depend on a table its
+migration creates. (The rate limiter steps aside and logs a warning if `rate_limits` is
+missing, so a Worker deployed first still signs people in, but neither sign-in nor the AI routes
+are limited until the migration runs.)
+
 Then set `APP_URL` in `wrangler.toml` to your deployed web origin, and build the web app
 with `VITE_API_URL` pointing at the Worker.
 

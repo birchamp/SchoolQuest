@@ -389,3 +389,42 @@ describe("syllabus page text", () => {
     ).toBe(1);
   }, 30_000);
 });
+
+describe("sign-in limit per address", () => {
+  it("refuses past the limit without counting the refusals", async () => {
+    // Dev mode multiplies the limit by ten (rate-limit.ts), and this harness runs in dev mode.
+    const limit = 5 * 10;
+    const statuses: number[] = [];
+    for (let i = 0; i < limit + 5; i++) {
+      statuses.push((await post("/api/auth/login", { email: "lockout@example.com" })).status);
+    }
+    expect(statuses.slice(0, limit).every((s) => s === 200)).toBe(true);
+    expect(statuses.slice(limit)).toEqual([429, 429, 429, 429, 429]);
+    // The five refusals left the counter where the last allowed request put it.
+    expect(
+      await count("rate_limits", "bucket_key LIKE 'loginEmail:%' AND count = ?", `${limit}`),
+    ).toBe(1);
+    expect(
+      await count("rate_limits", "bucket_key LIKE 'loginEmail:%' AND count > ?", `${limit}`),
+    ).toBe(0);
+  }, 60_000);
+});
+
+describe("sign-in before migration 0010", () => {
+  it("still signs people in when the rate_limits table does not exist yet", async () => {
+    // A Worker deployed ahead of its migration. The limiter must step aside, not take sign-in
+    // down with it.
+    const env = await server.getWorker<{ DB: D1Database }>().getEnv();
+    const table = await env.DB.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'rate_limits'",
+    ).first<{ sql: string }>();
+    await env.DB.prepare("DROP TABLE rate_limits").run();
+    try {
+      const res = await post("/api/auth/login", { email: "before-migration@example.com" });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as Json)["devLoginUrl"]).toBeTruthy();
+    } finally {
+      await env.DB.prepare(table!.sql).run();
+    }
+  });
+});
