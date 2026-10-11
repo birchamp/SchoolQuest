@@ -41,10 +41,15 @@ export async function waitForServers(timeoutMs = 240_000) {
   }
 }
 
-/** Starts `tools/dev.mjs` and returns the tail of its output, kept for the failure report. */
-export function startServers() {
+/**
+ * Starts `tools/dev.mjs` and returns the tail of its output, kept for the failure report.
+ * `workerVars` ({ NAME: value }) reach the Worker as `wrangler dev --var`, via SQ_WORKER_VARS.
+ */
+export function startServers({ workerVars = {} } = {}) {
+  const vars = Object.entries(workerVars).map(([name, value]) => `${name}=${value}`).join(" ");
   dev = spawn("node", ["tools/dev.mjs"], {
     cwd: ROOT,
+    env: vars ? { ...process.env, SQ_WORKER_VARS: vars } : process.env,
     stdio: ["ignore", "pipe", "pipe"],
     shell: WINDOWS,
     detached: !WINDOWS,

@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "test:acceptance": "node tools/e2e/acceptance.mjs",
     "test:scheduling": "node tools/e2e/scheduling.mjs",
+    "test:intake": "node tools/e2e/intake.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "version:check": "node tools/version.mjs check",

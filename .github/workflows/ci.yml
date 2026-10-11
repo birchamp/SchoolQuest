@@ -59,6 +59,12 @@ jobs:
       - name: Scheduling journey
         run: pnpm test:scheduling
 
+      # A new student through the browser: onboarding, key, calendar, courses, a .docx syllabus
+      # read by the app's own reader, review, confirm, plan. The model is a mock serving the
+      # committed semester4 extractions; everything else is the real path.
+      - name: Intake journey
+        run: pnpm test:intake
+
       # WCAG AA on every rendered screen, per theme. The servers are started once for all
       # three runs; the walker signs in on its own.
       - name: Start the app for the contrast checks

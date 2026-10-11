@@ -119,10 +119,17 @@ function answerRoute(q: OpenQuestion): AnswerRoute | null {
 export function OpenQuestions({
   termId,
   onAnswer,
+  refreshKey,
 }: {
   termId: string;
   /** Take the student to where a question's answer is typed in. */
   onAnswer?: (tab: string, elementId?: string) => void;
+  /**
+   * Bumped whenever anything on Setup saves. Confirming a syllabus is what creates most of
+   * these questions, and it happens on this same page -- loaded only on mount, the card went
+   * on saying "Nothing unanswered" beside a review that had just left ten questions open.
+   */
+  refreshKey?: number;
 }) {
   const theme = useBodyTheme();
   const quest = theme === "quest";
@@ -144,7 +151,7 @@ export function OpenQuestions({
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   async function copy(course: CourseQuestions) {
     try {

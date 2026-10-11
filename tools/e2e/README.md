@@ -62,6 +62,28 @@ assignments that are coming due", and its first run found seven separate reasons
 Remember that `wrangler dev` does not reload when only `packages/` changes, so restart the
 servers after editing the planning engine, or the journey will test the old one.
 
+## The intake journey (runs on every push)
+
+`pnpm test:intake` is a new student from the first screen to a planned week, all through the
+browser: choose a theme, name the term, set study hours, save an OpenRouter key, add spring
+break to the calendar by hand, add two courses, upload each syllabus, answer what the review
+asks, confirm, and check that the open questions and the plan follow. The other journeys set all
+of that up through the API, so until this one none of those screens was rendered by a test.
+
+The model is the only thing replaced. The journey starts a mock OpenRouter on 9099 that serves
+the committed `semester4/` extractions (Math 104 and GEOG 062), and points the Worker at it for
+this run only through `SQ_WORKER_VARS`, which `tools/dev.mjs` turns into `wrangler dev --var`.
+Nothing in `.dev.vars` is touched. The syllabus is a real .docx, built from `semester4/pages.json`
+with a page break between pages, picked through the file input, and read to page text by the
+app's own reader. So the checks cover what reached the model, which key paid for it, the
+evidence check against the page text, and what the review shows.
+
+With `--attach`, the Worker has to already be running with the var. The journey prints the
+command for that.
+
+Its first run found that "Still unanswered" on Setup only loaded on mount. After a student
+confirmed a syllabus on that same page, the card went on saying nothing was open.
+
 # End-to-end semester test
 
 Drives the complete student journey through the real Worker API: fresh account,

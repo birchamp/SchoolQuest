@@ -148,9 +148,16 @@ export async function journey(run) {
  * Starts the servers (unless --attach), launches Chromium, runs `body({ browser })`, then
  * tears everything down and prints "N of M <noun> passed". Any failed check -- or a run that
  * recorded none at all -- sets a non-zero exit code, with the tail of the server log beside it.
+ *
+ * `workerVars` ({ NAME: value }) are set on the Worker for this run only. With --attach they
+ * cannot be, so they are printed for whoever started the servers to set themselves.
  */
-export async function runJourney(noun, body) {
-  const serverLog = ATTACH ? [] : startServers();
+export async function runJourney(noun, body, { workerVars = {} } = {}) {
+  if (ATTACH && Object.keys(workerVars).length > 0) {
+    const vars = Object.entries(workerVars).map(([name, value]) => `${name}=${value}`).join(" ");
+    console.log(`--attach: the Worker must already be running with these vars:\n  SQ_WORKER_VARS="${vars}" pnpm dev\n`);
+  }
+  const serverLog = ATTACH ? [] : startServers({ workerVars });
   let browser;
   try {
     await waitForServers();
