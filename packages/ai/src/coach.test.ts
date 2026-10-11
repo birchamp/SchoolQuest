@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { generatePlan, seedPlanningInput } from "@schoolquest/planning-engine";
+import { generatePlan } from "@schoolquest/planning-engine";
+import { seedPlanningInput } from "@schoolquest/planning-engine/testing";
 import { buildCoachContext } from "./context.js";
 import { runCoach, buildCoachSystemPrompt } from "./coach.js";
 import { pruneInvalidActions } from "./actions.js";

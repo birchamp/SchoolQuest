@@ -3,7 +3,7 @@ import { fromEpochMinutes, planningPreferences, toEpochMinutes, type WorkItem } 
 import { generatePlan, selectRecommendedSessions } from "./scheduler.js";
 import { buildCapacityWindows } from "./capacity.js";
 import { buildWeekCalendar, deadlinesByDay } from "./week-calendar.js";
-import { seedPlanningInput } from "./seed-input.js";
+import { seedPlanningInput } from "./testing/seed-input.js";
 import type { PlanningInput } from "./types.js";
 
 /**

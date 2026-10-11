@@ -70,7 +70,7 @@ quietly stop being true. **Add to it whenever a new one turns up.**
 
 Three rules hold this together:
 
-1. **The planning engine never calls an LLM.** Same inputs and seed → same plan, every time.
+1. **The planning engine never calls an LLM.** Same inputs → same plan, every time.
    It is fully testable without a network.
 2. **The LLM never writes to academic records.** The coach emits typed *proposed actions*;
    the student's click is what calls the API.
@@ -349,7 +349,8 @@ Behaviors the test suite pins down:
 - Unschedulable work is **reported as a risk**, never silently dropped.
 - Identical inputs produce an identical plan.
 
-Run them with `pnpm test`. `pnpm test:acceptance` walks the release list in a real browser
+Run them with `pnpm test`. The wall-clock CPU ceilings on the planner and the radar run
+separately, one file at a time, with `pnpm test:bench`. `pnpm test:acceptance` walks the release list in a real browser
 against the real Worker (`tools/e2e/README.md`), and CI runs both on every push.
 
 ## Status

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REASON_CODES, RISK_CODES } from "@schoolquest/planning-engine";
+import { REASON_CODES, RISK_CODES, type RiskCode } from "@schoolquest/planning-engine";
 import { explainReason, explainRisk } from "@schoolquest/theme-language";
 
 /**
@@ -38,7 +38,7 @@ describe("the words shown for every engine code", () => {
   it("still falls back rather than failing on a code it has never seen", () => {
     // Forward compatibility matters more than tidiness here: an older client reading a newer
     // plan must render something, not crash or show an empty row.
-    expect(explainRisk("SOME_FUTURE_CODE")).toBe("some future code");
+    expect(explainRisk("SOME_FUTURE_CODE" as RiskCode)).toBe("some future code");
   });
 });
 

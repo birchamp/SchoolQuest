@@ -3,7 +3,6 @@ import type { WorkItem } from "@schoolquest/domain";
 import { buildTerrain, runwayDays, type TerrainInput } from "./terrain.js";
 
 const NOW = "2026-09-01T09:00:00.000Z";
-const DEFAULTS = { quiz: 30, paper: 600, reading: 60, other: 60 };
 
 function item(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
@@ -41,7 +40,6 @@ function build(items: WorkItem[], booked: Record<string, number> = {}, courses =
     bookedByItem: booked,
     courseIds: courses,
     now: NOW,
-    defaultEffortMinutes: DEFAULTS,
   };
   return buildTerrain(input);
 }
@@ -206,7 +204,6 @@ describe("placing work in the landscape", () => {
       bookedByItem: {},
       courseIds: ["crs_a"],
       now: NOW,
-      defaultEffortMinutes: DEFAULTS,
       visibleDays: 120,
     });
     expect(t.distant).toHaveLength(1);

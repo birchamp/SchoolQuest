@@ -1,5 +1,6 @@
 import type { CognitiveDemand, WorkItem, WorkType } from "@schoolquest/domain";
-import { toEpochMinutes, zoneCalendar } from "@schoolquest/domain";
+import { addDays, toEpochMinutes, zoneCalendar, type ZoneCalendar } from "@schoolquest/domain";
+import { daysUntil, isOpen } from "./work-item.js";
 
 /**
  * The week as prepared session notes rather than a grid of blocks.
@@ -101,7 +102,7 @@ export interface Milestone {
   title: string;
   workType: WorkType;
   dueAt: string;
-  /** Whole days from `now`. Negative means it has passed and is still open. */
+  /** Whole calendar days from `now` (`daysUntil`). Negative: passed and still open. */
   daysAway: number;
   /** Blocks already laid down before it — the number that says whether prep has started. */
   prepBlocks: number;
@@ -179,7 +180,7 @@ export function buildSessionBrief(input: SessionBriefInput): SessionBrief {
 
   const milestoneDueDates = new Set(
     input.workItems
-      .filter((i) => MILESTONE_TYPES.has(i.workType) && i.dueAt && isOpen(i.status))
+      .filter((i) => MILESTONE_TYPES.has(i.workType) && i.dueAt && isOpen(i))
       .map((i) => dayOf(i.dueAt!)),
   );
 
@@ -199,14 +200,9 @@ export function buildSessionBrief(input: SessionBriefInput): SessionBrief {
     days,
     encounters: withKinds,
     fallbacks: buildFallbacks(withKinds, itemsById, crux, input),
-    milestones: buildMilestones(input.workItems, input.sessions, input.now),
+    milestones: buildMilestones(input.workItems, input.sessions, input.now, calendar),
     undatedMilestones: buildUndatedMilestones(input.workItems, input.sessions),
   };
-}
-
-/** Still owed: not finished, not cancelled. */
-function isOpen(status: string): boolean {
-  return status !== "completed" && status !== "submitted" && status !== "canceled";
 }
 
 /**
@@ -375,12 +371,6 @@ function loadFor(weightedHours: number): DayLoad {
   return weightedHours > 0 ? "light" : "clear";
 }
 
-function addDays(date: string, days: number): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 /** The day the week turns on: the set piece if there is one, otherwise the heaviest. */
 function pickCrux(days: DayShape[]): SessionBrief["crux"] {
   const candidates = days.filter((d) => d.load !== "clear");
@@ -531,13 +521,14 @@ function buildMilestones(
   workItems: readonly WorkItem[],
   sessions: readonly BriefableSession[],
   now: string,
+  calendar: ZoneCalendar,
 ): Milestone[] {
   const nowMinutes = toEpochMinutes(now);
   const blocksByItem = countBlocksByItem(sessions);
 
   return workItems
     .filter(
-      (item) => MILESTONE_TYPES.has(item.workType) && item.dueAt !== null && isOpen(item.status),
+      (item) => MILESTONE_TYPES.has(item.workType) && item.dueAt !== null && isOpen(item),
     )
     .map((item) => {
       const prep = blocksByItem.get(item.id) ?? { blocks: 0, minutes: 0 };
@@ -547,7 +538,7 @@ function buildMilestones(
         title: item.title,
         workType: item.workType,
         dueAt: item.dueAt!,
-        daysAway: Math.floor((toEpochMinutes(item.dueAt!) - nowMinutes) / (24 * 60)),
+        daysAway: daysUntil(item.dueAt!, nowMinutes, calendar),
         prepBlocks: prep.blocks,
         prepMinutes: prep.minutes,
         dueConfirmed: item.sourceConfidence === "confirmed",
@@ -586,7 +577,7 @@ function buildUndatedMilestones(
 
   return workItems
     .filter(
-      (item) => MILESTONE_TYPES.has(item.workType) && item.dueAt === null && isOpen(item.status),
+      (item) => MILESTONE_TYPES.has(item.workType) && item.dueAt === null && isOpen(item),
     )
     .map((item) => {
       const prep = blocksByItem.get(item.id) ?? { blocks: 0, minutes: 0 };

@@ -15,6 +15,8 @@ import {
   ALGORITHM_VERSION,
   selectRecommendedSessions,
   summarizeProjects,
+  type ReasonCode,
+  type TradeoffCode,
 } from "@schoolquest/planning-engine";
 import { explainRecommendation, explainRisk, explainTradeoff } from "@schoolquest/theme-language";
 import { planVersions, workItems, workSessions } from "../db/schema.js";
@@ -319,7 +321,10 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
   ).map(
     (session, index) => {
       const item = itemsById.get(session.workItemId);
-      const reasonCodes = JSON.parse(session.reasonCodesJson) as string[];
+      // Written by the engine, so read back as its codes. A code since renamed still renders:
+      // the explainers humanise anything they have no wording for.
+      const reasonCodes = JSON.parse(session.reasonCodesJson) as ReasonCode[];
+      const tradeoffCode = session.tradeoffCode as TradeoffCode | null;
       const title = item?.title ?? "Study session";
       return {
         rank: index,
@@ -337,9 +342,9 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
         ),
         startAt: session.startAt,
         reasonCodes,
-        tradeoffCode: session.tradeoffCode,
+        tradeoffCode,
         explanation: explainRecommendation(title, reasonCodes),
-        tradeoff: explainTradeoff(session.tradeoffCode),
+        tradeoff: explainTradeoff(tradeoffCode),
       };
     },
   );
@@ -359,6 +364,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
       .filter((s) => s.status === "planned" || s.status === "started")
       .map((s) => ({ workItemId: s.workItemId, minutes: minutesOf(s) })),
     now: asOf,
+    timeZone,
     // Health claims are measured against the student's real weekly study time, not against
     // how much this horizon happens to hold.
     weeklyCapacityMinutes: isCapacity(summary["capacity"]) ? summary["capacity"].availableMinutes : 0,
@@ -390,6 +396,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     load: courseLoad.courses,
     projects: projectRows,
     now: asOf,
+    timeZone,
   });
 
   // What is coming, and whether time has been set aside for it. Built from the term's whole

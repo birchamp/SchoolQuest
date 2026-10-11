@@ -1,5 +1,6 @@
 import type { WorkItem, WorkType } from "@schoolquest/domain";
 import { toEpochMinutes } from "@schoolquest/domain";
+import { isUnfinished } from "./work-item.js";
 
 /**
  * Breaking a project into stages that can actually be started.
@@ -104,9 +105,8 @@ export interface ProposedStage {
 }
 
 export function canDecompose(item: WorkItem, effortMinutes: number): boolean {
-  if (item.status === "completed" || item.status === "submitted" || item.status === "canceled") {
-    return false;
-  }
+  // Unfinished rather than owed: a student may well want stages for optional work.
+  if (!isUnfinished(item)) return false;
   return effortMinutes >= DECOMPOSABLE_MINUTES;
 }
 

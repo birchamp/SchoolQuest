@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Course, ThemeName } from "@schoolquest/domain";
 import {
   buildTerrain,
-  DEFAULT_EFFORT_MINUTES,
   type BeaconState,
   type HeightField,
   type TerrainMarker,
@@ -10,7 +9,7 @@ import {
 import { formatDueDay } from "../lib/due-time";
 import { courseChipFill } from "../lib/course-colour";
 import type { PlanResponse } from "../lib/types";
-import { appNow } from "../lib/clock";
+import { appNow, planTimeZone } from "../lib/clock";
 
 /**
  * The next four weeks as a raised-relief model of the term.
@@ -294,7 +293,7 @@ export function TerrainMap({
     // toggle that moves the other layers is not a layer toggle.
     courseIds: plan.courses.map((c) => c.id),
     now: appNow(),
-    defaultEffortMinutes: DEFAULT_EFFORT_MINUTES,
+    timeZone: planTimeZone(),
   });
 
   /**
