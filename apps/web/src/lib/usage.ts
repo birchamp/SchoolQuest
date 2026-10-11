@@ -28,10 +28,13 @@ export interface UsageTracker {
   setEnabled(enabled: boolean): void;
   /** What is waiting to be sent. For tests. */
   pending(): Record<string, number>;
+  /** How many times counting has been switched off, so a rollback can tell if it still may undo. */
+  offs(): number;
 }
 
 export function createUsageTracker(send: UsageSender): UsageTracker {
   let enabled = false;
+  let offs = 0;
   let counts = new Map<string, number>();
   let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -75,6 +78,9 @@ export function createUsageTracker(send: UsageSender): UsageTracker {
   }
 
   function setEnabled(next: boolean) {
+    // Every request to stop counts, even when already stopped: a sign-out that lands while an
+    // opt-out is saving must still tell that save's rollback not to switch counting back on.
+    if (!next) offs += 1;
     if (next === enabled) return;
     enabled = next;
     if (next) {
@@ -85,7 +91,7 @@ export function createUsageTracker(send: UsageSender): UsageTracker {
     }
   }
 
-  return { track, flush, setEnabled, pending: () => Object.fromEntries(counts) };
+  return { track, flush, setEnabled, pending: () => Object.fromEntries(counts), offs: () => offs };
 }
 
 const tracker = createUsageTracker((events) => api.postKeepalive("/api/usage", { events }));
@@ -103,17 +109,20 @@ export function track(event: UsageEvent): void {
  * Saves the "share usage" switch. Off takes effect before the save: waiting for the response left
  * the tracker on, so closing the page straight after the switch sent the unsent counts while the
  * server still had sharing on (found in review on #41). Turning it off also discards what was
- * counted; if the save fails, counting resumes, since the account is still opted in. Turning it on
- * is left to the caller's state, which enables the tracker once the save has landed.
+ * counted. If the save fails, counting resumes, since the account is still opted in -- but only if
+ * nothing else switched it off meanwhile: a sign-out during the save must stay signed out of the
+ * log too. Turning it on is left to the caller's state, which enables the tracker once the save
+ * has landed.
  */
 export async function saveShareUsage(
   next: boolean,
   save: () => Promise<boolean>,
-  setEnabled: (enabled: boolean) => void = (enabled) => tracker.setEnabled(enabled),
+  usage: Pick<UsageTracker, "setEnabled" | "offs"> = tracker,
 ): Promise<boolean> {
-  if (!next) setEnabled(false);
+  if (!next) usage.setEnabled(false);
+  const offsAfterOurs = usage.offs();
   const saved = await save();
-  if (!saved && !next) setEnabled(true);
+  if (!saved && !next && usage.offs() === offsAfterOurs) usage.setEnabled(true);
   return saved;
 }
 

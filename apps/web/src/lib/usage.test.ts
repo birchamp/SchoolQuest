@@ -163,7 +163,7 @@ describe("saveShareUsage", () => {
         flushedDuringSave = Object.assign({}, ...sent);
         return true;
       },
-      tracker.setEnabled,
+      tracker,
     );
     expect(flushedDuringSave).toEqual({});
     expect(tracker.pending()).toEqual({});
@@ -172,8 +172,24 @@ describe("saveShareUsage", () => {
   it("resumes counting if the opt-out did not save", async () => {
     const tracker = createUsageTracker(async () => undefined);
     tracker.setEnabled(true);
-    await saveShareUsage(false, async () => false, tracker.setEnabled);
+    await saveShareUsage(false, async () => false, tracker);
     tracker.track("tab.week");
     expect(tracker.pending()).toEqual({ "tab.week": 1 });
+  });
+
+  it("stays off if the student signed out while the failed opt-out was saving", async () => {
+    const tracker = createUsageTracker(async () => undefined);
+    tracker.setEnabled(true);
+    await saveShareUsage(
+      false,
+      async () => {
+        // Sign-out asks for counting off (already off) while the PATCH is in flight; it fails.
+        tracker.setEnabled(false);
+        return false;
+      },
+      tracker,
+    );
+    tracker.track("tab.week");
+    expect(tracker.pending()).toEqual({});
   });
 });
