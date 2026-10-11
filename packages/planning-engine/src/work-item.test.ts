@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toEpochMinutes, workStatus, zoneCalendar, type WorkItem, type WorkStatus } from "@schoolquest/domain";
 import {
+  daysLeftForPacing,
   daysUntil,
   defaultEffortFor,
   DEFAULT_EFFORT_MINUTES,
@@ -9,13 +10,14 @@ import {
   isFinished,
   isOpen,
   isOpenOrFinished,
+  isPastDue,
   isUnfinished,
   remainingEffortMinutes,
   totalEffort,
 } from "./work-item.js";
 import { buildCampaignRadar } from "./campaign-radar.js";
 import { buildTerrain } from "./terrain.js";
-import { computeProjectProgress } from "./project-progress.js";
+import { computeProjectProgress, summarizeProjects } from "./project-progress.js";
 import { buildSessionBrief } from "./session-brief.js";
 import { computeCourseHealth } from "./course-health.js";
 import { computeCourseLoad } from "./course-load.js";
@@ -141,9 +143,9 @@ describe("every view agrees about the same item", () => {
     dueAt: "2026-09-02T09:00:00.000Z",
   });
 
-  function daysAwayEverywhere(dueAt: string, at: string, timeZone?: string): number[] {
+  function daysAwayEverywhere(dueAt: string, at: string, timeZone = "UTC"): number[] {
     const due = { ...paper, dueAt };
-    const zone = timeZone ? { timeZone } : {};
+    const zone = { timeZone };
     const radar = buildCampaignRadar({
       workItems: [due],
       gradingCategories: [],
@@ -202,6 +204,7 @@ describe("every view agrees about the same item", () => {
       bookedByItem: {},
       courseIds: ["crs_a"],
       now,
+      timeZone: "UTC",
     });
     expect(terrain.markers[0]!.requiredMinutes).toBe(DEFAULT_EFFORT_MINUTES.exam);
   });
@@ -244,6 +247,7 @@ describe("every view agrees about the same item", () => {
       gradingCategories: [],
       workItems: [paper],
       now,
+      timeZone: "UTC",
     }).courses[0];
     expect(health!.nextDueInDays).toBe(1);
     expect(health!.concerns.map((c) => c.code)).toContain("DEADLINE_UNPREPARED");
@@ -274,5 +278,151 @@ describe("modules that used to disagree about open", () => {
       gradingCategories: [],
     });
     expect(survey.itemCount).toBe(1);
+  });
+});
+
+/**
+ * Due at 09:00, looked at 15:00 the same day: `daysUntil` says today (0), and the deadline has
+ * still passed. Every view must call it past due now, not at midnight.
+ */
+describe("a deadline that passed earlier today", () => {
+  const now = "2026-09-01T15:00:00.000Z";
+  const dueAt = "2026-09-01T09:00:00.000Z";
+  const exam = item({ id: "wi_exam", workType: "exam", dueAt, estimatedMinutes: 600 });
+
+  it("is past due by the instant while still today by the calendar", () => {
+    expect(isPastDue(dueAt, toEpochMinutes(now))).toBe(true);
+    expect(daysUntil(dueAt, toEpochMinutes(now), zoneCalendar("UTC"))).toBe(0);
+    expect(isPastDue("2026-09-01T18:00:00.000Z", toEpochMinutes(now))).toBe(false);
+  });
+
+  it("is past due on the project rows and in the summary", () => {
+    const rows = computeProjectProgress({
+      workItems: [exam],
+      weeklyCapacityMinutes: 6000,
+      completed: [],
+      booked: [],
+      now,
+      timeZone: "UTC",
+    });
+    expect(rows[0]!.daysAway).toBe(0);
+    expect(rows[0]!.health).toBe("past_due");
+    expect(summarizeProjects(rows, { investedMinutes: 0, sessionsCompleted: 0 }).projectsPastDue).toBe(1);
+  });
+
+  it("burns as overdue on the terrain", () => {
+    const terrain = buildTerrain({
+      workItems: [exam],
+      bookedByItem: {},
+      courseIds: ["crs_a"],
+      now,
+      timeZone: "UTC",
+    });
+    expect(terrain.markers[0]!.state).toBe("overdue");
+  });
+
+  it("is marked passed among the session brief's milestones", () => {
+    const brief = buildSessionBrief({
+      workItems: [exam],
+      sessions: [],
+      horizonStart: "2026-09-01",
+      horizonDays: 7,
+      now,
+      timeZone: "UTC",
+    });
+    expect(brief.milestones[0]!.daysAway).toBe(0);
+    expect(brief.milestones[0]!.pastDue).toBe(true);
+  });
+
+  it("is overdue on the radar", () => {
+    const radar = buildCampaignRadar({
+      workItems: [exam],
+      gradingCategories: [],
+      bookedByItem: {},
+      now,
+      termStartDate: "2026-08-31",
+      termEndDate: "2026-12-11",
+    });
+    expect(radar.encounters[0]!.overdue).toBe(true);
+  });
+});
+
+describe("pacing uses elapsed time, not calendar days", () => {
+  const remaining = 600;
+  const project = (dueAt: string) =>
+    computeProjectProgress({
+      workItems: [item({ id: "wi_p", dueAt, estimatedMinutes: remaining })],
+      weeklyCapacityMinutes: 600_000,
+      completed: [],
+      booked: [],
+      now: "2026-09-01T23:00:00.000Z",
+      timeZone: "UTC",
+    })[0]!;
+
+  it("treats 23:00 to 09:00 tomorrow as ten hours, not a day", () => {
+    const row = project("2026-09-02T09:00:00.000Z");
+    expect(row.daysAway).toBe(1);
+    expect(row.neededPerWeekMinutes).toBe(Math.round(remaining / (10 / 24 / 7)));
+  });
+
+  it("does not put a midnight deadline a day further off than 23:59", () => {
+    const midnight = project("2026-09-02T00:00:00.000Z").neededPerWeekMinutes!;
+    const lastMinute = project("2026-09-01T23:59:00.000Z").neededPerWeekMinutes!;
+    expect(midnight).toBeGreaterThan(remaining * 7);
+    expect(midnight).toBeLessThanOrEqual(lastMinute);
+  });
+
+  it("never divides by less than an hour", () => {
+    const now = toEpochMinutes("2026-09-01T23:00:00.000Z");
+    expect(daysLeftForPacing("2026-09-01T23:01:00.000Z", now)).toBeCloseTo(1 / 24);
+    expect(daysLeftForPacing("2026-09-03T23:00:00.000Z", now)).toBe(2);
+  });
+});
+
+describe("course health's imminent check", () => {
+  it("counts calendar days, as nextDueInDays does", () => {
+    // Due 23:59 three days out, seen at 09:00: three calendar days, 3.6 elapsed.
+    const dueAt = "2026-09-04T23:59:00.000Z";
+    const health = computeCourseHealth({
+      courses: [
+        {
+          id: "crs_a",
+          termId: "trm_t",
+          name: "A",
+          code: "A 100",
+          instructor: null,
+          credits: null,
+          colorToken: "azure",
+          expectedWeeklyMinutes: null,
+          targetGrade: null,
+          gradingConfidence: "confirmed",
+        },
+      ],
+      load: [
+        {
+          courseId: "crs_a",
+          bookedMinutes: 10,
+          shareOfBooked: 1,
+          blocks: 1,
+          investedMinutes: 0,
+          openItems: 1,
+          openProjects: 0,
+          nextDueAt: dueAt,
+          nextDueTitle: "Paper",
+          upkeep: "current",
+          upkeepOverdue: 0,
+          daysSinceProgress: null,
+        },
+      ],
+      projects: [],
+      standings: {},
+      grades: [],
+      gradingCategories: [],
+      workItems: [item({ dueAt, estimatedMinutes: 240 })],
+      now: "2026-09-01T09:00:00.000Z",
+      timeZone: "UTC",
+    }).courses[0]!;
+    expect(health.nextDueInDays).toBe(3);
+    expect(health.concerns.map((c) => c.code)).toContain("DEADLINE_UNPREPARED");
   });
 });

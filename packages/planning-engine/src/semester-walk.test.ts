@@ -322,6 +322,7 @@ for (const [index, weekStart] of weeks.entries()) {
       .map((s) => ({ workItemId: s.workItemId, endAt: s.endAt, minutes: minutesOf(s) })),
     booked: all.filter((s) => s.status === "planned").map((s) => ({ workItemId: s.workItemId, minutes: minutesOf(s) })),
     now: endOfWeek,
+    timeZone: "UTC",
     weeklyCapacityMinutes: plan.capacity.availableMinutes,
   });
   const health = computeCourseHealth({
@@ -334,6 +335,7 @@ for (const [index, weekStart] of weeks.entries()) {
     load: load.courses,
     projects,
     now: endOfWeek,
+    timeZone: "UTC",
   });
 
   const bookedByItem: Record<string, number> = {};
@@ -343,6 +345,7 @@ for (const [index, weekStart] of weeks.entries()) {
     bookedByItem,
     courseIds: seed.courses.map((c) => c.id),
     now: endOfWeek,
+    timeZone: "UTC",
   });
 
   // The review reads the weeks behind it, so it is run here — at the end of each week, with

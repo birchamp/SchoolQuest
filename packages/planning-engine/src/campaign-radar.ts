@@ -9,7 +9,7 @@ import {
   zoneCalendar,
 } from "@schoolquest/domain";
 import { runwayDays } from "./terrain.js";
-import { daysUntil, isOpen, remainingEffortMinutes } from "./work-item.js";
+import { daysUntil, isOpen, isPastDue, remainingEffortMinutes } from "./work-item.js";
 
 /**
  * The term as a radar sweep: what is coming, and whether time has been set aside for it.
@@ -532,7 +532,8 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
   }): RadarEncounter {
     const hoursNeeded = base.minutesNeeded / 60;
     const hoursBanked = base.minutesBanked / 60;
-    const overdue = base.daysAway < 0;
+    // The instant decides, not the date: due at nine this morning is overdue this afternoon.
+    const overdue = isPastDue(base.dueAt, now);
     const hoursExpected = hoursNeeded * expectedFraction(base.daysAway, base.minutesNeeded);
     const readiness = hoursExpected <= 0 ? 1 : clamp01(hoursBanked / hoursExpected);
     const health = verdict(readiness, overdue);

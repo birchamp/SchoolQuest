@@ -105,6 +105,7 @@ function build(input: {
     load: [input.load ?? load()],
     projects: input.projects ?? [],
     now: NOW,
+    timeZone: "UTC",
   });
   return health.courses[0]!;
 }
@@ -341,6 +342,7 @@ describe("the board as a whole", () => {
       ],
       projects: [],
       now: NOW,
+      timeZone: "UTC",
     });
     expect(health.courses.map((c) => c.courseId)).toEqual(["crs_bad", "crs_mid", "crs_calm"]);
     expect(health.coursesAtRisk).toBe(1);
@@ -360,6 +362,7 @@ describe("the board as a whole", () => {
         load: Array.from({ length: n }, (_, i) => ({ ...load(), courseId: `crs_${i}` })),
         projects: [],
         now: NOW,
+        timeZone: "UTC",
       });
       expect(health.courses).toHaveLength(n);
     }
@@ -375,6 +378,7 @@ describe("the board as a whole", () => {
       load: [],
       projects: [],
       now: NOW,
+      timeZone: "UTC",
     });
     expect(health.courses[0]!.level).toBe("steady");
     expect(health.courses[0]!.bookedMinutes).toBe(0);

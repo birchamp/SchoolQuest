@@ -40,6 +40,7 @@ function build(items: WorkItem[], booked: Record<string, number> = {}, courses =
     bookedByItem: booked,
     courseIds: courses,
     now: NOW,
+    timeZone: "UTC",
   };
   return buildTerrain(input);
 }
@@ -204,6 +205,7 @@ describe("placing work in the landscape", () => {
       bookedByItem: {},
       courseIds: ["crs_a"],
       now: NOW,
+      timeZone: "UTC",
       visibleDays: 120,
     });
     expect(t.distant).toHaveLength(1);

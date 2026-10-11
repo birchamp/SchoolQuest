@@ -1,6 +1,6 @@
 import type { CognitiveDemand, WorkItem, WorkType } from "@schoolquest/domain";
 import { addDays, toEpochMinutes, zoneCalendar, type ZoneCalendar } from "@schoolquest/domain";
-import { daysUntil, isOpen } from "./work-item.js";
+import { daysUntil, isOpen, isPastDue } from "./work-item.js";
 
 /**
  * The week as prepared session notes rather than a grid of blocks.
@@ -102,8 +102,13 @@ export interface Milestone {
   title: string;
   workType: WorkType;
   dueAt: string;
-  /** Whole calendar days from `now` (`daysUntil`). Negative: passed and still open. */
+  /** Whole calendar days from `now` (`daysUntil`), for the label. 0 is today. */
   daysAway: number;
+  /**
+   * The deadline has passed and the work is still open (`isPastDue`). True for an exam that
+   * finished at nine this morning, whose `daysAway` is still 0.
+   */
+  pastDue: boolean;
   /** Blocks already laid down before it — the number that says whether prep has started. */
   prepBlocks: number;
   prepMinutes: number;
@@ -539,6 +544,7 @@ function buildMilestones(
         workType: item.workType,
         dueAt: item.dueAt!,
         daysAway: daysUntil(item.dueAt!, nowMinutes, calendar),
+        pastDue: isPastDue(item.dueAt!, nowMinutes),
         prepBlocks: prep.blocks,
         prepMinutes: prep.minutes,
         dueConfirmed: item.sourceConfidence === "confirmed",

@@ -1,5 +1,11 @@
 import { MINUTES_PER_DAY, toEpochMinutes, zoneCalendar, type WorkItem } from "@schoolquest/domain";
-import { daysUntil, isFinished, isOpenOrFinished, remainingEffortMinutes } from "./work-item.js";
+import {
+  daysUntil,
+  isFinished,
+  isOpenOrFinished,
+  isPastDue,
+  remainingEffortMinutes,
+} from "./work-item.js";
 
 /**
  * The term as ground you can see across.
@@ -147,8 +153,8 @@ export interface TerrainInput {
   courseIds: readonly string[];
   /** ISO instant. */
   now: string;
-  /** The student's zone: what "today" is when counting days until due. Absent is UTC. */
-  timeZone?: string;
+  /** The student's zone: what "today" is when counting days until due. */
+  timeZone: string;
   /** How much time the modelled ground covers. Past it, work goes into the distance. */
   focusDays?: number;
   /** How far ahead to place anything. Past it, work is counted rather than placed. */
@@ -298,7 +304,8 @@ export function buildTerrain(input: TerrainInput): Terrain {
     }
 
     const daysAway = daysUntil(item.dueAt, now, calendar);
-    const { state, detail } = beaconFor(item, { daysAway, required, booked });
+    const pastDue = isPastDue(item.dueAt, now);
+    const { state, detail } = beaconFor(item, { daysAway, pastDue, required, booked });
     const onGround = daysAway <= focusDays;
     // On the ground, depth is position within the four weeks. Past it, depth is position
     // within the distance — a separate scale, because the two are drawn as different kinds
@@ -376,14 +383,15 @@ export function runwayDays(requiredMinutes: number): number {
 
 function beaconFor(
   item: WorkItem,
-  facts: { daysAway: number; required: number; booked: number },
+  facts: { daysAway: number; pastDue: boolean; required: number; booked: number },
 ): { state: BeaconState; detail: string } {
   if (isFinished(item)) return { state: "done", detail: "Finished." };
 
-  if (facts.daysAway < 0) {
+  // The instant decides, not the date: due at nine this morning is overdue this afternoon.
+  if (facts.pastDue) {
     return {
       state: "overdue",
-      detail: `Its date has passed${
+      detail: `Its deadline has passed${
         facts.booked > 0 ? " and it is still open" : " and no time was booked for it"
       }.`,
     };

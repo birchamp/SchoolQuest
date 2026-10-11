@@ -1234,7 +1234,8 @@ termsRoute.get("/work-items/:id/stage-proposal", async (c) => {
   if (!row) return c.json({ error: "Work item not found" }, 404);
 
   const item = row.item as unknown as WorkItem;
-  const effortMinutes = totalEffort(item).minutes;
+  const effort = totalEffort(item);
+  const effortMinutes = effort.minutes;
 
   const existing = await db
     .select({ id: workItems.id })
@@ -1254,7 +1255,7 @@ termsRoute.get("/work-items/:id/stage-proposal", async (c) => {
     effortMinutes,
     // True when the effort came from a per-type default rather than anyone's estimate, so
     // the review screen can say the stage sizes rest on an assumption.
-    effortIsAssumed: item.estimatedMinutes === null && !(item.remainingMinutes ?? 0),
+    effortIsAssumed: effort.assumed,
     stages: proposeStages(item, effortMinutes, new Date().toISOString()),
   });
 });

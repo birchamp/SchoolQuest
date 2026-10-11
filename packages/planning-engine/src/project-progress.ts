@@ -1,6 +1,13 @@
 import type { WorkItem, ZoneCalendar } from "@schoolquest/domain";
 import { toEpochMinutes, zoneCalendar } from "@schoolquest/domain";
-import { daysUntil, isFinished, remainingEffortMinutes, totalEffort } from "./work-item.js";
+import {
+  daysLeftForPacing,
+  daysUntil,
+  isFinished,
+  isPastDue,
+  remainingEffortMinutes,
+  totalEffort,
+} from "./work-item.js";
 
 /**
  * Progress on the big things.
@@ -119,8 +126,8 @@ export interface ProjectProgressInput {
   /** Sessions still ahead: planned or started, again term-wide. */
   booked: readonly BookedBlock[];
   now: string;
-  /** The student's zone: what "today" is when counting days until due. Absent is UTC. */
-  timeZone?: string;
+  /** The student's zone: what "today" is when counting days until due. */
+  timeZone: string;
 }
 
 /**
@@ -252,7 +259,13 @@ function row(
       ? Math.floor((ctx.nowMinutes - Math.max(...lastEnds)) / (24 * 60))
       : null;
 
+  // Calendar days label the row; the instant decides whether it is past due; elapsed time
+  // paces it. Three questions, three answers -- one rule each, shared with every other view.
   const daysAway = item.dueAt ? daysUntil(item.dueAt, ctx.nowMinutes, ctx.calendar) : null;
+  const pastDue = item.dueAt !== null && isPastDue(item.dueAt, ctx.nowMinutes);
+  const daysLeft =
+    item.dueAt === null ? null : pastDue ? 0 : daysLeftForPacing(item.dueAt, ctx.nowMinutes);
+  const neededPerWeekMinutes = neededPerWeek(remainingMinutes, daysLeft);
 
   // By effort, and only when there is effort to divide by. Falling back to a stage count
   // when stages exist is more honest than dividing by an estimate nobody gave.
@@ -279,27 +292,32 @@ function row(
     investedMinutes,
     completionFraction,
     bookedMinutes,
-    neededPerWeekMinutes: neededPerWeek(remainingMinutes, daysAway),
+    neededPerWeekMinutes,
     daysSinceProgress,
     health: health({
       finished,
       remainingMinutes,
       investedMinutes,
       daysSinceProgress,
-      daysAway,
-      neededPerWeekMinutes: neededPerWeek(remainingMinutes, daysAway),
+      dated: item.dueAt !== null,
+      pastDue,
+      neededPerWeekMinutes,
       weeklyCapacityMinutes: ctx.weeklyCapacityMinutes,
     }),
     stages,
   };
 }
 
-/** Minutes per week needed to land the remaining effort on time. */
-function neededPerWeek(remainingMinutes: number, daysAway: number | null): number | null {
-  if (daysAway === null) return null;
-  // Past due, or due within the day: all of it is needed now, not spread over anything.
-  if (daysAway <= 0) return remainingMinutes;
-  return Math.round(remainingMinutes / (daysAway / 7));
+/**
+ * Minutes per week needed to land the remaining effort on time, from the fractional days left
+ * (`daysLeftForPacing`). Ten hours before a deadline is ten hours, not a day, so the rate is
+ * not understated overnight.
+ */
+function neededPerWeek(remainingMinutes: number, daysLeft: number | null): number | null {
+  if (daysLeft === null) return null;
+  // Past due: all of it is needed now, not spread over anything.
+  if (daysLeft <= 0) return remainingMinutes;
+  return Math.round(remainingMinutes / (daysLeft / 7));
 }
 
 /**
@@ -321,7 +339,8 @@ function health(v: {
   remainingMinutes: number;
   investedMinutes: number;
   daysSinceProgress: number | null;
-  daysAway: number | null;
+  dated: boolean;
+  pastDue: boolean;
   neededPerWeekMinutes: number | null;
   weeklyCapacityMinutes: number;
 }): ProjectHealth {
@@ -330,10 +349,11 @@ function health(v: {
   // A passed deadline outranks every other reading. Saying only "not started" about work
   // that was due eight months ago understates it, and in this app the most common cause is a
   // date inferred from a syllabus for an older term — so the first move is to check the date.
-  if (v.daysAway !== null && v.daysAway < 0) return "past_due";
+  // The instant, not the date: a project due at nine this morning is past due this afternoon.
+  if (v.pastDue) return "past_due";
 
   const capacity = v.weeklyCapacityMinutes;
-  if (v.daysAway !== null && capacity > 0 && v.neededPerWeekMinutes !== null) {
+  if (v.dated && capacity > 0 && v.neededPerWeekMinutes !== null) {
     // Will not fit even if every study minute went to this one thing. Arithmetic, so it can
     // be stated plainly without hedging.
     if (v.neededPerWeekMinutes > capacity) return "will_not_fit";
