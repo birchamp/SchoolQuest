@@ -39,7 +39,16 @@ import { DiagnosticsButton } from "./components/DiagnosticsButton";
 import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 import { CampaignRadar } from "./components/CampaignRadar";
 import { PlanChanges } from "./components/PlanChanges";
-import { browserTimeZone, planIsStale, wallClockNow } from "./lib/clock";
+import { labelOf, TimeZoneSettings } from "./components/TimeZoneSettings";
+import {
+  appNow,
+  appToday,
+  browserTimeZone,
+  devNow,
+  localDate,
+  planIsStale,
+  setPlanTimeZone,
+} from "./lib/clock";
 
 /**
  * App shell.
@@ -124,23 +133,6 @@ async function redeemLinkInUrl(): Promise<boolean> {
   }
 }
 
-/**
- * A moment to read and plan the term from, other than now.
- *
- * **Development only, twice over**: the server ignores it outright once a mail provider is
- * configured, so a stray key in a real browser does nothing at all. It exists so the
- * screenshot and simulation tools can look at a term from week nine — every derived view is
- * "as of now", and without it they stayed pinned to the wall clock however far the plan
- * underneath them had been walked.
- */
-function devNow(): string | null {
-  try {
-    return localStorage.getItem("sq_dev_now");
-  } catch {
-    return null;
-  }
-}
-
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [term, setTerm] = useState<Term | null>(null);
@@ -149,6 +141,8 @@ export function App() {
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   /** What the most recent regenerate changed, shown until dismissed or the next one. */
   const [lastDiff, setLastDiff] = useState<PlanDiff | null>(null);
+  /** The zone the plan just followed the device into, until the student says what they want. */
+  const [zoneMoved, setZoneMoved] = useState<{ from: string; to: string } | null>(null);
   /**
    * The radar opens the app.
    *
@@ -272,7 +266,7 @@ export function App() {
 
   const theme: ThemeName = me?.theme ?? "plain";
 
-  const loadPlan = useCallback(async (termId: string) => {
+  const loadPlan = useCallback(async (termId: string, options?: { rebuild?: boolean }) => {
     try {
       const when = devNow();
       const read = () =>
@@ -284,14 +278,15 @@ export function App() {
       // "or the horizon has rolled over" while the code checked only for no plan at all, so a
       // finished week's plan was shown indefinitely and nothing new was ever booked.
       //
-      // "Today" is the server's, from the same read. The browser's own clock (or a leftover
-      // simulated one, which a production server ignores) could disagree with the date the
-      // server stamps on the plan it builds -- and then every load would replan.
-      const today = (current.asOf ?? when ?? wallClockNow()).slice(0, 10);
-      if (!current.planVersion || planIsStale(current.planVersion, today)) {
+      // "Today" is the student's date at the server's moment, from the same read. The browser's
+      // own clock (or a leftover simulated one, which a production server ignores) could
+      // disagree with the moment the server stamps on the plan it builds -- and then every load
+      // would replan. A plan made by an earlier planner is rebuilt whatever its date (`stale`).
+      const today = localDate(current.asOf ?? appNow());
+      if (!current.planVersion || current.stale || options?.rebuild || planIsStale(current.planVersion, today)) {
         const generated = await api.post<PlanResponse>(`/api/terms/${termId}/plans/generate`, {
           reason: current.planVersion ? "daily_refresh" : "initial",
-          ...(when ? { now: when, horizonStart: today } : {}),
+          ...(when ? { now: when, horizonStart: localDate(when) } : {}),
         });
         // Said once, like any replan: the student opened the app and the week moved.
         if (current.planVersion) setLastDiff(generated.diff ?? null);
@@ -312,15 +307,33 @@ export function App() {
       await redeemLinkInUrl();
 
       const { user } = await api.get<{ user: Me }>("/api/me");
-      setMe(user);
 
-      // The server plans from the student's own clock, so it has to know where they are. The
-      // zone was stored at sign-up as New York for everyone and nothing ever changed it.
-      // Best effort: a failure here leaves the plan in the old frame, which is no worse.
-      const zone = browserTimeZone();
-      if (zone && zone !== user.timezone) {
-        await api.patch("/api/me", { timezone: zone }).catch(() => undefined);
+      /**
+       * Which zone the student's times are shown in, and their weekly hours are read in.
+       *
+       * The device's, kept in step on every load, unless they pinned one. Before this the zone
+       * was stored at sign-up as New York for everyone and nothing ever changed it. Reported
+       * before anything else is asked for: the server converts an account's old local-time
+       * records to UTC on its first other request, and has to do it in the right zone.
+       */
+      const device = browserTimeZone();
+      let zone = user.timezone;
+      let zoneChanged = false;
+      if (user.timezoneMode !== "pinned" && device && device !== user.timezone) {
+        const saved = await api
+          .patch<{ user: Me }>("/api/me", { timezone: device })
+          .then(() => true)
+          .catch(() => false);
+        if (saved) {
+          // Said once: the same assignment is now shown at a different hour, and a student who
+          // is only visiting may want their plan to stay on home time.
+          setZoneMoved({ from: user.timezone, to: device });
+          zone = device;
+          zoneChanged = true;
+        }
       }
+      setPlanTimeZone(zone);
+      setMe({ ...user, timezone: zone });
 
       const { terms } = await api.get<{ terms: Term[] }>("/api/terms");
       // Prefer the active term; fall back to any that is not archived; otherwise none, which
@@ -331,7 +344,9 @@ export function App() {
         terms.find((t) => t.status !== "archived") ??
         null;
       setTerm(active);
-      if (active) await loadPlan(active.id);
+      // A plan made in the old zone put the student's weekly hours at that zone's instants, so it
+      // is rebuilt rather than shown, whatever day it was made on.
+      if (active) await loadPlan(active.id, { rebuild: zoneChanged });
     } catch (e) {
       // A 401 simply means "not signed in", which is a state, not an error to display.
       if (e instanceof ApiError && e.status === 401) {
@@ -374,7 +389,7 @@ export function App() {
     const version = plan.planVersion;
     const check = () => {
       if (document.visibilityState !== "visible") return;
-      if (planIsStale(version, (devNow() ?? wallClockNow()).slice(0, 10))) void loadPlan(term.id);
+      if (planIsStale(version, appToday())) void loadPlan(term.id);
     };
     const timer = setInterval(check, 10 * 60_000);
     document.addEventListener("visibilitychange", check);
@@ -429,7 +444,7 @@ export function App() {
       ...(when ? { now: when } : {}),
       // A day given up is planned from the next one: the hours left in it are still "free"
       // by the availability rules, and a replan from now simply books them again.
-      ...(from ? { horizonStart: from } : when ? { horizonStart: when.slice(0, 10) } : {}),
+      ...(from ? { horizonStart: from } : when ? { horizonStart: localDate(when) } : {}),
     });
     // The diff rides on the generate response only; the read that follows is the plan as
     // every screen sees it. Held here so Today and the week can both say what just changed.
@@ -616,6 +631,38 @@ export function App() {
       </header>
 
       {error && <p className="error">{error}</p>}
+      {/*
+        Said once, when the plan follows the device into another zone: every time on screen just
+        moved, and a student who is only visiting may want their plan to stay on home time.
+      */}
+      {zoneMoved && me && (
+        <div className="card" role="status" data-testid="zone-moved">
+          <p style={{ margin: "0 0 0.5rem" }}>
+            This device is in {labelOf(zoneMoved.to)}, so your times are now shown there (they were
+            in {labelOf(zoneMoved.from)}). Your study hours and classes now fall at the same local
+            times in {labelOf(zoneMoved.to)}.
+          </p>
+          <div className="button-row">
+            <button
+              type="button"
+              className="action"
+              onClick={async () => {
+                const back = zoneMoved.from;
+                setZoneMoved(null);
+                await api.patch("/api/me", { timezone: back, timezoneMode: "pinned" });
+                setPlanTimeZone(back);
+                setMe({ ...me, timezone: back, timezoneMode: "pinned" });
+                await regenerate();
+              }}
+            >
+              I'm visiting -- keep {labelOf(zoneMoved.from)}
+            </button>
+            <button type="button" className="action" onClick={() => setZoneMoved(null)}>
+              That's right
+            </button>
+          </div>
+        </div>
+      )}
 
       {!plan ? (
         <p className="muted">Building your first plan…</p>
@@ -775,6 +822,9 @@ export function App() {
                       theme={theme}
                       brief={plan.brief}
                       hiddenCourseIds={hiddenCourseIds}
+                      onPrioritize={prioritize}
+                      onOpenWork={openWorkItem}
+                      onAddHours={() => goTo("setup", "study-hours")}
                     />
                   )}
 
@@ -854,6 +904,18 @@ export function App() {
               */}
               <SetupStatus termId={term.id} refreshKey={setupSaves} />
               <ProviderSettings onChanged={refreshPlan} />
+              {me && (
+                <TimeZoneSettings
+                  me={me}
+                  onChanged={async () => {
+                    const { user } = await api.get<{ user: Me }>("/api/me");
+                    setPlanTimeZone(user.timezone);
+                    setMe(user);
+                    // The same hours now fall at different instants, so the week is rebuilt.
+                    await regenerate();
+                  }}
+                />
+              )}
               <TermSettings
                 term={term}
                 onChanged={async () => {
@@ -892,7 +954,9 @@ export function App() {
               */}
               <OpenQuestions termId={term.id} onAnswer={(tab, elementId) => goTo(tab as Tab, elementId)} />
               <EffortSurvey termId={term.id} onChanged={regenerate} />
-              <StudyHours termId={term.id} onChanged={regenerate} />
+              <div id="study-hours">
+                <StudyHours termId={term.id} onChanged={regenerate} />
+              </div>
               <MealWindows term={term} onChanged={regenerate} />
               <div id="syllabus-upload">
               <SyllabusUpload

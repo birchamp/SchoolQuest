@@ -6,6 +6,7 @@ import { courseChipFill, courseInitials } from "../lib/course-colour";
 import { workAwaitingResult } from "../lib/record-results";
 import { PassFailButtons, recordPassFail } from "./PassFailButtons";
 import type { CourseHealthView, TermHealthView } from "../lib/types";
+import { appNow } from "../lib/clock";
 
 /**
  * Which class needs me?
@@ -338,7 +339,7 @@ function RecordResults({
   const [error, setError] = useState<string | null>(null);
   const [scores, setScores] = useState<Record<string, { earned: string; outOf: string }>>({});
 
-  const pending = workAwaitingResult(workItems, courseId, gradedIds, Date.now());
+  const pending = workAwaitingResult(workItems, courseId, gradedIds, Date.parse(appNow()));
   if (pending.length === 0) return null;
 
   async function save(item: WorkItem) {

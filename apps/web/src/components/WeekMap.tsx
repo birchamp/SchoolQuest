@@ -1,4 +1,13 @@
-import { type Course, type ThemeName } from "@schoolquest/domain";
+import { useState } from "react";
+import {
+  addDays,
+  dateToEpochMinutes,
+  dayOfWeekFor,
+  formatTimeOfDay,
+  fromEpochMinutes,
+  type Course,
+  type ThemeName,
+} from "@schoolquest/domain";
 import { deadlinesByDay, type CalendarDeadline } from "@schoolquest/planning-engine";
 import { explainBlockKind, explainDayLoad, label, plainDayLoad } from "@schoolquest/theme-language";
 import type {
@@ -7,7 +16,7 @@ import type {
   PlanResponse,
   SessionBriefView,
 } from "../lib/types";
-import { wallClockToday } from "../lib/clock";
+import { appToday, formatClock, formatTime, localDate, planTimeZone } from "../lib/clock";
 import { courseLabelInk } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
 import { CalendarLegend } from "./CalendarLegend";
@@ -93,10 +102,19 @@ export function WeekMap({
   theme,
   brief,
   hiddenCourseIds,
+  onPrioritize,
+  onOpenWork,
+  onAddHours,
 }: {
   plan: PlanResponse;
   theme: ThemeName;
   brief?: SessionBriefView;
+  /** Puts work at the front of the queue and replans: the radar's own action. */
+  onPrioritize?: (workItemIds: string[]) => Promise<void>;
+  /** Opens a piece of work in the assignments table, where its date, size and status change. */
+  onOpenWork?: (workItemId: string) => void;
+  /** Goes to the study-hours setting. */
+  onAddHours?: () => void;
   /**
    * Classes switched off at the tab level. They **recede here and are never removed** — see the
    * note at the top of the file, and `LayerBar.tsx` for why the road ahead is the only card that
@@ -105,9 +123,11 @@ export function WeekMap({
   hiddenCourseIds?: ReadonlySet<string>;
 }) {
   const quest = theme === "quest";
+  /** The "not fitted" row whose replan is in flight, so its button can say so. */
+  const [busyItem, setBusyItem] = useState<string | null>(null);
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   // The student's own date, in the frame every stored time is written in (lib/clock.ts).
-  const today = wallClockToday();
+  const today = appToday();
   const start = plan.horizonStart ?? plan.planVersion?.horizonStart ?? today;
 
   // Falling back to the raw sessions keeps this view working against a plan payload that
@@ -131,6 +151,7 @@ export function WeekMap({
     horizonStart: start,
     horizonDays: days.length,
     sessions: plan.sessions,
+    timeZone: planTimeZone(),
   });
   const mealsByDate = groupMealsByDate(plan.meals ?? []);
   // Time the engine held on the student's behalf has to be visible somewhere, or it is
@@ -339,15 +360,7 @@ export function WeekMap({
                             : ""}
                         </span>
                         <span className="time">
-                          {new Date(meal.start! * 60_000).toLocaleTimeString(undefined, {
-                            hour: "numeric",
-                            minute: "2-digit",
-                            // The engine stores wall-clock times as UTC by convention, and
-                            // every other view reads them back the same way. Omit this and a
-                            // student two zones off sees 8am breakfast rendered as 4am here
-                            // while the hour-by-hour calendar, which pins UTC, still says 8.
-                            timeZone: "UTC",
-                          })}
+                          {formatTime(fromEpochMinutes(meal.start!))}
                           {" · "}
                           {formatMinutes(meal.minutes)} held
                         </span>
@@ -401,11 +414,7 @@ export function WeekMap({
                       )}
                       {beat.title}
                       <span className="time" style={recede ? { color: RECESSED_INK } : undefined}>
-                        {new Date(beat.startAt).toLocaleTimeString(undefined, {
-                          hour: "numeric",
-                          minute: "2-digit",
-                          timeZone: "UTC",
-                        })}
+                        {formatTime(beat.startAt)}
                         {" · "}
                         {formatMinutes(beat.minutes)}
                         {/* The count that replaced three identical tiles. */}
@@ -440,8 +449,32 @@ export function WeekMap({
               "Not fitted into this week"
             )}
           </h2>
+          {/*
+            This said "these items need a decision before they can be scheduled" and offered no
+            way to make one: the rows were plain text. A student who read it went looking for the
+            decision and could not find it anywhere in the app. Each row now says why it did not
+            fit and carries the decisions that change that; the list-level one is more hours.
+          */}
           <p className="muted" style={{ fontSize: "0.8rem", margin: "0 0 0.5rem" }}>
-            These items need a decision before they can be scheduled.
+            This week ran out of room for these before they are due. For each one you can put it
+            first (something later in the week makes way), or open it to change its due date, how
+            long it takes, or mark it handed in.
+            {onAddHours && (
+              <>
+                {" "}
+                Or{" "}
+                {/* Underlined at rest, unlike other link buttons: being found is its whole job. */}
+                <button
+                  type="button"
+                  className="link-button"
+                  style={{ textDecoration: "underline", textUnderlineOffset: "2px" }}
+                  onClick={onAddHours}
+                >
+                  add study hours
+                </button>
+                .
+              </>
+            )}
           </p>
           {groupUnscheduledByCourse(plan).map((group) => (
             <details key={group.key} open={group.items.length <= 5}>
@@ -469,8 +502,39 @@ export function WeekMap({
               </summary>
               <ul className="alternatives" style={{ margin: "0.25rem 0 0.5rem" }}>
                 {group.items.map((item) => (
-                  <li key={item.id}>
-                    <span>{item.title}</span>
+                  <li key={item.id} data-testid="unfitted-item">
+                    <span>
+                      {item.title}
+                      {item.reason && (
+                        <span className="muted" style={{ display: "block", fontSize: "0.8rem" }}>
+                          {item.reason}
+                        </span>
+                      )}
+                    </span>
+                    <span className="button-row" style={{ marginTop: "0.25rem" }}>
+                      {onPrioritize && (
+                        <button
+                          type="button"
+                          className="action"
+                          disabled={busyItem !== null}
+                          onClick={async () => {
+                            setBusyItem(item.id);
+                            try {
+                              await onPrioritize([item.id]);
+                            } finally {
+                              setBusyItem(null);
+                            }
+                          }}
+                        >
+                          {busyItem === item.id ? "Replanning…" : "Put it first"}
+                        </button>
+                      )}
+                      {onOpenWork && (
+                        <button type="button" className="action" onClick={() => onOpenWork(item.id)}>
+                          Change it
+                        </button>
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -537,12 +601,10 @@ function groupByDate(encounters: EncounterGroupView[]): Map<string, EncounterGro
 /** Seven clear days, for a plan payload with no brief attached. */
 function fallbackDays(start: string): SessionBriefView["days"] {
   return Array.from({ length: 7 }, (_, i) => {
-    const date = new Date(`${start}T00:00:00Z`);
-    date.setUTCDate(date.getUTCDate() + i);
-    const iso = date.toISOString().slice(0, 10);
+    const date = addDays(start, i);
     return {
-      date: iso,
-      dayOfWeek: date.getUTCDay(),
+      date,
+      dayOfWeek: dayOfWeekFor(dateToEpochMinutes(date)),
       load: "clear" as const,
       minutes: 0,
       weightedHours: 0,
@@ -573,12 +635,10 @@ function DueLine({
   // day", and printing it as a time is how a student plans to finish at 23:30 for a deadline
   // their instructor holds at 9am.
   const clock = deadline.timeStated
-    ? new Date(Date.UTC(2000, 0, 1, Math.floor(deadline.minuteOfDay / 60), deadline.minuteOfDay % 60))
-        .toLocaleTimeString(undefined, {
-          hour: "numeric",
-          minute: deadline.minuteOfDay % 60 === 0 ? undefined : "2-digit",
-          timeZone: "UTC",
-        })
+    ? formatClock(formatTimeOfDay(deadline.minuteOfDay), {
+        hour: "numeric",
+        ...(deadline.minuteOfDay % 60 === 0 ? {} : { minute: "2-digit" as const }),
+      })
     : null;
 
   return (
@@ -607,7 +667,7 @@ function fallbackEncounters(plan: PlanResponse): EncounterGroupView[] {
     workItemId: s.workItemId,
     courseId: s.courseId,
     title: itemsById.get(s.workItemId)?.title ?? "Session",
-    date: s.startAt.slice(0, 10),
+    date: localDate(s.startAt),
     startAt: s.startAt,
     minutes: s.minutes,
     blocks: 1,
@@ -621,14 +681,29 @@ function fallbackEncounters(plan: PlanResponse): EncounterGroupView[] {
  * course headers instead of one undifferentiated dump. Items whose course is not
  * in the plan payload fall into an "Other" bucket rather than being dropped.
  */
+/** One row of the "not fitted into this week" list. */
+interface UnfittedItem {
+  id: string;
+  title: string;
+  /** Why it did not fit, when the planner said; null for older saved plans. */
+  reason: string | null;
+}
+
 function groupUnscheduledByCourse(plan: PlanResponse): {
   key: string;
   name: string;
-  items: { id: string; title: string }[];
+  items: UnfittedItem[];
 }[] {
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
-  const groups = new Map<string, { key: string; name: string; items: { id: string; title: string }[] }>();
+  const groups = new Map<string, { key: string; name: string; items: UnfittedItem[] }>();
+  // Why each one did not fit, in the planner's own words: the risk raised for it.
+  const reasonById = new Map<string, string>();
+  for (const risk of plan.risks) {
+    if (!risk.workItemId) continue;
+    if (risk.code !== "INSUFFICIENT_CAPACITY" && risk.code !== "NO_FEASIBLE_WINDOW") continue;
+    reasonById.set(risk.workItemId, risk.detail);
+  }
 
   for (const id of plan.unscheduledWorkItemIds) {
     const item = itemsById.get(id);
@@ -636,7 +711,7 @@ function groupUnscheduledByCourse(plan: PlanResponse): {
     const key = course?.id ?? "other";
     const name = course ? courseLabel(course) : "Other";
     const group = groups.get(key) ?? { key, name, items: [] };
-    group.items.push({ id, title: item?.title ?? id });
+    group.items.push({ id, title: item?.title ?? id, reason: reasonById.get(id) ?? null });
     groups.set(key, group);
   }
 

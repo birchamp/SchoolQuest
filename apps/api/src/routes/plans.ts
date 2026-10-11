@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { newId, toEpochMinutes } from "@schoolquest/domain";
+import { fromEpochMinutes, newId, toEpochMinutes, zoneCalendar } from "@schoolquest/domain";
 import {
   buildCampaignRadar,
   buildSessionBrief,
@@ -11,6 +11,7 @@ import {
   computeProjectProgress,
   computeTermProgress,
   generatePlan,
+  ALGORITHM_VERSION,
   selectRecommendedSessions,
   summarizeProjects,
 } from "@schoolquest/planning-engine";
@@ -26,7 +27,7 @@ import {
 } from "../db/repo.js";
 import { loadReview } from "./review.js";
 import { isDevMode, type AppBindings } from "../env.js";
-import { studentNow } from "../wall-clock.js";
+import { studentZone } from "../student-zone.js";
 
 const generateBody = z.object({
   horizonStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -78,18 +79,21 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
 
   // A client may only move time in development mode, the same flag the login route uses.
   const timeTravelAllowed = isDevMode(c.env);
-  // A simulated `now` is already a wall-clock time; the real one is read in the student's zone.
   const now =
-    timeTravelAllowed && parsed.data.now
-      ? new Date(parsed.data.now).toISOString()
-      : await studentNow(db, c.get("userId"));
-  const horizonStart = parsed.data.horizonStart ?? now.slice(0, 10);
+    timeTravelAllowed && parsed.data.now ? new Date(parsed.data.now).toISOString() : new Date().toISOString();
+  // "Today" is the student's date, and the plan's days begin at their midnight.
+  const timeZone = await studentZone(db, c.get("userId"));
+  const calendar = zoneCalendar(timeZone);
+  const horizonStart = parsed.data.horizonStart ?? calendar.dateOf(toEpochMinutes(now));
 
-  const snapshot = await loadTermSnapshot(db, termId, { sessionsFrom: `${horizonStart}T00:00:00Z` });
+  const snapshot = await loadTermSnapshot(db, termId, {
+    sessionsFrom: fromEpochMinutes(calendar.dayStart(horizonStart)),
+  });
   const input = toPlanningInput(termId, snapshot, {
     horizonStart,
     horizonDays: parsed.data.horizonDays,
     now,
+    timeZone,
   });
 
   if (!parsed.data.preserveAcceptedSessions) input.existingSessions = [];
@@ -230,7 +234,8 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
   const asOf =
     isDevMode(c.env) && c.req.query("now")
       ? new Date(c.req.query("now")!).toISOString()
-      : await studentNow(db, c.get("userId"));
+      : new Date().toISOString();
+  const timeZone = await studentZone(db, c.get("userId"));
 
   const sessions = (
     await db.select().from(workSessions).where(eq(workSessions.planVersionId, current.id))
@@ -253,6 +258,9 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
   const recommendations = selectRecommendedSessions(
     open,
     toEpochMinutes(asOf),
+    undefined,
+    3,
+    timeZone,
   ).map(
     (session, index) => {
       const item = itemsById.get(session.workItemId);
@@ -356,6 +364,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     now: asOf,
     termStartDate: snapshot.termStartDate,
     termEndDate: snapshot.termEndDate,
+    timeZone,
   });
 
   const projects = {
@@ -375,9 +384,14 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
       status: current.status,
       createdAt: current.createdAt,
     },
-    // The moment this read was made at, on the student's clock. The app decides whether the
-    // plan is stale against this rather than its own clock, which can disagree with the server's.
+    // The moment this read was made, as a UTC instant, and the zone the plan was read in. The
+    // app judges whether the plan is stale against these rather than the device's own clock,
+    // which can disagree with the server's and with a zone the student has pinned.
     asOf,
+    timeZone,
+    // Made by an earlier planner, whose stored times and meal slots are in another frame. The
+    // app rebuilds a stale plan before showing it.
+    stale: current.algorithmVersion !== ALGORITHM_VERSION,
     ...summary,
     recommendations,
     // The week read as prepared session notes rather than a grid (see
@@ -398,6 +412,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
       now: asOf,
       horizonStart: current.horizonStart,
       horizonDays: 7,
+      timeZone,
       ...(isCapacity(summary["capacity"])
         ? {
             slackMinutes: Math.max(
@@ -414,7 +429,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     // What the weeks that already happened have to say about the week being planned. Asked
     // here rather than on its own screen because the answer changes the plan, and a question
     // the student has to go looking for is a question nobody answers.
-    review: await loadReview(db, termId, asOf),
+    review: await loadReview(db, termId, asOf, timeZone),
     /**
      * Blocks, each carrying the course it belongs to.
      *

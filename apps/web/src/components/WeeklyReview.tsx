@@ -3,6 +3,7 @@ import type { ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import type { CommitmentProposalView, ReviewQuestionView, WeeklyReviewView } from "../lib/types";
+import { formatCalendarDate, formatClock } from "../lib/clock";
 
 /**
  * What the weeks that already happened have to say about the week being planned.
@@ -63,24 +64,14 @@ function formatMinutes(minutes: number): string {
   return rest === 0 ? h : `${h} ${rest} minutes`;
 }
 
-/** "2026-09-24" -> "Sep 24". Date-only strings are UTC days; local parsing shifts them. */
+/** "2026-09-24" -> "Sep 24". A calendar date, so it has no zone to shift it. */
 function shortDate(date: string): string {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
+  return formatCalendarDate(date, { month: "short", day: "numeric" });
 }
 
 /** "17:00" -> "5:00 PM", in the reader's own conventions. */
 function clock(time: string): string {
-  const [h, m] = time.split(":");
-  const date = new Date(Date.UTC(2000, 0, 1, Number(h), Number(m)));
-  return date.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "UTC",
-  });
+  return formatClock(time);
 }
 
 export function WeeklyReview({

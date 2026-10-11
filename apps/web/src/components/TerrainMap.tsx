@@ -10,6 +10,7 @@ import {
 import { formatDueDay } from "../lib/due-time";
 import { courseChipFill } from "../lib/course-colour";
 import type { PlanResponse } from "../lib/types";
+import { appNow } from "../lib/clock";
 
 /**
  * The next four weeks as a raised-relief model of the term.
@@ -292,7 +293,7 @@ export function TerrainMap({
     // ones would slide the remaining classes sideways every time a layer was switched. A layer
     // toggle that moves the other layers is not a layer toggle.
     courseIds: plan.courses.map((c) => c.id),
-    now: new Date().toISOString(),
+    now: appNow(),
     defaultEffortMinutes: DEFAULT_EFFORT_MINUTES,
   });
 

@@ -1,4 +1,11 @@
-import type { Course, CourseStanding, WorkItem } from "@schoolquest/domain";
+import {
+  formatTimeOfDay,
+  toEpochMinutes,
+  zoneCalendar,
+  type Course,
+  type CourseStanding,
+  type WorkItem,
+} from "@schoolquest/domain";
 import type { PlanningResult, WeeklyReview } from "@schoolquest/planning-engine";
 import { explainReason, explainRisk } from "@schoolquest/theme-language";
 
@@ -32,10 +39,14 @@ export interface CoachContext {
 export function buildCoachContext(input: CoachContextInput): CoachContext {
   const itemsById = new Map(input.workItems.map((w) => [w.id, w]));
   const coursesById = new Map(input.courses.map((c) => [c.id, c]));
-  const today = input.now.slice(0, 10);
+  // Stored times are UTC; the coach talks to the student, so it reads them on the student's clock.
+  const calendar = zoneCalendar(input.timezone);
+  const dayOf = (iso: string) => calendar.dateOf(toEpochMinutes(iso));
+  const clockOf = (iso: string) => formatTimeOfDay(calendar.minuteOfDay(toEpochMinutes(iso)));
+  const today = dayOf(input.now);
 
   const lines: string[] = [];
-  lines.push(`Current time: ${input.now} (${input.timezone})`);
+  lines.push(`Current time: ${today} ${clockOf(input.now)} (${input.timezone})`);
   lines.push("");
 
   // --- Today's recommendations, in order.
@@ -48,18 +59,18 @@ export function buildCoachContext(input: CoachContextInput): CoachContext {
     const reasons = rec.reasonCodes.map((c) => explainReason(c)).join("; ");
     lines.push(
       `  [${rec.sessionId}] ${rec.title} (${course?.name ?? "Unknown course"}) - ` +
-        `${rec.durationMinutes} min at ${rec.startAt.slice(11, 16)}. Why: ${reasons}`,
+        `${rec.durationMinutes} min at ${clockOf(rec.startAt)}. Why: ${reasons}`,
     );
   }
   lines.push("");
 
   // --- The rest of today, then the week ahead in less detail.
-  const todaySessions = input.plan.sessions.filter((s) => s.startAt.slice(0, 10) === today);
+  const todaySessions = input.plan.sessions.filter((s) => dayOf(s.startAt) === today);
   lines.push(`TODAY'S FULL SCHEDULE (${todaySessions.length} sessions):`);
   for (const session of todaySessions) {
     const item = itemsById.get(session.workItemId);
     lines.push(
-      `  [${session.id}] ${session.startAt.slice(11, 16)}-${session.endAt.slice(11, 16)} ` +
+      `  [${session.id}] ${clockOf(session.startAt)}-${clockOf(session.endAt)} ` +
         `${item?.title ?? "Session"} (${session.minutes} min)${session.locked ? " [locked]" : ""}`,
     );
   }
@@ -68,7 +79,7 @@ export function buildCoachContext(input: CoachContextInput): CoachContext {
   lines.push("REST OF THE WEEK (protected later, do not re-plan casually):");
   const laterByDay = new Map<string, string[]>();
   for (const session of input.plan.sessions) {
-    const date = session.startAt.slice(0, 10);
+    const date = dayOf(session.startAt);
     if (date <= today) continue;
     const item = itemsById.get(session.workItemId);
     const entry = `${item?.title ?? "Session"} (${session.minutes} min)`;
@@ -94,7 +105,7 @@ export function buildCoachContext(input: CoachContextInput): CoachContext {
     const confidence =
       item.sourceConfidence === "confirmed" ? "" : ` [${item.sourceConfidence.replace("_", " ")}]`;
     lines.push(
-      `  [${item.id}] ${item.title} (${course?.name ?? "?"}) due ${item.dueAt!.slice(0, 16).replace("T", " ")}${points}${confidence}`,
+      `  [${item.id}] ${item.title} (${course?.name ?? "?"}) due ${dayOf(item.dueAt!)} ${clockOf(item.dueAt!)}${points}${confidence}`,
     );
   }
   lines.push("");

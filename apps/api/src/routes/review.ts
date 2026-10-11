@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { and, eq, gte } from "drizzle-orm";
 import { z } from "zod";
 import {
+  formatTimeOfDay,
   commitmentType,
   MINUTES_PER_DAY,
   newId,
@@ -18,7 +19,7 @@ import {
 } from "@schoolquest/planning-engine";
 import { auditEvents, commitments, courses, interruptions, terms, workItems, workSessions } from "../db/schema.js";
 import { assertTermOwner, getDb, serializeDays, type Db } from "../db/repo.js";
-import { studentNow } from "../wall-clock.js";
+import { studentCalendar, studentZone } from "../student-zone.js";
 import type { AppBindings } from "../env.js";
 
 export const reviewRoute = new Hono<AppBindings>();
@@ -39,11 +40,11 @@ reviewRoute.get("/terms/:termId/review", async (c) => {
     return c.json({ error: "Term not found" }, 404);
   }
 
-  return c.json(await loadReview(db, termId, await studentNow(db, c.get("userId"))));
+  return c.json(await loadReview(db, termId, new Date().toISOString(), await studentZone(db, c.get("userId"))));
 });
 
 /** Shared with the plan route, which folds the review into what it already returns. */
-export async function loadReview(db: Db, termId: string, now: string) {
+export async function loadReview(db: Db, termId: string, now: string, timeZone: string) {
   const since = new Date(
     (toEpochMinutes(now) - DEFAULT_LOOKBACK_DAYS * MINUTES_PER_DAY) * 60_000,
   ).toISOString();
@@ -108,7 +109,7 @@ export async function loadReview(db: Db, termId: string, now: string) {
     if (!existing || existing.resolution !== "promoted") bySlot.set(row.slotKey, next);
   }
 
-  return buildWeeklyReview({ lost, reported, resolutions: [...bySlot.values()], now });
+  return buildWeeklyReview({ lost, reported, resolutions: [...bySlot.values()], now, timeZone });
 }
 
 const reportBody = z.object({
@@ -141,11 +142,10 @@ reviewRoute.post("/work-sessions/:id/interrupted", async (c) => {
 
   if (!owned) return c.json({ error: "Session not found" }, 404);
 
-  const start = new Date(owned.session.startAt);
-  const slotKey = slotKeyFor(
-    start.getUTCDay(),
-    `${String(start.getUTCHours()).padStart(2, "0")}:${String(start.getUTCMinutes()).padStart(2, "0")}`,
-  );
+  // "Thursdays at three" on the student's clock: the same key the weekly review groups by.
+  const calendar = await studentCalendar(db, c.get("userId"));
+  const start = toEpochMinutes(owned.session.startAt);
+  const slotKey = slotKeyFor(calendar.dayOfWeek(start), formatTimeOfDay(calendar.minuteOfDay(start)));
 
   const row = {
     id: newId("interruption"),
@@ -265,5 +265,5 @@ reviewRoute.post("/terms/:termId/review/answer", async (c) => {
     createdAt: row.createdAt,
   });
 
-  return c.json({ ok: true, commitment, review: await loadReview(db, termId, await studentNow(db, c.get("userId"))) });
+  return c.json({ ok: true, commitment, review: await loadReview(db, termId, new Date().toISOString(), await studentZone(db, c.get("userId"))) });
 });

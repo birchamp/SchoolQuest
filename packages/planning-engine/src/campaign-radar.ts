@@ -6,6 +6,7 @@ import {
   toEpochMinutes,
   type GradingCategory,
   type WorkItem,
+  zoneCalendar,
 } from "@schoolquest/domain";
 import { DEFAULT_EFFORT_MINUTES } from "./scheduler.js";
 import { runwayDays } from "./terrain.js";
@@ -160,6 +161,8 @@ export interface CampaignRadar {
 }
 
 export interface RadarInput {
+  /** The student's zone: which day a deadline is on, and what "today" is. Absent is UTC. */
+  timeZone?: string;
   workItems: readonly WorkItem[];
   gradingCategories: readonly GradingCategory[];
   /** Minutes booked per work item across the whole term, not just this week. */
@@ -324,7 +327,9 @@ function adviceFor(input: {
 export function buildCampaignRadar(input: RadarInput): CampaignRadar {
   const horizonDays = Math.max(7, input.horizonDays ?? DEFAULT_HORIZON_DAYS);
   const now = toEpochMinutes(input.now);
-  const startOfToday = dateToEpochMinutes(epochMinutesToDate(now));
+  // Day counts are taken between the student's dates, not Greenwich's.
+  const calendar = zoneCalendar(input.timeZone);
+  const startOfToday = dateToEpochMinutes(calendar.dateOf(now));
 
   const open = input.workItems.filter(isOpen);
   const categoriesByCourse = new Map<string, GradingCategory[]>();
@@ -363,7 +368,7 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
       continue;
     }
     const dueMinutes = toEpochMinutes(item.dueAt);
-    const dueDate = epochMinutesToDate(dueMinutes);
+    const dueDate = calendar.dateOf(dueMinutes);
     // Whole calendar days, not a floor of the raw difference: work due at nine tomorrow
     // morning is tomorrow's problem even when it is only ten hours away.
     const daysAway = Math.round((dateToEpochMinutes(dueDate) - startOfToday) / MINUTES_PER_DAY);
@@ -506,6 +511,7 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
     today: epochMinutesToDate(startOfToday),
     ...(input.termStartDate ? { termStartDate: input.termStartDate } : {}),
     ...(input.termEndDate ? { termEndDate: input.termEndDate } : {}),
+    ...(input.timeZone ? { timeZone: input.timeZone } : {}),
   });
 
   return {
@@ -565,7 +571,7 @@ export function buildCampaignRadar(input: RadarInput): CampaignRadar {
       // Bearing repeats weekly, and spoke 0 is today — so a column read outward really is
       // the same weekday every week, whatever day of the week today happens to be.
       bearingIndex: ((base.daysAway % 7) + 7) % 7,
-      dayOfWeek: new Date(dueMinutes * 60_000).getUTCDay(),
+      dayOfWeek: calendar.dayOfWeek(dueMinutes),
       tier: base.tier,
       gradeShare: base.gradeShare === null ? null : roundTo(base.gradeShare, 4),
       hoursNeeded: roundTo(hoursNeeded, 2),
@@ -618,6 +624,7 @@ function buildTermWeeks(input: {
   today: string;
   termStartDate?: string;
   termEndDate?: string;
+  timeZone?: string;
 }): RadarTermWeek[] {
   if (!input.termStartDate || !input.termEndDate) return [];
 
@@ -634,7 +641,7 @@ function buildTermWeeks(input: {
   const hours = new Array<number>(weekCount).fill(0);
   for (const item of input.workItems) {
     if (item.dueAt === null) continue;
-    const index = weekOf(epochMinutesToDate(toEpochMinutes(item.dueAt)));
+    const index = weekOf(zoneCalendar(input.timeZone).dateOf(toEpochMinutes(item.dueAt)));
     if (index < 0 || index >= weekCount) continue;
     hours[index] = hours[index]! + requiredMinutesFor(item) / 60;
   }

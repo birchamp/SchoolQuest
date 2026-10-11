@@ -2,6 +2,7 @@ import { useState } from "react";
 import { DEFAULT_MEAL_WINDOWS } from "@schoolquest/domain";
 import { api } from "../lib/api";
 import type { MealWindowView, Term } from "../lib/types";
+import { formatClock } from "../lib/clock";
 
 /**
  * The hours the planner keeps clear for meals.
@@ -23,12 +24,7 @@ import type { MealWindowView, Term } from "../lib/types";
 
 /** "12:15" -> "12:15 PM", in the reader's own conventions. */
 function clock(time: string): string {
-  const [h, m] = time.split(":");
-  return new Date(Date.UTC(2000, 0, 1, Number(h), Number(m))).toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "UTC",
-  });
+  return formatClock(time);
 }
 
 export function MealWindows({ term, onChanged }: { term: Term; onChanged: () => void }) {

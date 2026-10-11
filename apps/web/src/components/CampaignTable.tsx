@@ -3,6 +3,7 @@ import { type Course, type ThemeName } from "@schoolquest/domain";
 import { explainUpkeep, label, plainLabel } from "@schoolquest/theme-language";
 import type { CourseLoadView, TermLoadView } from "../lib/types";
 import { courseTincture as sharedTincture } from "../lib/course-colour";
+import { formatDueDay } from "../lib/due-time";
 
 /**
  * One pool of time, divided across every course
@@ -145,13 +146,7 @@ function initialsFor(course: Course | undefined, courseId: string): string {
  * term that crosses a new year is not always this year.
  */
 function formatDue(dueAt: string): string {
-  return new Date(`${dueAt.slice(0, 10)}T12:00:00Z`).toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  return formatDueDay(dueAt, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 
 /**

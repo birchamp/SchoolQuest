@@ -349,6 +349,17 @@ describe("toDueAt", () => {
       "2026-10-18T23:59:00.000Z",
     );
   });
+
+  it("reads the syllabus's date and time in the student's zone, and stores UTC", () => {
+    // 5pm on 18 October in Chicago (CDT, UTC-5) is 22:00 UTC; the end of that day is 04:59 UTC
+    // on the 19th.
+    expect(toDueAt({ iso: "2026-10-18", raw: null, time: "17:00", ambiguity: "none" }, "America/Chicago")).toBe(
+      "2026-10-18T22:00:00.000Z",
+    );
+    expect(toDueAt({ iso: "2026-10-18", raw: null, time: null, ambiguity: "none" }, "America/Chicago")).toBe(
+      "2026-10-19T04:59:00.000Z",
+    );
+  });
 });
 
 describe("questions carry the lines they came from", () => {
