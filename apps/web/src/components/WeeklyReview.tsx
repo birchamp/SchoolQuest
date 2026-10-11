@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { CommitmentType } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import type { CommitmentProposalView, ReviewQuestionView, WeeklyReviewView } from "../lib/types";
@@ -44,7 +45,7 @@ const DAY_LONG = [
 ];
 
 /** Matches the plain-English options in CourseManager's commitment form. */
-const COMMITMENT_TYPES: { value: string; label: string }[] = [
+const COMMITMENT_TYPES: { value: CommitmentType; label: string }[] = [
   { value: "work", label: "Work" },
   { value: "class", label: "Class" },
   { value: "club", label: "Club or team" },
@@ -284,7 +285,7 @@ function ReviewCase({
               </span>
               <select
                 value={draft.commitmentType}
-                onChange={(e) => setDraft({ ...draft, commitmentType: e.target.value })}
+                onChange={(e) => setDraft({ ...draft, commitmentType: e.target.value as CommitmentType })}
               >
                 {COMMITMENT_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>

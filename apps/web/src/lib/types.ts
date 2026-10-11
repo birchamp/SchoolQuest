@@ -8,7 +8,38 @@ import type {
   ThemeName,
   WorkItem,
 } from "@schoolquest/domain";
-import type { CampaignRadar, RadarEncounter } from "@schoolquest/planning-engine";
+import type {
+  BlockKind,
+  CampaignRadar,
+  CommitmentProposal,
+  CourseConcern,
+  CourseHealth,
+  CourseLoad,
+  CourseProgress,
+  DayLoad,
+  DayShape,
+  EncounterGroup,
+  Fallback,
+  HealthLevel,
+  MealBreak,
+  MealStatus,
+  Milestone,
+  PlanDiff,
+  PlanDiffBlock,
+  ProjectHealth,
+  ProjectProgress,
+  RadarEncounter,
+  ReviewOccurrence,
+  ReviewQuestion,
+  SessionBrief,
+  TermEffortSummary,
+  TermHealth,
+  TermLoad,
+  TermProgress,
+  UndatedMilestone,
+  UpkeepStatus,
+  WeeklyReview,
+} from "@schoolquest/planning-engine";
 
 /**
  * The radar crosses the wire verbatim, so the view type is the engine's own rather than a
@@ -62,129 +93,49 @@ export interface CourseStandingView {
   confidence: string;
 }
 
-/**
- * Derived progress for one course. Mirrors `CourseProgress` in the planning engine —
- * points are only ever real `pointsPossible` values, and `basis` says which measure the
- * number came from so the UI never implies precision it does not have.
+/*
+ * The derived views below cross the wire exactly as the engine builds them -- the API hands the
+ * engine's objects to `c.json` untouched, and every field is already a string, number, boolean
+ * or null, so serialization changes nothing. They are therefore the engine's own types, under
+ * the names the screens already use, rather than hand-kept copies that drift. Where the API
+ * adds to an engine object, the addition is spelled out on top of the engine type.
+ *
+ * Kept as local declarations elsewhere in this file, on purpose: sessions, risks and
+ * recommendations (saved-plan reads rebuild them from stored rows, without the engine's
+ * `movementCost`, with a `status` and prose `explanation` it never has, and with codes an older
+ * planner may have written), and everything that is not an engine output at all.
  */
-export interface CourseProgressView {
-  courseId: string;
-  itemsTotal: number;
-  itemsDone: number;
-  pointsTotal: number;
-  pointsDone: number;
-  pointsCoverage: number;
-  completionFraction: number;
-  /**
-   * Which measure `completionFraction` came from. Never print a points figure when this
-   * is `"items"`: that course's syllabus stated too few point values for one to mean
-   * anything, and the engine has already refused to use them.
-   */
-  basis: "points" | "items";
-}
 
-export interface TermProgressView {
-  courses: CourseProgressView[];
-  itemsTotal: number;
-  itemsDone: number;
-  pointsTotal: number;
-  pointsDone: number;
-  pointsCoverage: number;
-  completionFraction: number;
-  basis: "points" | "items";
-  /**
-   * Focused minutes actually logged across the whole term, and the number of sessions
-   * that produced them. Unlike points, these exist for every student from the first
-   * completed block, and they only ever rise.
-   */
+/**
+ * Derived progress for one course (packages/planning-engine/src/progress.ts). Points are only
+ * ever real `pointsPossible` values, and `basis` says which measure the number came from so
+ * the UI never implies precision it does not have.
+ */
+export type CourseProgressView = CourseProgress;
+
+/**
+ * The engine's term progress, plus the effort the API adds from the sessions table: focused
+ * minutes actually logged across the whole term, and the number of sessions that produced
+ * them. Unlike points, these exist for every student from the first completed block, and they
+ * only ever rise.
+ */
+export type TermProgressView = TermProgress & {
   effortMinutes: number;
   sessionsCompleted: number;
-}
+};
 
 /**
  * The week read as prepared session notes (packages/planning-engine/src/session-brief.ts,
  * docs/07-session-prep-design.md). Every field is derived from real work-item data on each
  * read; nothing here is stored or inferred.
  */
-export type BlockKind =
-  | "major_assessment"
-  | "back_to_back"
-  | "recurring"
-  | "first_pass"
-  | "short_block"
-  | "sustained";
-
-export type DayLoad = "heavy" | "steady" | "light" | "clear";
-
-export interface EncounterGroupView {
-  workItemId: string;
-  courseId: string;
-  title: string;
-  date: string;
-  startAt: string;
-  minutes: number;
-  blocks: number;
-  kind: BlockKind;
-  sessionIds: string[];
-}
-
-export interface DayShapeView {
-  date: string;
-  dayOfWeek: number;
-  load: DayLoad;
-  minutes: number;
-  weightedHours: number;
-  encounters: number;
-  /** Something major is due this day, whether or not time is booked for it. */
-  carriesAssessment: boolean;
-}
-
-export interface FallbackView {
-  code: "SHORT_WINDOW" | "CRUX_DAY_LOST" | "SLACK_REMAINING" | "NO_SLACK";
-  workItemIds: string[];
-  minutes: number | null;
-  date: string | null;
-}
-
-export interface MilestoneView {
-  workItemId: string;
-  courseId: string;
-  title: string;
-  workType: string;
-  dueAt: string;
-  /** Negative means it is past due and still open. */
-  daysAway: number;
-  /** Whether preparation has started. The number this feature exists for. */
-  prepBlocks: number;
-  prepMinutes: number;
-  dueConfirmed: boolean;
-}
-
-export interface UndatedMilestoneView {
-  workItemId: string;
-  courseId: string;
-  title: string;
-  workType: string;
-  prepBlocks: number;
-  prepMinutes: number;
-}
-
-export interface SessionBriefView {
-  spine: {
-    workItemId: string;
-    courseId: string;
-    title: string;
-    minutes: number;
-    blocks: number;
-    dueAt: string | null;
-  } | null;
-  crux: { date: string; load: DayLoad; carriesAssessment: boolean } | null;
-  days: DayShapeView[];
-  encounters: EncounterGroupView[];
-  fallbacks: FallbackView[];
-  milestones: MilestoneView[];
-  undatedMilestones: UndatedMilestoneView[];
-}
+export type { BlockKind, DayLoad };
+export type EncounterGroupView = EncounterGroup;
+export type DayShapeView = DayShape;
+export type FallbackView = Fallback;
+export type MilestoneView = Milestone;
+export type UndatedMilestoneView = UndatedMilestone;
+export type SessionBriefView = SessionBrief;
 
 /**
  * Where a long project stands (packages/planning-engine/src/project-progress.ts).
@@ -193,181 +144,36 @@ export interface SessionBriefView {
  * much the current plan has booked: long work is paced, so a healthy project only ever
  * holds one horizon's blocks.
  */
-export type ProjectHealth =
-  | "past_due"
-  | "not_started"
-  | "on_track"
-  | "crowding"
-  | "will_not_fit"
-  | "stalled"
-  | "finished";
-
-export interface ProjectProgressView {
-  workItemId: string;
-  courseId: string;
-  title: string;
-  workType: string;
-  dueAt: string | null;
-  dueConfirmed: boolean;
-  daysAway: number | null;
-  estimatedMinutes: number;
-  /** True when a per-type default stood in because nobody estimated the effort. */
-  effortIsAssumed: boolean;
-  remainingMinutes: number;
-  investedMinutes: number;
-  completionFraction: number;
-  bookedMinutes: number;
-  /** Minutes per week needed from here to land on time; null with no known deadline. */
-  neededPerWeekMinutes: number | null;
-  daysSinceProgress: number | null;
-  health: ProjectHealth;
-  stages: { workItemId: string; title: string; done: boolean; dueAt: string | null }[];
-}
-
-export interface ProjectsSummaryView {
-  investedMinutes: number;
-  sessionsCompleted: number;
-  bookedMinutes: number;
-  projectsTotal: number;
-  projectsFinished: number;
-  projectsWillNotFit: number;
-  projectsCrowding: number;
-  projectsNotStarted: number;
-  projectsStalled: number;
-  projectsPastDue: number;
-}
+export type { ProjectHealth };
+export type ProjectProgressView = ProjectProgress;
+export type ProjectsSummaryView = TermEffortSummary;
 
 /**
  * One pool of time, divided across every course
  * (packages/planning-engine/src/course-load.ts).
  */
-export type UpkeepStatus = "no_routine" | "current" | "slipping" | "behind";
-
-export interface CourseLoadView {
-  courseId: string;
-  bookedMinutes: number;
-  /** Share of everything booked this week, 0..1. */
-  shareOfBooked: number;
-  blocks: number;
-  investedMinutes: number;
-  openItems: number;
-  openProjects: number;
-  nextDueAt: string | null;
-  nextDueTitle: string | null;
-  upkeep: UpkeepStatus;
-  upkeepOverdue: number;
-  daysSinceProgress: number | null;
-}
-
-export interface TermLoadView {
-  courses: CourseLoadView[];
-  bookedMinutes: number;
-  capacityMinutes: number;
-  /** Capacity not yet spoken for. Room, never debt. */
-  unbookedMinutes: number;
-  coursesWithNothingBooked: number;
-}
+export type { UpkeepStatus };
+export type CourseLoadView = CourseLoad;
+export type TermLoadView = TermLoad;
 
 /** Where each meal falls (packages/planning-engine/src/meals.ts). */
-export type MealStatus = "planned" | "reserved" | "squeezed" | "no_gap";
-
-export interface MealBreakView {
-  date: string;
-  key: string;
-  label: string;
-  status: MealStatus;
-  /** Epoch minutes. Null for "planned" (the student's own) and "no_gap". */
-  start: number | null;
-  end: number | null;
-  minutes: number;
-}
+export type { MealStatus };
+export type MealBreakView = MealBreak;
 
 /** What the weeks that already happened have to say (planning-engine/interruptions.ts). */
-export interface ReviewOccurrenceView {
-  date: string;
-  minutes: number;
-  sessionIds: string[];
-  cause: string | null;
-}
-
-export interface CommitmentProposalView {
-  title: string;
-  commitmentType: string;
-  daysOfWeek: number[];
-  startTime: string;
-  endTime: string;
-  named: boolean;
-}
-
-export interface ReviewQuestionView {
-  slotKey: string;
-  dayOfWeek: number;
-  startTime: string;
-  endTime: string;
-  weeks: number;
-  minutesLost: number;
-  occurrences: ReviewOccurrenceView[];
-  proposal: CommitmentProposalView | null;
-}
-
-export interface WeeklyReviewView {
-  questions: ReviewQuestionView[];
-  minutesLost: number;
-  unanswered: number;
-}
+export type ReviewOccurrenceView = ReviewOccurrence;
+export type CommitmentProposalView = CommitmentProposal;
+export type ReviewQuestionView = ReviewQuestion;
+export type WeeklyReviewView = WeeklyReview;
 
 /** Per-course verdict (packages/planning-engine/src/course-health.ts). */
-export type HealthLevel = "at_risk" | "needs_attention" | "steady";
+export type { HealthLevel };
+export type CourseConcernView = CourseConcern;
+export type CourseHealthView = CourseHealth;
+export type TermHealthView = TermHealth;
 
-export interface CourseConcernView {
-  code: string;
-  level: Exclude<HealthLevel, "steady">;
-  detail: string;
-}
-
-export interface CourseHealthView {
-  courseId: string;
-  level: HealthLevel;
-  concerns: CourseConcernView[];
-  bookedMinutes: number;
-  blocks: number;
-  openItems: number;
-  nextDueAt: string | null;
-  nextDueTitle: string | null;
-  nextDueInDays: number | null;
-  gradePercent: number | null;
-  /** Zero whenever the graded work is not mapped to weighted categories — the common case. */
-  gradedWeightFraction: number;
-  gradedCount: number;
-  targetPercent: number;
-  targetIsOwn: boolean;
-  ungradedResults: number;
-}
-
-export interface TermHealthView {
-  courses: CourseHealthView[];
-  coursesAtRisk: number;
-  coursesNeedingAttention: number;
-  coursesSteady: number;
-  coursesUnplanned: number;
-}
-
-/** One block as the replan diff names it. */
-export interface PlanDiffBlock {
-  sessionId: string;
-  workItemId: string;
-  startAt: string;
-  endAt: string;
-}
-
-/** What a regenerate changed. Present on the generate response only. */
-export interface PlanDiff {
-  kept: PlanDiffBlock[];
-  moved: { workItemId: string; from: PlanDiffBlock; to: PlanDiffBlock }[];
-  added: PlanDiffBlock[];
-  dropped: PlanDiffBlock[];
-  unchanged: boolean;
-}
+/** What a regenerate changed (packages/planning-engine/src/plan-diff.ts). Generate responses only. */
+export type { PlanDiff, PlanDiffBlock };
 
 export interface PlanResponse {
   planVersionId?: string;
