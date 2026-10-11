@@ -31,10 +31,14 @@ const API = "http://127.0.0.1:8787";
 
 // --- Helpers -----------------------------------------------------------------------------
 
-async function api(path, method = "GET", body, token) {
+async function api(path, method = "GET", body, token, extraHeaders = {}) {
   const res = await fetch(API + path, {
     method,
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...extraHeaders,
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -474,7 +478,8 @@ try {
     const { sessionToken: token } = await api("/api/auth/callback", "POST", {
       token: new URL(login.devLoginUrl).searchParams.get("token"),
     });
-    await api("/api/me", "PATCH", { timezone: "America/Chicago" }, token);
+    // The account still says New York, the sign-up default; the student is in Chicago, and their
+    // records were written on Chicago's clock. The conversion must use where the device is.
     const { term } = await api("/api/terms", "POST", { name: "Fall", startDate: "2026-08-24", endDate: "2026-12-15" }, token);
     await api(
       `/api/terms/${term.id}/availability-rules`,
@@ -492,11 +497,22 @@ try {
     const before = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token);
     localSql(`UPDATE users SET time_standard = 0 WHERE email = '${email}'`);
 
-    // The app's first requests after an update arrive together.
-    await Promise.all([1, 2, 3].map(() => api("/api/terms", "GET", undefined, token)));
-    const after = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token);
-    await api("/api/terms", "GET", undefined, token);
-    const later = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token);
+    // A tab still running the old app sends no zone: it is told to reload, and nothing moves.
+    let refused = "";
+    try {
+      await api("/api/terms", "GET", undefined, token);
+    } catch (e) {
+      refused = String(e.message);
+    }
+    check("an old app on an unconverted account is told to reload, not served", /409/.test(refused) && /Reload/.test(refused));
+
+    // The updated app's first requests arrive together, each saying where the device is.
+    const chicago = { "X-Device-Time-Zone": "America/Chicago" };
+    await Promise.all([1, 2, 3].map(() => api("/api/terms", "GET", undefined, token, chicago)));
+    const after = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token, chicago);
+    await api("/api/terms", "GET", undefined, token, chicago);
+    const later = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token, chicago);
+    const zoneAfter = (await api("/api/me", "GET", undefined, token, chicago)).user.timezone;
 
     // October in Chicago is UTC-5: every value moves exactly five hours later, once.
     const fiveHours = (iso) => new Date(Date.parse(iso) + 5 * 3_600_000).toISOString();
@@ -512,9 +528,10 @@ try {
         before.existingSessions.length > 0 &&
         wrongItems.length === 0 &&
         wrongSessions.length === 0 &&
-        JSON.stringify(later.workItems) === JSON.stringify(after.workItems),
+        JSON.stringify(later.workItems) === JSON.stringify(after.workItems) &&
+        zoneAfter === "America/Chicago",
       `${before.workItems.length} items, ${before.existingSessions.length} blocks; ` +
-        `${wrongItems.length} items and ${wrongSessions.length} blocks wrong; ` +
+        `${wrongItems.length} items and ${wrongSessions.length} blocks wrong; zone now ${zoneAfter}; ` +
         `e.g. ${before.workItems[0]?.dueAt} -> ${after.workItems.find((x) => x.id === before.workItems[0]?.id)?.dueAt}`,
     );
   });

@@ -24,18 +24,23 @@ import type { Db } from "./repo.js";
  * - **Once.** Every update is conditional on the flag still reading 0 inside that transaction,
  *   so two requests converting at once cannot shift a row twice.
  *
- * The zone used is the account's stored one. The app reports the device's zone on `PATCH /api/me`
- * before it asks for anything else, and that route does not trigger this, so a student opening
- * the updated app is converted in the zone they are actually in.
+ * The zone is the one the caller passes: the device's, from the request, or the student's pinned
+ * one. Never the stored zone on its own, which for most accounts is still the sign-up default.
  */
-export async function ensureUtcStandard(db: Db, d1: D1Database, userId: string): Promise<boolean> {
+export async function ensureUtcStandard(
+  db: Db,
+  d1: D1Database,
+  userId: string,
+  /** The zone the records were written in: the device's, or the one the student pinned. */
+  timeZone: string,
+): Promise<boolean> {
   const [user] = await db
     .select({ timezone: users.timezone, timeStandard: users.timeStandard })
     .from(users)
     .where(eq(users.id, userId));
   if (!user || user.timeStandard >= 1) return false;
 
-  const calendar = zoneCalendar(user.timezone && isTimeZone(user.timezone) ? user.timezone : "UTC");
+  const calendar = zoneCalendar(isTimeZone(timeZone) ? timeZone : "UTC");
   const termIds = (await db.select({ id: terms.id }).from(terms).where(eq(terms.userId, userId))).map(
     (t) => t.id,
   );
@@ -127,7 +132,12 @@ export async function ensureUtcStandard(db: Db, d1: D1Database, userId: string):
       );
     }
   }
-  statements.push(d1.prepare("UPDATE users SET time_standard = 1 WHERE id = ? AND time_standard = 0").bind(userId));
+  // The zone the records were read in becomes the account's, so the screens show them in it.
+  statements.push(
+    d1
+      .prepare("UPDATE users SET time_standard = 1, timezone = ? WHERE id = ? AND time_standard = 0")
+      .bind(timeZone, userId),
+  );
 
   await d1.batch(statements);
   return changes.length > 0;

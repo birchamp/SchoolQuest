@@ -6,8 +6,9 @@ import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
 import {
-  composeDueAt,
   DEFAULT_DUE_TIME,
+  composeDueAt,
+  dueAfterEdit,
   dueDatePart,
   dueTimePart,
   formatDueDay,
@@ -342,8 +343,8 @@ export function AssignmentsTable({
    * and what extraction writes when the syllabus is silent.
    */
   async function saveDue(item: WorkItem, date: string, time: string) {
-    const next = composeDueAt(date, time);
-    if (next === (item.dueAt ?? null)) return;
+    const next = dueAfterEdit(item.dueAt, date, time);
+    if (next === undefined) return;
     setBusy(item.id);
     setError(null);
     try {
