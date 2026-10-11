@@ -90,7 +90,8 @@ export const at = (date, time) => `${date}T${time}:00.000Z`;
  *   now        the simulated clock (`sq_dev_now`); null runs on the real one
  *   viewMode   "visual" or "table", set before the first paint
  *   landOn     a main-navigation button to open once the plan has settled, e.g. "Today"
- *   context    extra Playwright context options, e.g. { timezoneId: "Pacific/Honolulu" }
+ *   context    extra Playwright context options, e.g. { timezoneId: "Pacific/Honolulu" };
+ *              the browser is in UTC unless this names another zone
  *   shell      false for a student with no term yet: they land on onboarding, which has no main
  *              navigation to wait for, so only the first load is awaited
  *
@@ -102,7 +103,14 @@ export async function openApp(
   token,
   { now = null, viewMode, landOn, shell = true, context: contextOptions = {} } = {},
 ) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, ...contextOptions });
+  // UTC unless a journey asks for a zone. The account follows the browser's zone, and the
+  // journeys write and compare times as UTC; left to the machine's own zone, a run in New York
+  // reads Thursday 20:00 as Friday 00:00 and fails for no reason in the app.
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 1000 },
+    timezoneId: "UTC",
+    ...contextOptions,
+  });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e).slice(0, 300)));
