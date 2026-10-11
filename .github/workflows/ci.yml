@@ -43,6 +43,14 @@ jobs:
           pnpm typecheck
           pnpm test
 
+      # The same tests, with the machine's clock west and east of Greenwich. Every time inside
+      # the app is UTC and only the screens convert (issue #4); a mistake between the two is
+      # invisible at UTC+0, which is where CI runs, so this is where it shows.
+      - name: Unit tests in other time zones
+        run: |
+          TZ=America/Los_Angeles pnpm test
+          TZ=Asia/Tokyo pnpm test
+
       # A fresh local database and secrets file, exactly as a first run makes them.
       - name: Set up a local install
         run: pnpm run setup

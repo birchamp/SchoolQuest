@@ -17,7 +17,7 @@ import { reviewRoute } from "./routes/review.js";
 import { sessionsRoute } from "./routes/sessions.js";
 import { termsRoute } from "./routes/terms.js";
 import { isDevMode, type AppBindings } from "./env.js";
-import { isTimeZone } from "./wall-clock.js";
+import { isTimeZone } from "@schoolquest/domain";
 
 const app = new Hono<AppBindings>();
 
@@ -131,6 +131,8 @@ const profileBody = z.object({
   displayName: z.string().nullable().optional(),
   /** An IANA zone name; anything else would quietly turn every plan back to UTC. */
   timezone: z.string().refine(isTimeZone, "Unknown time zone").optional(),
+  /** "device" follows the device the app is opened on; "pinned" keeps `timezone` where it is. */
+  timezoneMode: z.enum(["device", "pinned"]).optional(),
   theme: themeName.optional(),
   reducedMotion: z.boolean().optional(),
   detailMode: detailMode.optional(),

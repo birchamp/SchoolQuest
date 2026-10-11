@@ -4,6 +4,7 @@ import { explainHealth, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { courseChipFill, courseInitials } from "../lib/course-colour";
 import type { CourseHealthView, TermHealthView } from "../lib/types";
+import { appNow } from "../lib/clock";
 
 /**
  * Which class needs me?
@@ -331,7 +332,7 @@ function RecordResults({
       w.courseId === courseId &&
       (w.status === "completed" || w.status === "submitted") &&
       w.dueAt !== null &&
-      Date.parse(w.dueAt) <= Date.now(),
+      Date.parse(w.dueAt) <= Date.parse(appNow()),
   );
   if (pending.length === 0) return null;
 

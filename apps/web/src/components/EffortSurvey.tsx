@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useBodyTheme } from "../lib/use-body-theme";
+import { localDate } from "../lib/clock";
 
 /**
  * Asking the student how long their work actually takes.
@@ -280,7 +281,7 @@ export function EffortSurvey({ termId, onChanged }: { termId: string; onChanged:
 
       {question.askedInstructorAt && !showAsk && (
         <p className="muted" style={{ margin: "0.5rem 0 0", fontSize: "0.82rem" }}>
-          You noted asking about this on {question.askedInstructorAt.slice(0, 10)}. Still assumed
+          You noted asking about this on {localDate(question.askedInstructorAt)}. Still assumed
           until you have an answer.
         </p>
       )}

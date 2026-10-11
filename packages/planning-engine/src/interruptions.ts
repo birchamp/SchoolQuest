@@ -1,11 +1,11 @@
 import {
-  dateToEpochMinutes,
-  dayOfWeekFor,
   formatTimeOfDay,
   MINUTES_PER_DAY,
   parseTimeOfDay,
   toEpochMinutes,
+  zoneCalendar,
   type CommitmentType,
+  type ZoneCalendar,
 } from "@schoolquest/domain";
 
 /**
@@ -110,6 +110,11 @@ export interface WeeklyReviewInput {
   now: string;
   /** How far back to look. A term's worth of history makes for an interrogation. */
   lookbackDays?: number;
+  /**
+   * The student's zone. A slot is "Thursdays from three" on their clock, and a day is behind
+   * them at their midnight. Absent is UTC.
+   */
+  timeZone?: string;
 }
 
 export interface WeeklyReview {
@@ -152,7 +157,8 @@ export function buildWeeklyReview(input: WeeklyReviewInput): WeeklyReview {
    * not over and they may well still do it. The card calls itself a look at recent weeks and
    * should mean it. A block only becomes evidence once its day is behind us.
    */
-  const todayStart = dateToEpochMinutes(input.now.slice(0, 10));
+  const cal = zoneCalendar(input.timeZone);
+  const todayStart = cal.dayStart(cal.dateOf(toEpochMinutes(input.now)));
   const since = todayStart - (input.lookbackDays ?? DEFAULT_LOOKBACK_DAYS) * MINUTES_PER_DAY;
 
   const causeBySession = new Map<string, ReportedInterruption>();
@@ -185,12 +191,12 @@ export function buildWeeklyReview(input: WeeklyReviewInput): WeeklyReview {
     });
   }
 
-  const groups = groupIntoSlots(entries);
+  const groups = groupIntoSlots(entries, cal);
   const resolutionsByKey = new Map(input.resolutions.map((r) => [r.slotKey, r]));
 
   const questions: ReviewQuestion[] = [];
   for (const group of groups) {
-    const question = toQuestion(group, input.reported);
+    const question = toQuestion(group, input.reported, cal);
     const previous = resolutionsByKey.get(question.slotKey);
     // A slot already turned into a commitment is answered for good. Anything else is only
     // settled until the pattern grows past what the student was answering about.
@@ -240,10 +246,10 @@ interface SlotGroup {
  * Within a day, blocks join only if they are genuinely contiguous. Across weeks, runs join on
  * the looser tolerance, because the same obligation does drift by half an hour.
  */
-function groupIntoSlots(entries: SlotEntry[]): SlotGroup[] {
+function groupIntoSlots(entries: SlotEntry[], cal: ZoneCalendar): SlotGroup[] {
   const byDay = new Map<number, SlotEntry[]>();
   for (const entry of entries) {
-    const dow = dayOfWeekFor(entry.start);
+    const dow = cal.dayOfWeek(entry.start);
     const list = byDay.get(dow);
     if (list) list.push(entry);
     else byDay.set(dow, [entry]);
@@ -251,7 +257,7 @@ function groupIntoSlots(entries: SlotEntry[]): SlotGroup[] {
 
   const groups: SlotGroup[] = [];
   for (const [dayOfWeek, dayEntries] of [...byDay].sort((a, b) => a[0] - b[0])) {
-    for (const run of contiguousRuns(dayEntries)) {
+    for (const run of contiguousRuns(dayEntries, cal)) {
       const open = groups.find(
         (g) =>
           g.dayOfWeek === dayOfWeek &&
@@ -273,10 +279,11 @@ function groupIntoSlots(entries: SlotEntry[]): SlotGroup[] {
 /** Unbroken stretches of lost time, computed per calendar date. */
 function contiguousRuns(
   entries: SlotEntry[],
+  cal: ZoneCalendar,
 ): { startMinute: number; endMinute: number; entries: SlotEntry[] }[] {
   const byDate = new Map<string, SlotEntry[]>();
   for (const entry of entries) {
-    const date = new Date(entry.start * 60_000).toISOString().slice(0, 10);
+    const date = cal.dateOf(entry.start);
     const list = byDate.get(date);
     if (list) list.push(entry);
     else byDate.set(date, [entry]);
@@ -286,13 +293,13 @@ function contiguousRuns(
   for (const [, dateEntries] of [...byDate].sort((a, b) => a[0].localeCompare(b[0]))) {
     const sorted = [...dateEntries].sort((a, b) => a.start - b.start);
     for (const entry of sorted) {
-      const start = minuteOfDay(entry.start);
+      const start = cal.minuteOfDay(entry.start);
       const end = start + Math.max(0, entry.end - entry.start);
       const open = runs[runs.length - 1];
       const sameRun =
         open !== undefined &&
         open.entries[0] !== undefined &&
-        sameDate(open.entries[0]!, entry) &&
+        cal.dateOf(open.entries[0]!.start) === cal.dateOf(entry.start) &&
         start <= open.endMinute + CONTIGUOUS_GAP_MINUTES;
       if (sameRun) {
         open.endMinute = Math.max(open.endMinute, end);
@@ -305,17 +312,14 @@ function contiguousRuns(
   return runs;
 }
 
-function sameDate(a: SlotEntry, b: SlotEntry): boolean {
-  return (
-    new Date(a.start * 60_000).toISOString().slice(0, 10) ===
-    new Date(b.start * 60_000).toISOString().slice(0, 10)
-  );
-}
-
-function toQuestion(group: SlotGroup, reported: ReportedInterruption[]): ReviewQuestion {
+function toQuestion(
+  group: SlotGroup,
+  reported: ReportedInterruption[],
+  cal: ZoneCalendar,
+): ReviewQuestion {
   const byDate = new Map<string, ReviewOccurrence>();
   for (const entry of group.entries) {
-    const date = new Date(entry.start * 60_000).toISOString().slice(0, 10);
+    const date = cal.dateOf(entry.start);
     const existing = byDate.get(date);
     const minutes = Math.max(0, entry.end - entry.start);
     if (existing) {
@@ -389,10 +393,6 @@ function buildProposal(
   };
 }
 
-function minuteOfDay(epochMinutes: number): number {
-  const wrapped = ((epochMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
-  return wrapped;
-}
 
 /**
  * Year plus ISO week number, so "the same slot in three different weeks" counts weeks and

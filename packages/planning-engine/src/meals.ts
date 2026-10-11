@@ -1,17 +1,14 @@
 import {
-  dateToEpochMinutes,
-  dayOfWeekFor,
   durationMinutes,
-  epochMinutesToDate,
   formatTimeOfDay,
-  MINUTES_PER_DAY,
   mergeIntervals,
-  parseTimeOfDay,
   subtractIntervals,
   toEpochMinutes,
+  zoneCalendar,
   type Interval,
   type MealWindow,
 } from "@schoolquest/domain";
+import { horizonDays, type LocalDay } from "./local-days.js";
 import type { PlanningInput } from "./types.js";
 
 /**
@@ -83,7 +80,6 @@ export function planMealBreaks(input: PlanningInput, busy: readonly Interval[]):
   const windows = input.preferences.mealWindows;
   if (windows.length === 0) return [];
 
-  const horizonStart = dateToEpochMinutes(input.horizonStart);
   const now = toEpochMinutes(input.now);
   const mealCommitments = input.commitments.filter(
     // An optional commitment is not subtracted from capacity, so it cannot be the thing
@@ -93,21 +89,19 @@ export function planMealBreaks(input: PlanningInput, busy: readonly Interval[]):
 
   const breaks: MealBreak[] = [];
 
-  for (let day = 0; day < input.horizonDays; day++) {
-    const dayStart = horizonStart + day * MINUTES_PER_DAY;
-    const dow = dayOfWeekFor(dayStart);
-    const date = epochMinutesToDate(dayStart);
+  for (const day of horizonDays(input)) {
+    const { date, dayOfWeek: dow } = day;
 
     for (const window of windows) {
       const span: Interval = {
-        start: dayStart + parseTimeOfDay(window.earliest),
-        end: dayStart + parseTimeOfDay(window.latest),
+        start: day.at(window.earliest),
+        end: day.at(window.latest),
       };
       if (durationMinutes(span) <= 0) continue;
       // A meal already behind us is not a plan, it is a memory.
       if (span.end <= now) continue;
 
-      if (coveredByCommitment(mealCommitments, dayStart, dow, date, span)) {
+      if (coveredByCommitment(mealCommitments, day, dow, date, span)) {
         breaks.push({
           date,
           key: window.key,
@@ -122,14 +116,14 @@ export function planMealBreaks(input: PlanningInput, busy: readonly Interval[]):
 
       // Only the part of the window the student intended to be free is ours to shape. If
       // availability says they are not around at 08:00, breakfast is none of our business.
-      const openable = generalTimeInWindow(input, dayStart, dow, span, now);
+      const openable = generalTimeInWindow(input, day, dow, span, now);
       if (openable.length === 0) continue;
 
       // The customary hour has to be part of this student's day for the meal to be part of
       // the plan. Availability that merely clips the tail of the window — up at 09:00, with
       // breakfast nominally running to 09:30 — is not an invitation to book breakfast at the
       // first minute they are free.
-      const anchorMinute = dayStart + parseTimeOfDay(window.anchor);
+      const anchorMinute = day.at(window.anchor);
       if (!openable.some((slice) => anchorMinute >= slice.start && anchorMinute < slice.end)) {
         continue;
       }
@@ -151,8 +145,8 @@ export function planMealBreaks(input: PlanningInput, busy: readonly Interval[]):
       }
 
       const slot = chooseSlot(free, anchorMinute, window.minutes, {
-        valueAt: (interval) => studyValue(input, dayStart, dow, interval),
-        boundaries: specialisedBoundaries(input, dayStart, dow),
+        valueAt: (interval) => studyValue(input, day, dow, interval),
+        boundaries: specialisedBoundaries(input, day, dow),
       });
       if (!slot) continue;
 
@@ -174,7 +168,7 @@ export function planMealBreaks(input: PlanningInput, busy: readonly Interval[]):
 /** Does one of the student's own meal commitments land in this window on this day? */
 function coveredByCommitment(
   commitments: PlanningInput["commitments"],
-  dayStart: number,
+  day: LocalDay,
   dow: number,
   date: string,
   span: Interval,
@@ -185,8 +179,8 @@ function coveredByCommitment(
     } else if (!commitment.daysOfWeek.includes(dow)) {
       continue;
     }
-    const start = dayStart + parseTimeOfDay(commitment.startTime);
-    const end = dayStart + parseTimeOfDay(commitment.endTime);
+    const start = day.at(commitment.startTime);
+    const end = day.at(commitment.endTime);
     if (start < span.end && span.start < end) return true;
   }
   return false;
@@ -209,7 +203,7 @@ function coveredByCommitment(
  */
 function generalTimeInWindow(
   input: PlanningInput,
-  dayStart: number,
+  day: LocalDay,
   dow: number,
   span: Interval,
   now: number,
@@ -218,8 +212,8 @@ function generalTimeInWindow(
   for (const rule of input.availabilityRules) {
     if (rule.dayOfWeek !== dow) continue;
     if (rule.location !== "anywhere") continue;
-    const start = Math.max(dayStart + parseTimeOfDay(rule.startTime), span.start, now);
-    const end = Math.min(dayStart + parseTimeOfDay(rule.endTime), span.end);
+    const start = Math.max(day.at(rule.startTime), span.start, now);
+    const end = Math.min(day.at(rule.endTime), span.end);
     if (end > start) slices.push({ start, end });
   }
   return mergeIntervals(slices);
@@ -233,12 +227,12 @@ function generalTimeInWindow(
  * still consumes the library hour. Sharp-focus time is worth protecting for the same reason
  * at lower cost.
  */
-function studyValue(input: PlanningInput, dayStart: number, dow: number, gap: Interval): number {
+function studyValue(input: PlanningInput, day: LocalDay, dow: number, gap: Interval): number {
   let value = 0;
   for (const rule of input.availabilityRules) {
     if (rule.dayOfWeek !== dow) continue;
-    const start = dayStart + parseTimeOfDay(rule.startTime);
-    const end = dayStart + parseTimeOfDay(rule.endTime);
+    const start = day.at(rule.startTime);
+    const end = day.at(rule.endTime);
     if (start >= gap.end || gap.start >= end) continue;
     if (rule.location !== "anywhere") value = Math.max(value, 3);
     else if (rule.energyLevel === "high") value = Math.max(value, 1);
@@ -247,13 +241,13 @@ function studyValue(input: PlanningInput, dayStart: number, dow: number, gap: In
 }
 
 /** Every edge of a specialised or high-energy window on this day, as a split point. */
-function specialisedBoundaries(input: PlanningInput, dayStart: number, dow: number): number[] {
+function specialisedBoundaries(input: PlanningInput, day: LocalDay, dow: number): number[] {
   const edges = new Set<number>();
   for (const rule of input.availabilityRules) {
     if (rule.dayOfWeek !== dow) continue;
     if (rule.location === "anywhere" && rule.energyLevel !== "high") continue;
-    edges.add(dayStart + parseTimeOfDay(rule.startTime));
-    edges.add(dayStart + parseTimeOfDay(rule.endTime));
+    edges.add(day.at(rule.startTime));
+    edges.add(day.at(rule.endTime));
   }
   return [...edges].sort((a, b) => a - b);
 }
@@ -352,7 +346,10 @@ export interface MealNote {
   text: string;
 }
 
-export function mealNotes(breaks: readonly MealBreak[]): MealNote[] {
+export function mealNotes(breaks: readonly MealBreak[], timeZone?: string): MealNote[] {
+  const calendar = zoneCalendar(timeZone);
+  /** A meal's time of day as the student reads it. */
+  const clock = (epochMinutes: number) => formatTimeOfDay(calendar.minuteOfDay(epochMinutes));
   const notes: MealNote[] = [];
   for (const meal of breaks) {
     const when =
@@ -384,8 +381,5 @@ export function mealNotes(breaks: readonly MealBreak[]): MealNote[] {
   return notes;
 }
 
-function clock(epochMinutes: number): string {
-  return formatTimeOfDay(epochMinutes - dateToEpochMinutes(epochMinutesToDate(epochMinutes)));
-}
 
 export type { MealWindow };

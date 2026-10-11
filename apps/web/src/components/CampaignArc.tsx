@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { type Course, type ThemeName } from "@schoolquest/domain";
 import type { MilestoneView, UndatedMilestoneView } from "../lib/types";
 import { courseTincture } from "../lib/course-colour";
+import { formatDueDay } from "../lib/due-time";
 
 /**
  * The term's major work as a timeline (docs/07-session-prep-design.md §3).
@@ -159,23 +160,14 @@ function workTypeLabel(workType: string): string {
 }
 
 /**
- * The due date, formatted from the date part in UTC.
- *
- * `new Date(dueAt).toLocaleDateString()` renders in the viewer's zone, which shifts a
- * late-evening deadline back a day — and the engine computed `daysAway` from
- * `dueAt.slice(0, 10)`. Formatting the same ten characters keeps the printed date and the
- * printed distance from contradicting each other. The year is always shown: the test
- * semester carries a stale 2025 date beside 2026 work, and an omitted year would make that
- * row look like an ordinary near-term deadline.
+ * The due date, on the student's calendar, through the one formatter every view shares -- the
+ * engine counts `daysAway` between the student's dates too, so the printed date and the printed
+ * distance cannot contradict each other. The year is always shown: the test semester carries a
+ * stale 2025 date beside 2026 work, and an omitted year would make that row look like an
+ * ordinary near-term deadline.
  */
 function formatDue(dueAt: string): string {
-  return new Date(`${dueAt.slice(0, 10)}T12:00:00Z`).toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  return formatDueDay(dueAt, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 
 /** Course code appended only when the name does not already carry it (see WeekMap). */
@@ -620,12 +612,8 @@ function byMonth(rows: MilestoneView[]): { key: string; label: string; rows: Mil
     }
     runs.push({
       key,
-      // Formatted from the date part in UTC for the same reason `formatDue` is.
-      label: new Date(`${row.dueAt.slice(0, 10)}T12:00:00Z`).toLocaleDateString(undefined, {
-        month: "long",
-        year: "numeric",
-        timeZone: "UTC",
-      }),
+      // On the student's calendar, for the same reason `formatDue` is.
+      label: formatDueDay(row.dueAt, { month: "long", year: "numeric" }),
       rows: [row],
     });
   }

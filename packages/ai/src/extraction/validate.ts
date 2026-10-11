@@ -1,4 +1,5 @@
 import { expandAll } from "./expand-recurrence.js";
+import { fromEpochMinutes, parseTimeOfDay, zoneCalendar } from "@schoolquest/domain";
 import type { ConfidenceStatus, TermCalendar } from "@schoolquest/domain";
 import type { DocumentPage } from "./prompt.js";
 import { isWithinTerm } from "./resolve-dates.js";
@@ -755,13 +756,19 @@ function dedupeQuestions(questions: ClarificationQuestion[]): ClarificationQuest
   });
 }
 
-/** Turns a validated date into the ISO instant the domain stores, or null if unresolved. */
-export function toDueAt(date: ExtractedDate): string | null {
+/**
+ * Turns a validated date into the UTC instant the domain stores, or null if unresolved.
+ *
+ * A syllabus date and time are the student's local ones ("due Friday at 5pm" means 5pm where
+ * they are), so the instant is read in their zone. Absent is UTC.
+ */
+export function toDueAt(date: ExtractedDate, timeZone?: string): string | null {
   if (date.iso === null) return null;
   // No stated time means end of day is an assumption, not a fact — but a date-only
   // deadline still has to land somewhere, so it lands at the end of that day and the
   // TIME_NOT_STATED issue tells the student it was assumed.
-  return `${date.iso}T${date.time ?? "23:59"}:00.000Z`;
+  const minute = parseTimeOfDay(date.time ?? "23:59");
+  return fromEpochMinutes(zoneCalendar(timeZone).at(date.iso, minute));
 }
 
 /** Weights are often written 33.3; a whole number reads better in a sentence. */

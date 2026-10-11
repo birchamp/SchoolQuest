@@ -1,14 +1,11 @@
 import {
-  dateToEpochMinutes,
-  dayOfWeekFor,
   durationMinutes,
-  MINUTES_PER_DAY,
   mergeIntervals,
-  parseTimeOfDay,
   subtractIntervals,
   toEpochMinutes,
   type Interval,
 } from "@schoolquest/domain";
+import { horizonBounds, horizonDays } from "./local-days.js";
 import { planMealBreaks, reservedIntervals, type MealBreak } from "./meals.js";
 import type { PlanningInput, CapacityWindow } from "./types.js";
 
@@ -27,10 +24,9 @@ export interface Capacity {
  * them as busy would hide real capacity.
  */
 export function buildCapacity(input: PlanningInput): Capacity {
-  const horizonStart = dateToEpochMinutes(input.horizonStart);
-  const horizonEnd = horizonStart + input.horizonDays * MINUTES_PER_DAY;
+  const { end: horizonEnd } = horizonBounds(input);
   const now = toEpochMinutes(input.now);
-  const committed = collectBusyIntervals(input, horizonStart, input.horizonDays);
+  const committed = collectBusyIntervals(input);
 
   // Meals are worked out against exactly the same busy set the windows are cut from, so the
   // held lunch and the capacity around it can never disagree about what is already taken.
@@ -41,16 +37,14 @@ export function buildCapacity(input: PlanningInput): Capacity {
 
   const windows: CapacityWindow[] = [];
 
-  for (let day = 0; day < input.horizonDays; day++) {
-    const dayStart = horizonStart + day * MINUTES_PER_DAY;
-    const dow = dayOfWeekFor(dayStart);
-    if (protectedDays.has(dow)) continue;
+  for (const day of horizonDays(input)) {
+    if (protectedDays.has(day.dayOfWeek)) continue;
 
     for (const rule of input.availabilityRules) {
-      if (rule.dayOfWeek !== dow) continue;
+      if (rule.dayOfWeek !== day.dayOfWeek) continue;
 
-      const ruleStart = dayStart + parseTimeOfDay(rule.startTime);
-      const ruleEnd = dayStart + parseTimeOfDay(rule.endTime);
+      const ruleStart = day.at(rule.startTime);
+      const ruleEnd = day.at(rule.endTime);
       if (ruleEnd <= ruleStart) continue;
 
       // Never plan into the past, and never past the horizon.
@@ -80,26 +74,17 @@ export function buildCapacityWindows(input: PlanningInput): CapacityWindow[] {
   return buildCapacity(input).windows;
 }
 
-function collectBusyIntervals(
-  input: PlanningInput,
-  horizonStart: number,
-  horizonDays: number,
-): Interval[] {
+function collectBusyIntervals(input: PlanningInput): Interval[] {
   const busy: Interval[] = [];
 
-  for (let day = 0; day < horizonDays; day++) {
-    const dayStart = horizonStart + day * MINUTES_PER_DAY;
-    const dow = dayOfWeekFor(dayStart);
-    const date = new Date(dayStart * 60_000).toISOString().slice(0, 10);
+  for (const day of horizonDays(input)) {
+    const { date, dayOfWeek: dow } = day;
 
     for (const pattern of input.meetingPatterns) {
       if (!pattern.daysOfWeek.includes(dow)) continue;
       if (pattern.effectiveStart && date < pattern.effectiveStart) continue;
       if (pattern.effectiveEnd && date > pattern.effectiveEnd) continue;
-      busy.push({
-        start: dayStart + parseTimeOfDay(pattern.startTime),
-        end: dayStart + parseTimeOfDay(pattern.endTime),
-      });
+      busy.push({ start: day.at(pattern.startTime), end: day.at(pattern.endTime) });
     }
 
     for (const commitment of input.commitments) {
@@ -109,10 +94,7 @@ function collectBusyIntervals(
       } else if (!commitment.daysOfWeek.includes(dow)) {
         continue;
       }
-      busy.push({
-        start: dayStart + parseTimeOfDay(commitment.startTime),
-        end: dayStart + parseTimeOfDay(commitment.endTime),
-      });
+      busy.push({ start: day.at(commitment.startTime), end: day.at(commitment.endTime) });
     }
   }
 

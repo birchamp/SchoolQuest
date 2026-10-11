@@ -380,8 +380,12 @@ export interface PlanResponse {
     horizonEnd: string;
     createdAt?: string;
   } | null;
-  /** When the server read this plan, on the student's clock. */
+  /** When the server read this plan: a UTC instant. */
   asOf?: string;
+  /** The zone the server read it in. */
+  timeZone?: string;
+  /** Made by an earlier planner, in an older time standard; rebuilt before it is shown. */
+  stale?: boolean;
   horizonStart?: string;
   horizonEnd?: string;
   capacity: { usedMinutes: number; availableMinutes: number };
@@ -482,6 +486,8 @@ export interface Me {
   email: string;
   displayName: string | null;
   timezone: string;
+  /** "device": kept in step with the device the app is opened on. "pinned": stays put. */
+  timezoneMode?: "device" | "pinned";
   theme: ThemeName;
   reducedMotion: boolean;
   detailMode: "reduced" | "standard" | "expanded";

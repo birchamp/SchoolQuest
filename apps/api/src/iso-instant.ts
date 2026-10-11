@@ -14,8 +14,8 @@ import { z } from "zod";
  *
  * So the boundary narrows the type instead of trusting everyone who reaches it. An offset is
  * honoured as what it says -- an instant -- and rewritten in the one spelling everything
- * downstream reads. What the app then *displays* for such a value is UTC wall-clock, as it does
- * for every other time; that is the wider timezone question in issue #4, not this one.
+ * downstream reads. Every stored time is a UTC instant (issue #4); the screens show it in the
+ * student's zone, and that conversion lives in `apps/web/src/lib/clock.ts`.
  */
 export const isoInstant = z.string().datetime({ offset: true }).transform(toCanonicalInstant);
 
