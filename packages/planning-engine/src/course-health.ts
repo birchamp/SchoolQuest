@@ -1,6 +1,6 @@
 import {
+  isGraded,
   MINUTES_PER_DAY,
-  passFailOf,
   toEpochMinutes,
   type Course,
   type CourseStanding,
@@ -116,8 +116,8 @@ export interface CourseHealth {
   gradePercent: number | null;
   gradedWeightFraction: number;
   /**
-   * Individual scored results recorded (Pass/Fail excluded). Carries the standing when no
-   * weights are declared.
+   * Individual scored results recorded -- those the percentage is drawn from. Carries the
+   * standing when no weights are declared.
    */
   gradedCount: number;
   /** The target this is judged against — the student's own, or the default floor. */
@@ -198,11 +198,10 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
   const now = toEpochMinutes(input.now);
   const loadById = new Map(input.load.map((l) => [l.courseId, l]));
   const gradedItemIds = new Set(input.grades.map((g) => g.workItemId));
-  // A Pass/Fail result answers "was it recorded" but adds nothing to a percentage, so it must
-  // not count toward the number of results the standing is judged on.
-  const scoredItemIds = new Set(
-    input.grades.filter((g) => passFailOf(g) === null).map((g) => g.workItemId),
-  );
+  // Only results the percentage was actually drawn from may count toward the number it is
+  // judged on. A Pass/Fail outcome, a bare letter or a total with no score answers "was it
+  // recorded" but adds nothing to the average -- the same test computeCourseStanding uses.
+  const scoredItemIds = new Set(input.grades.filter(isGraded).map((g) => g.workItemId));
 
   const courses = input.courses.map((course) => {
     const load = loadById.get(course.id);

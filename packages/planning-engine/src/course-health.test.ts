@@ -448,6 +448,29 @@ describe("judging a standing with no declared weights", () => {
     expect(c.gradedCount).toBe(3);
   });
 
+  it("does not count results with no points toward the judgement", () => {
+    // One scored quiz and two bare letters: the 60% comes from one result, and one result is
+    // not enough to call the course below target.
+    const c = build({
+      standing: standing({ estimatedPercent: 60, gradedWeightFraction: 0 }),
+      items: [item({ id: "wi_a" }), item({ id: "wi_b" }), item({ id: "wi_c" })],
+      grades: [
+        { workItemId: "wi_a", pointsEarned: 60, pointsPossible: 100, letterGrade: null },
+        { workItemId: "wi_b", pointsEarned: null, pointsPossible: null, letterGrade: "B" },
+        { workItemId: "wi_c", pointsEarned: null, pointsPossible: 100, letterGrade: null },
+      ].map((g, i) => ({
+        id: `grd_${i}`,
+        ...g,
+        postedAt: null,
+        confirmationStatus: "confirmed" as const,
+        sourceDocumentId: null,
+        dropped: false,
+      })),
+    });
+    expect(c.gradedCount).toBe(1);
+    expect(codes(c)).not.toContain("GRADE_BELOW_TARGET");
+  });
+
   it("still will not judge off one or two results", () => {
     const c = build({
       standing: standing({ estimatedPercent: 55, gradedWeightFraction: 0 }),
