@@ -199,6 +199,7 @@ const END_OF_DAY_MINUTE = 23 * HOUR + 59;
 
 export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
   const days: CalendarDay[] = [];
+  const calendar = calendarOf(input);
   const due = deadlinesByDay(input.deadlines ?? [], {
     horizonStart: input.horizonStart,
     horizonDays: input.horizonDays,
@@ -244,8 +245,14 @@ export function buildWeekCalendar(input: WeekCalendarInput): WeekCalendar {
       due: due.get(date) ?? [],
       totals: totalsOf(slots),
       start: dayStart,
-      firstMinute: slots.length > 0 ? slots[0]!.start - dayStart : null,
-      lastMinute: slots.length > 0 ? Math.max(...slots.map((s) => s.end)) - dayStart : null,
+      // On the student's clock, which is where the bands are drawn. Minutes counted from midnight
+      // run an hour off it after the clocks change, and a 9am block on the morning they went back
+      // was drawn above a window that started at ten -- off the calendar entirely.
+      firstMinute: slots.length > 0 ? calendar.minuteOfDay(slots[0]!.start) : null,
+      lastMinute:
+        slots.length > 0
+          ? Math.max(...slots.map((s) => calendar.minuteOfDay(s.start) + (s.end - s.start)))
+          : null,
     });
   }
 

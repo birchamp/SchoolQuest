@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fromEpochMinutes, planningPreferences, toEpochMinutes, type WorkItem } from "@schoolquest/domain";
 import { generatePlan, selectRecommendedSessions } from "./scheduler.js";
 import { buildCapacityWindows } from "./capacity.js";
-import { deadlinesByDay } from "./week-calendar.js";
+import { buildWeekCalendar, deadlinesByDay } from "./week-calendar.js";
 import { seedPlanningInput } from "./seed-input.js";
 import type { PlanningInput } from "./types.js";
 
@@ -195,5 +195,24 @@ describe("across the end of daylight saving", () => {
       ["2026-11-02T13:00:00.000Z", "2026-11-02T14:00:00.000Z"],
       ["2026-11-02T15:00:00.000Z", "2026-11-02T17:00:00.000Z"],
     ]);
+  });
+});
+
+describe("found in review", () => {
+  it("draws a block on the morning the clocks go back inside the calendar's window", () => {
+    // 9am EST on 1 November 2026 is 14:00 UTC. Counted from midnight, which was still EDT, it
+    // is minute 600; on the clock it is minute 540, and that is where it is drawn.
+    const calendar = buildWeekCalendar({
+      horizonStart: "2026-11-01",
+      horizonDays: 1,
+      timeZone: "America/New_York",
+      meetingPatterns: [],
+      commitments: [],
+      availability: [],
+      meals: [],
+      sessions: [{ workItemId: "a", courseId: "c", startAt: "2026-11-01T14:00:00.000Z", endAt: "2026-11-01T15:00:00.000Z" }],
+    });
+    expect(calendar.days[0]!.firstMinute).toBe(9 * 60);
+    expect(calendar.windowStartMinute).toBeLessThanOrEqual(9 * 60);
   });
 });

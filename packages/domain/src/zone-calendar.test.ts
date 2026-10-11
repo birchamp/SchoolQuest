@@ -55,3 +55,21 @@ describe("zoneCalendar", () => {
     expect(india.minuteOfDay(at("2026-10-10T03:30:00Z"))).toBe(9 * 60);
   });
 });
+
+describe("zoneCalendar, found in review", () => {
+  it("is exact in a zone whose clocks change at half past", () => {
+    // Lord Howe Island moves from +10:30 to +11 at 2am local on 4 October 2026, i.e. 15:30 UTC
+    // on the 3rd -- half past, not on the hour.
+    const lordHowe = zoneCalendar("Australia/Lord_Howe");
+    expect(lordHowe.offset(at("2026-10-03T15:20:00Z"))).toBe(630);
+    expect(lordHowe.offset(at("2026-10-03T15:40:00Z"))).toBe(660);
+  });
+
+  it("knows where a day starts when its midnight does not exist", () => {
+    // Santiago springs forward at midnight; 6 September 2026 starts at 1am.
+    const santiago = zoneCalendar("America/Santiago");
+    const start = santiago.dayStart("2026-09-06");
+    expect(santiago.dateOf(start)).toBe("2026-09-06");
+    expect(santiago.dateOf(start - 1)).toBe("2026-09-05");
+  });
+});

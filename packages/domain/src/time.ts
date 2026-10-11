@@ -184,16 +184,16 @@ export function zoneCalendar(timeZone: string | null | undefined): ZoneCalendar 
     hour: "2-digit",
     minute: "2-digit",
   });
-  // Offsets only change on transitions, which land on whole hours in practice, so one lookup per
-  // hour is exact and keeps `Intl` -- slow -- out of the planner's inner loops.
-  const byHour = new Map<number, number>();
+  // Offsets only change on transitions, which land on a quarter hour in every zone in use (Lord
+  // Howe Island changes at half past), so one lookup per quarter hour is exact and keeps `Intl`
+  // -- slow -- out of the planner's inner loops. Hourly buckets were half an hour wrong there.
+  const byQuarter = new Map<number, number>();
   const offset = (epochMinutes: number): number => {
-    const hour = Math.floor(epochMinutes / 60);
-    const known = byHour.get(hour);
+    const quarter = Math.floor(epochMinutes / 15);
+    const known = byQuarter.get(quarter);
     if (known !== undefined) return known;
-    const parts = Object.fromEntries(
-      format.formatToParts(new Date(hour * 3_600_000)).map((p) => [p.type, p.value]),
-    );
+    const at = quarter * 15 * 60_000;
+    const parts = Object.fromEntries(format.formatToParts(new Date(at)).map((p) => [p.type, p.value]));
     const local = Date.UTC(
       Number(parts.year),
       Number(parts.month) - 1,
@@ -201,8 +201,8 @@ export function zoneCalendar(timeZone: string | null | undefined): ZoneCalendar 
       Number(parts.hour),
       Number(parts.minute),
     );
-    const value = Math.round((local - hour * 3_600_000) / 60_000);
-    byHour.set(hour, value);
+    const value = Math.round((local - at) / 60_000);
+    byQuarter.set(quarter, value);
     return value;
   };
 
