@@ -46,3 +46,22 @@ export function parseScoreEntry(
   if (!Number.isFinite(pointsPossible) || pointsPossible <= 0) return null;
   return { pointsEarned, pointsPossible };
 }
+
+/**
+ * Whether the assignments table shows a row while finished work is hidden.
+ *
+ * Open work, always. Handed-in work while it waits on a result: it is the one finished state
+ * with something still owed on it, and hiding it is how a score never gets written down. And
+ * work recorded as a Fail, which the course gauge sends the student here to look at -- hidden,
+ * the gauge's "Look at the failed work" landed on a list without it. Canceled work cannot sink
+ * a course, so a Fail on it raises nothing and it stays hidden like other canceled work.
+ */
+export function onDefaultList(
+  w: WorkItem,
+  gradedIds: ReadonlySet<string>,
+  failedIds: ReadonlySet<string>,
+): boolean {
+  if (w.status === "submitted" && !gradedIds.has(w.id)) return true;
+  if (failedIds.has(w.id) && w.status !== "canceled") return true;
+  return w.status !== "completed" && w.status !== "submitted" && w.status !== "canceled";
+}

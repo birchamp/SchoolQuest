@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorkItem } from "@schoolquest/domain";
-import { parseScoreEntry, workAwaitingResult } from "./record-results";
+import { onDefaultList, parseScoreEntry, workAwaitingResult } from "./record-results";
 
 function item(overrides: Partial<WorkItem> & Pick<WorkItem, "id">): WorkItem {
   return {
@@ -67,5 +67,24 @@ describe("parseScoreEntry", () => {
   it("needs a total from somewhere", () => {
     expect(parseScoreEntry({ earned: "8", outOf: "" }, null)).toBeNull();
     expect(parseScoreEntry({ earned: "abc", outOf: "10" }, 10)).toBeNull();
+  });
+});
+
+describe("onDefaultList", () => {
+  const none = new Set<string>();
+
+  it("keeps work recorded as a Fail, so the gauge's link to it lands on it", () => {
+    const failed = new Set(["wi_a"]);
+    expect(onDefaultList(item({ id: "wi_a", status: "completed" }), failed, failed)).toBe(true);
+    expect(onDefaultList(item({ id: "wi_a", status: "completed" }), failed, none)).toBe(false);
+    // A Fail on canceled work raises nothing, so it stays hidden like other canceled work.
+    expect(onDefaultList(item({ id: "wi_a", status: "canceled" }), failed, failed)).toBe(false);
+  });
+
+  it("keeps open work and handed-in work waiting on a result", () => {
+    expect(onDefaultList(item({ id: "wi_a", status: "not_started" }), none, none)).toBe(true);
+    expect(onDefaultList(item({ id: "wi_a", status: "submitted" }), none, none)).toBe(true);
+    expect(onDefaultList(item({ id: "wi_a", status: "submitted" }), new Set(["wi_a"]), none)).toBe(false);
+    expect(onDefaultList(item({ id: "wi_a", status: "completed" }), none, none)).toBe(false);
   });
 });

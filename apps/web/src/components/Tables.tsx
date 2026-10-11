@@ -5,7 +5,7 @@ import { appToday, formatTime, localMinuteOfDay, planTimeZone } from "../lib/clo
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
-import { parseScoreEntry } from "../lib/record-results";
+import { onDefaultList, parseScoreEntry } from "../lib/record-results";
 import { PassFailButtons, recordPassFail } from "./PassFailButtons";
 import {
   DEFAULT_DUE_TIME,
@@ -190,6 +190,16 @@ export function AssignmentsTable({
     () => new Set((plan.grades ?? []).map((g) => g.workItemId)),
     [plan.grades],
   );
+  /** Work recorded as a Fail and not dropped -- the same set the course's Fail concern names. */
+  const failedIds = useMemo(
+    () =>
+      new Set(
+        (plan.grades ?? [])
+          .filter((g) => !g.dropped && passFailOf(g) === "fail")
+          .map((g) => g.workItemId),
+      ),
+    [plan.grades],
+  );
   const gradesByItem = useMemo(
     () => new Map((plan.grades ?? []).map((g) => [g.workItemId, g])),
     [plan.grades],
@@ -208,15 +218,9 @@ export function AssignmentsTable({
   const rows = useMemo(() => {
     const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
     const list = plan.workItems
-      // Handed-in work stays on the list by default: it is the one finished state with
-      // something still owed on it -- a result -- and hiding it is how a score never gets
-      // written down. It drops off once the grade is in.
-      .filter(
-        (w) =>
-          showDone ||
-          (w.status === "submitted" && !gradedIds.has(w.id)) ||
-          (w.status !== "completed" && w.status !== "submitted" && w.status !== "canceled"),
-      )
+      // Finished work is hidden by default, except what still needs the student: handed-in
+      // work waiting on a result, and work recorded as a Fail (see onDefaultList).
+      .filter((w) => showDone || onDefaultList(w, gradedIds, failedIds))
       .map((item) => ({
         item,
         title: item.title,
@@ -234,7 +238,7 @@ export function AssignmentsTable({
       return sort.desc ? -r : r;
     });
     return list;
-  }, [plan.workItems, plan.courses, sort, showDone, gradedIds]);
+  }, [plan.workItems, plan.courses, sort, showDone, gradedIds, failedIds]);
 
   async function saveEffort(item: WorkItem, value: string) {
     const trimmed = value.trim();

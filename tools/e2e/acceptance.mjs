@@ -308,6 +308,16 @@ try {
     (courseHealth?.concerns ?? []).some((x) => x.code === "PASS_FAIL_FAILED"),
     (courseHealth?.concerns ?? []).map((x) => x.code).join(", "),
   );
+  // The gauge's "Look at the failed work" opens the assignments table, so the failed row must be
+  // there without asking for finished work.
+  await page.reload();
+  await nav.waitFor({ timeout: 30_000 });
+  await go("Assignments");
+  await page.locator("tr", { hasText: "Lab safety quiz" }).first().waitFor({ timeout: 15_000 }).catch(() => {});
+  check(
+    "work recorded as a Fail stays on the assignments table",
+    (await page.locator("tr", { hasText: "Lab safety quiz" }).count()) === 1,
+  );
 
   // 10. Switch themes from Setup.
   await go("Setup");
