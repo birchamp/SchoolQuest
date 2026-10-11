@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api, API_BASE, ApiError, isDesktop, setStoredToken } from "./lib/api";
@@ -39,6 +39,9 @@ import { DiagnosticsButton } from "./components/DiagnosticsButton";
 import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 import { CampaignRadar } from "./components/CampaignRadar";
 import { PlanChanges } from "./components/PlanChanges";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { latestRequest } from "./lib/latest-request";
+import { errorMessage, runAction } from "./lib/run-action";
 import { labelOf, TimeZoneSettings } from "./components/TimeZoneSettings";
 import {
   appNow,
@@ -266,7 +269,16 @@ export function App() {
 
   const theme: ThemeName = me?.theme ?? "plain";
 
+  /**
+   * Only the newest plan load may write. Focus, the visibility change, the ten-minute check and
+   * every save on Setup each reload the plan without knowing about the others, so two loads can
+   * overlap -- and the one that started first can answer last and put the older plan back.
+   */
+  const planRequests = useRef(latestRequest());
+
   const loadPlan = useCallback(async (termId: string, options?: { rebuild?: boolean }) => {
+    const ticket = planRequests.current.begin();
+    const isCurrent = () => planRequests.current.isCurrent(ticket);
     try {
       const when = devNow();
       const read = () =>
@@ -288,14 +300,16 @@ export function App() {
           reason: current.planVersion ? "daily_refresh" : "initial",
           ...(when ? { now: when, horizonStart: localDate(when) } : {}),
         });
+        const rebuilt = normalizePlan(await read());
+        if (!isCurrent()) return;
         // Said once, like any replan: the student opened the app and the week moved.
         if (current.planVersion) setLastDiff(generated.diff ?? null);
-        setPlan(normalizePlan(await read()));
-      } else {
+        setPlan(rebuilt);
+      } else if (isCurrent()) {
         setPlan(normalizePlan(current));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load your plan.");
+      if (isCurrent()) setError(errorMessage(e, "Could not load your plan."));
     }
   }, []);
 
@@ -453,6 +467,38 @@ export function App() {
   }, [term, loadPlan]);
 
   /**
+   * Everything the shell does on the student's behalf goes through here, so a failure always
+   * lands on the error line under the header. `regenerate` used to be handed to buttons and
+   * cards as `void regenerate()`, and a failed rebuild was an unhandled rejection: nothing on
+   * screen, the button simply appearing not to work. Resolves to whether it worked.
+   */
+  const run = useCallback(
+    (action: () => unknown, fallback: string) => runAction(action, fallback, setError),
+    [],
+  );
+
+  /** A replan nobody waits on -- buttons, and cards that report a save and move on. */
+  const replan = useCallback(
+    () => run(() => regenerate(), "Your plan could not be rebuilt just now. Try again in a moment."),
+    [run, regenerate],
+  );
+
+  /**
+   * After a Setup card saves: re-read the term when the card changed it, rebuild, and tell the
+   * status panel. The save itself has already happened, so the panel is told either way.
+   */
+  const afterSetupSave = useCallback(
+    async (options?: { term?: boolean }) => {
+      await run(async () => {
+        if (options?.term) await refreshTerm();
+        await regenerate();
+      }, "That saved, but your plan could not be rebuilt just now. Try Rebuild this week's plan below.");
+      noteSetupChange();
+    },
+    [run, refreshTerm, regenerate, noteSetupChange],
+  );
+
+  /**
    * The radar's one action: put these items at the front of the queue and replan.
    *
    * A board that shows a shortfall and offers nothing to do about it hands the planning
@@ -467,16 +513,14 @@ export function App() {
       // Surfaced through the shell's own error line: these are fired from buttons whose
       // component resets its busy state in a `finally`, so a rejection that escapes here
       // would reach nothing but the console and the button would simply appear not to work.
-      try {
+      await run(async () => {
         for (const id of workItemIds) {
           await api.patch(`/api/work-items/${id}`, { userPriority: 2 });
         }
         await regenerate();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "That did not save.");
-      }
+      }, "That did not save.");
     },
-    [term, regenerate],
+    [term, run, regenerate],
   );
 
   /**
@@ -489,16 +533,14 @@ export function App() {
   const handIn = useCallback(
     async (workItemIds: string[]) => {
       if (!term) return;
-      try {
+      await run(async () => {
         for (const id of workItemIds) {
           await api.patch(`/api/work-items/${id}`, { status: "submitted" });
         }
         await regenerate();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "That did not save.");
-      }
+      }, "That did not save.");
     },
-    [term, regenerate],
+    [term, run, regenerate],
   );
 
   const openWorkItem = useCallback(
@@ -507,8 +549,10 @@ export function App() {
   );
 
   async function changeTheme(next: ThemeName) {
-    const { user } = await api.patch<{ user: Me }>("/api/me", { theme: next });
-    setMe(user);
+    await run(async () => {
+      const { user } = await api.patch<{ user: Me }>("/api/me", { theme: next });
+      setMe(user);
+    }, "Your theme did not save.");
   }
 
   async function signOut() {
@@ -528,9 +572,13 @@ export function App() {
   async function startNewSemester() {
     if (!term) return;
     setConfirmNewTerm(false);
-    await api.post(`/api/terms/${term.id}/archive`).catch((e) => {
-      setError(e instanceof Error ? e.message : "Could not start a new semester.");
-    });
+    // Only on success: going on to `bootstrap` cleared the error it had just set and reloaded the
+    // term that was never archived, so a failure looked like the button doing nothing.
+    const archived = await run(
+      () => api.post(`/api/terms/${term.id}/archive`),
+      "Could not start a new semester. Nothing was archived.",
+    );
+    if (!archived) return;
     setPlan(null);
     setTerm(null);
     await bootstrap();
@@ -648,11 +696,17 @@ export function App() {
               className="action"
               onClick={async () => {
                 const back = zoneMoved.from;
+                // The banner stays until the choice is saved: dismissing it first meant a failed
+                // save lost the choice with no way back to it.
+                const saved = await run(
+                  () => api.patch("/api/me", { timezone: back, timezoneMode: "pinned" }),
+                  `Could not keep ${labelOf(back)}. Your times are still shown in ${labelOf(zoneMoved.to)}.`,
+                );
+                if (!saved) return;
                 setZoneMoved(null);
-                await api.patch("/api/me", { timezone: back, timezoneMode: "pinned" });
                 setPlanTimeZone(back);
-                setMe({ ...me, timezone: back, timezoneMode: "pinned" });
-                await regenerate();
+                setMe((m) => (m ? { ...m, timezone: back, timezoneMode: "pinned" } : m));
+                await replan();
               }}
             >
               I'm visiting -- keep {labelOf(zoneMoved.from)}
@@ -664,6 +718,9 @@ export function App() {
         </div>
       )}
 
+      {/* One boundary per tab, keyed so that switching tabs always starts clean: a screen that
+          fails to draw takes only itself down, and the header and the other tabs still work. */}
+      <ErrorBoundary key={tab} area={tabs.find((t) => t.id === tab)?.labelText ?? "This page"}>
       {!plan ? (
         <p className="muted">Building your first plan…</p>
       ) : (
@@ -729,14 +786,14 @@ export function App() {
                   review={plan.review}
                   termId={term.id}
                   theme={theme}
-                  onAnswered={regenerate}
+                  onAnswered={replan}
                 />
               )}
               {viewMode === "table" ? (
                 <>
                   <WeekTable plan={plan} theme={theme} />
                   <LookaheadTable plan={plan} theme={theme} />
-                  <AssignmentsTable plan={plan} theme={theme} onChanged={regenerate} />
+                  <AssignmentsTable plan={plan} theme={theme} onChanged={replan} />
                 </>
               ) : (
                 <>
@@ -744,6 +801,7 @@ export function App() {
                     <SessionBrief brief={plan.brief} courses={plan.courses} theme={theme} />
                   )}
                   {plan.courseLoad && (
+                    <ErrorBoundary area={label("courseTable", theme)}>
                     <CampaignTable
                       load={plan.courseLoad}
                       courses={plan.courses}
@@ -760,6 +818,7 @@ export function App() {
                         )
                       }
                     />
+                    </ErrorBoundary>
                   )}
 
                   <LayerBar
@@ -802,6 +861,18 @@ export function App() {
                     </button>
                   </div>
 
+                  {/* Each large drawing gets its own boundary, so one that fails leaves the rest
+                      of the week standing. */}
+                  <ErrorBoundary
+                    key={weekView}
+                    area={
+                      weekView === "terrain"
+                        ? "The road ahead"
+                        : weekView === "calendar"
+                          ? "Hour by hour"
+                          : label("weekMap", theme)
+                    }
+                  >
                   {weekView === "terrain" ? (
                     <TerrainMap
                       plan={plan}
@@ -827,25 +898,30 @@ export function App() {
                       onAddHours={() => goTo("setup", "study-hours")}
                     />
                   )}
+                  </ErrorBoundary>
 
                   {plan.brief && (
-                    <CampaignArc
-                      milestones={plan.brief.milestones}
-                      undatedMilestones={plan.brief.undatedMilestones}
-                      courses={plan.courses}
-                      theme={theme}
-                      hiddenCourseIds={hiddenCourseIds}
-                    />
+                    <ErrorBoundary area={label("termMap", theme)}>
+                      <CampaignArc
+                        milestones={plan.brief.milestones}
+                        undatedMilestones={plan.brief.undatedMilestones}
+                        courses={plan.courses}
+                        theme={theme}
+                        hiddenCourseIds={hiddenCourseIds}
+                      />
+                    </ErrorBoundary>
                   )}
                   {plan.progress && (
-                    <Questline progress={plan.progress} courses={plan.courses} theme={theme} />
+                    <ErrorBoundary area={label("progress", theme)}>
+                      <Questline progress={plan.progress} courses={plan.courses} theme={theme} />
+                    </ErrorBoundary>
                   )}
                 </>
               )}
             </>
           )}
           {tab === "work" && (
-            <AssignmentsTable plan={plan} theme={theme} onChanged={regenerate} />
+            <AssignmentsTable plan={plan} theme={theme} onChanged={replan} />
           )}
 
           {/* Where the big things stand. Its own screen rather than another card on the
@@ -855,31 +931,37 @@ export function App() {
               course needs me — and only then goes into the detail behind it. */}
           {tab === "stats" && viewMode === "table" && <CoursesTable plan={plan} theme={theme} />}
           {tab === "stats" && viewMode === "visual" && plan.health && (
-            <CourseGaugeBoard
-              termId={term.id}
-              health={plan.health}
-              courses={plan.courses}
-              onNavigate={goToGaugeTarget}
-              refreshKey={setupSaves}
-            />
+            <ErrorBoundary area="How each class is doing">
+              <CourseGaugeBoard
+                termId={term.id}
+                health={plan.health}
+                courses={plan.courses}
+                onNavigate={goToGaugeTarget}
+                refreshKey={setupSaves}
+              />
+            </ErrorBoundary>
           )}
           {tab === "stats" && viewMode === "visual" && plan.health && (
-            <Dashboard
-              health={plan.health}
-              courses={plan.courses}
-              workItems={plan.workItems}
-              theme={theme}
-              onChanged={refreshPlan}
-            />
+            <ErrorBoundary area={label("dashboard", theme)}>
+              <Dashboard
+                health={plan.health}
+                courses={plan.courses}
+                workItems={plan.workItems}
+                theme={theme}
+                onChanged={refreshPlan}
+              />
+            </ErrorBoundary>
           )}
           {tab === "stats" && viewMode === "visual" && plan.projects && (
-            <Stats
-              projects={plan.projects}
-              progress={plan.progress}
-              courses={plan.courses}
-              standings={plan.standings}
-              theme={theme}
-            />
+            <ErrorBoundary area={label("statsPage", theme)}>
+              <Stats
+                projects={plan.projects}
+                progress={plan.progress}
+                courses={plan.courses}
+                standings={plan.standings}
+                theme={theme}
+              />
+            </ErrorBoundary>
           )}
           {tab === "coach" && (
             <Coach termId={term.id} theme={theme} onPlanChanged={refreshPlan} />
@@ -906,36 +988,24 @@ export function App() {
               {me && (
                 <TimeZoneSettings
                   me={me}
-                  onChanged={async () => {
-                    const { user } = await api.get<{ user: Me }>("/api/me");
-                    setPlanTimeZone(user.timezone);
-                    setMe(user);
-                    // The same hours now fall at different instants, so the week is rebuilt.
-                    await regenerate();
-                  }}
+                  onChanged={() =>
+                    void run(async () => {
+                      const { user } = await api.get<{ user: Me }>("/api/me");
+                      setPlanTimeZone(user.timezone);
+                      setMe(user);
+                      // The same hours now fall at different instants, so the week is rebuilt.
+                      await regenerate();
+                    }, "Your time zone saved, but your plan could not be rebuilt just now.")
+                  }
                 />
               )}
-              <TermSettings
-                term={term}
-                onChanged={async () => {
-                  await refreshTerm();
-                  await regenerate();
-                  noteSetupChange();
-                }}
-              />
+              <TermSettings term={term} onChanged={() => afterSetupSave({ term: true })} />
               {/*
                 The term is re-read, not only the plan: what the calendar changes lives on the
                 term, and the syllabus upload below gates on it.
               */}
               <div id="term-calendar">
-              <TermCalendar
-                termId={term.id}
-                onChanged={async () => {
-                  await refreshTerm();
-                  await regenerate();
-                  noteSetupChange();
-                }}
-              />
+              <TermCalendar termId={term.id} onChanged={() => void afterSetupSave({ term: true })} />
               </div>
               <div id="course-manager">
               <CourseManager
@@ -956,18 +1026,15 @@ export function App() {
                 refreshKey={setupSaves}
                 onAnswer={(tab, elementId) => goTo(tab as Tab, elementId)}
               />
-              <EffortSurvey termId={term.id} onChanged={regenerate} />
+              <EffortSurvey termId={term.id} onChanged={replan} />
               <div id="study-hours">
-                <StudyHours termId={term.id} onChanged={regenerate} />
+                <StudyHours termId={term.id} onChanged={replan} />
               </div>
-              <MealWindows term={term} onChanged={regenerate} />
+              <MealWindows term={term} onChanged={replan} />
               <div id="syllabus-upload">
               <SyllabusUpload
                 courses={plan.courses}
-                onPlanChanged={async () => {
-                  await regenerate();
-                  noteSetupChange();
-                }}
+                onPlanChanged={() => void afterSetupSave()}
                 hasCalendar={(term.calendar?.exceptions.length ?? 0) > 0}
               />
               </div>
@@ -995,7 +1062,7 @@ export function App() {
                     <button
                       key={t}
                       className={`action${theme === t ? " primary" : ""}`}
-                      onClick={() => changeTheme(t)}
+                      onClick={() => void changeTheme(t)}
                     >
                       {t[0]!.toUpperCase() + t.slice(1)}
                     </button>
@@ -1009,7 +1076,7 @@ export function App() {
               <section className="card">
                 <h2>Account</h2>
                 <div className="button-row">
-                  <button className="action" onClick={() => void regenerate()}>
+                  <button className="action" onClick={() => void replan()}>
                     Rebuild this week&apos;s plan
                   </button>
                   <button className="action" onClick={() => setConfirmNewTerm((v) => !v)}>
@@ -1064,6 +1131,7 @@ export function App() {
           )}
         </>
       )}
+      </ErrorBoundary>
     </div>
   );
 }
