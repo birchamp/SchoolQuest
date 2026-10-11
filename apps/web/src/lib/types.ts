@@ -60,6 +60,8 @@ export interface CourseStandingView {
   estimatedPercent: number | null;
   remainingWeightFraction: number;
   confidence: string;
+  /** Per grading category; only what the views read is typed here. */
+  categories?: { passFailCount: number }[];
 }
 
 /**
@@ -339,6 +341,8 @@ export interface CourseHealthView {
   /** Zero whenever the graded work is not mapped to weighted categories — the common case. */
   gradedWeightFraction: number;
   gradedCount: number;
+  /** Pass/Fail results recorded; they carry no percentage. */
+  passFailCount: number;
   targetPercent: number;
   targetIsOwn: boolean;
   ungradedResults: number;

@@ -15,7 +15,7 @@
  *
  * Needs DEV_MODE on the Worker (the dev scripts set it) for the on-screen sign-in link.
  */
-import { TODAY, api, at, check, dateFrom, openApp, runJourney, signUp } from "./harness.mjs";
+import { API, TODAY, api, at, check, dateFrom, openApp, runJourney, signUp } from "./harness.mjs";
 
 /**
  * The moment the journey plans from: nine in the morning, today. Pinned rather than read from
@@ -201,6 +201,68 @@ await runJourney("acceptance steps", async ({ browser }) => {
   await api(`/api/work-items/${graded.id}/grade`, "PUT", { pointsEarned: 18, pointsPossible: 20 }, sessionToken);
   const standing = (await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken)).standings[course.id];
   check("a recorded grade produces a course standing", typeof standing?.estimatedPercent === "number", `estimated ${standing?.estimatedPercent}`);
+
+  // 9b. Record a Pass from the assignments table, for work marked Pass/Fail rather than scored.
+  //     It counts as recorded but moves no percentage; a Fail raises a concern instead.
+  const { workItem: labSafety } = await api(
+    "/api/work-items",
+    "POST",
+    { courseId: course.id, title: "Lab safety quiz", workType: "quiz", dueAt: `${dateFromToday(-2)}T23:59:00.000Z`, pointsPossible: 5 },
+    sessionToken,
+  );
+  // Made through the API, so reload to read it, in the table view the Pass button lives in.
+  await page.evaluate(() => localStorage.setItem("sq_view_mode", "table"));
+  await page.reload();
+  await nav.waitFor({ timeout: 30_000 });
+  await go("Assignments");
+  const labRow = page.locator("tr", { hasText: "Lab safety quiz" });
+  // Handed in first, as a student would; that is what brings up the result box.
+  await labRow.getByRole("button", { name: /^Handed in$/ }).click({ timeout: 15_000 });
+  await labRow.getByRole("button", { name: /^Pass$/ }).click({ timeout: 15_000 });
+  // Wait for the save itself rather than for a fixed time a slow runner could overrun.
+  let afterPass;
+  let passGrade;
+  for (let tries = 0; tries < 30 && !passGrade; tries += 1) {
+    if (tries > 0) await new Promise((r) => setTimeout(r, 500));
+    afterPass = await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken);
+    passGrade = (afterPass.grades ?? []).find((g) => g.workItemId === labSafety.id);
+  }
+  check(
+    "Pass in the assignments table records a Pass with no points",
+    passGrade?.letterGrade === "Pass" && passGrade.pointsEarned === null && passGrade.pointsPossible === null,
+    JSON.stringify(passGrade ?? null),
+  );
+  check(
+    "a Pass leaves the course standing where the score put it",
+    afterPass.standings[course.id]?.estimatedPercent === standing?.estimatedPercent,
+    `estimated ${afterPass.standings[course.id]?.estimatedPercent}`,
+  );
+  const passFailInStanding = (afterPass.standings[course.id]?.categories ?? []).reduce((n, c) => n + (c.passFailCount ?? 0), 0);
+  check("the course standing counts the Pass as a Pass/Fail result", passFailInStanding === 1, `passFailCount ${passFailInStanding}`);
+  const empty = await fetch(`${API}/api/work-items/${labSafety.id}/grade`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+    body: "{}",
+  });
+  check("an empty grade body is refused rather than recorded", empty.status === 400, `status ${empty.status}`);
+  await api(`/api/work-items/${labSafety.id}/grade`, "PUT", { passFail: "fail" }, sessionToken);
+  const afterFail = await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken);
+  const courseHealth = afterFail.health?.courses.find((h) => h.courseId === course.id);
+  check(
+    "a recorded Fail is raised as a concern on the course",
+    (courseHealth?.concerns ?? []).some((x) => x.code === "PASS_FAIL_FAILED"),
+    (courseHealth?.concerns ?? []).map((x) => x.code).join(", "),
+  );
+  // The gauge's "Look at the failed work" opens the assignments table, so the failed row must be
+  // there without asking for finished work.
+  await page.reload();
+  await nav.waitFor({ timeout: 30_000 });
+  await go("Assignments");
+  await page.locator("tr", { hasText: "Lab safety quiz" }).first().waitFor({ timeout: 15_000 }).catch(() => {});
+  check(
+    "work recorded as a Fail stays on the assignments table",
+    (await page.locator("tr", { hasText: "Lab safety quiz" }).count()) === 1,
+  );
 
   // 10. Switch themes from Setup.
   await go("Setup");
