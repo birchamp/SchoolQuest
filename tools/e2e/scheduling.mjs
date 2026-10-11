@@ -21,44 +21,9 @@
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
-import { chromiumLaunchOptions } from "./browser.mjs";
-import { startServers, stopServers, waitForServers, ATTACH } from "./servers.mjs";
+import { API, TODAY, api, at, check, dateFrom, journey, openApp as open, runJourney, signUp as freshAccount } from "./harness.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const APP = "http://127.0.0.1:5173";
-const API = "http://127.0.0.1:8787";
-
-// --- Helpers -----------------------------------------------------------------------------
-
-async function api(path, method = "GET", body, token, extraHeaders = {}) {
-  const res = await fetch(API + path, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      // The current app's protocol; without it the API answers 426, "reload".
-      "X-SchoolQuest-Client": "2",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...extraHeaders,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`${method} ${path} -> ${res.status} ${text.slice(0, 300)}`);
-  return text ? JSON.parse(text) : null;
-}
-
-const results = [];
-function check(step, passed, detail = "") {
-  results.push({ step, passed, detail });
-  console.log(`${passed ? "ok  " : "FAIL"} ${step}${detail ? ` -- ${detail}` : ""}`);
-}
-
-const DAY = 86_400_000;
-/** Today's date in the app's wall clock. Journeys pin the hour, never the date. */
-const TODAY = new Date().toISOString().slice(0, 10);
-const dateFrom = (base, days) => new Date(Date.parse(`${base}T12:00:00Z`) + days * DAY).toISOString().slice(0, 10);
-const at = (date, time) => `${date}T${time}:00.000Z`;
 
 /** The student's date for a moment, in an IANA zone. */
 function localDateIn(moment, zone) {
@@ -100,12 +65,7 @@ function localSql(sql) {
 }
 
 async function signUp(label) {
-  const email = `scheduling-${label}-${Date.now()}@example.edu`;
-  const login = await api("/api/auth/login", "POST", { email });
-  const { sessionToken } = await api("/api/auth/callback", "POST", {
-    token: new URL(login.devLoginUrl).searchParams.get("token"),
-  });
-  return sessionToken;
+  return (await freshAccount(`scheduling-${label}`)).token;
 }
 
 /**
@@ -235,49 +195,14 @@ async function currentPlan(token, termId, now) {
   return api(`/api/terms/${termId}/plans/current${now ? `?now=${encodeURIComponent(now)}` : ""}`, "GET", undefined, token);
 }
 
-/** Opens the app as the student would, with the simulated clock, and waits for it to settle. */
-async function openApp(browser, token, now, options = {}) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, ...options });
-  const page = await context.newPage();
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(String(e).slice(0, 300)));
-  await page.addInitScript(
-    ({ token, now }) => {
-      localStorage.setItem("sq_session_token", token);
-      if (now) localStorage.setItem("sq_dev_now", now);
-      else localStorage.removeItem("sq_dev_now");
-    },
-    { token, now },
-  );
-  await page.goto(APP);
-  const nav = page.getByRole("navigation", { name: "Main" });
-  await nav.waitFor({ timeout: 30_000 });
-  // The plan load, and any replan it decides on, finish after the shell is drawn.
-  await page.waitForLoadState("networkidle").catch(() => {});
-  await page.waitForTimeout(1500);
-  // The app opens on the radar; Today is where a student goes to be told what to do.
-  await nav.getByRole("button", { name: "Today" }).click();
-  await page.waitForTimeout(800);
-  return { page, context, errors };
+/** Opens the app as the student would, with the simulated clock, on Today once the plan settles. */
+function openApp(browser, token, now, context = {}) {
+  return open(browser, token, { now, context, landOn: "Today" });
 }
 
 // --- Journeys ----------------------------------------------------------------------------
 
-/** Runs one journey; a journey that throws fails itself and lets the others run. */
-async function journey(run) {
-  try {
-    await run();
-  } catch (error) {
-    check("a journey ran to the end", false, String(error?.stack ?? error).slice(0, 800));
-  }
-}
-
-const serverLog = ATTACH ? [] : startServers();
-let browser;
-try {
-  await waitForServers();
-  browser = await chromium.launch(chromiumLaunchOptions());
-
+await runJourney("scheduling checks", async ({ browser }) => {
   // 1. An ordinary week, planned on a weekday morning before classes. Every assignment due in
   //    the next seven days should get its time.
   await journey(async () => {
@@ -753,16 +678,4 @@ try {
     await api(`/api/terms/${s.termId}/plans/generate`, "POST", { now, horizonStart: day }, token);
     report("an oversubscribed week", auditCoverage(await currentPlan(token, s.termId, now), now));
   });
-} catch (error) {
-  check("the journeys ran to the end", false, String(error?.stack ?? error).slice(0, 800));
-} finally {
-  await browser?.close().catch(() => {});
-  if (!ATTACH) stopServers();
-}
-
-const failed = results.filter((r) => !r.passed);
-console.log(`\n${results.length - failed.length} of ${results.length} scheduling checks passed.`);
-if (failed.length > 0) {
-  if (serverLog.length > 0) console.log("\n--- last server output ---\n" + serverLog.slice(-60).join("\n"));
-  process.exitCode = 1;
-}
+});

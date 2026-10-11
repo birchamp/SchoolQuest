@@ -23,8 +23,19 @@ import { freePorts, SCHOOLQUEST_PORTS } from "./free-ports.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WINDOWS = process.platform === "win32";
 
+/**
+ * Extra Worker vars, for an end-to-end run that needs the Worker pointed somewhere else:
+ * `SQ_WORKER_VARS="OPENROUTER_BASE_URL=http://127.0.0.1:9099"`, space-separated. Each becomes a
+ * `wrangler dev --var`, which wins over nothing in `.dev.vars` and is gone when the run ends --
+ * so a journey never has to edit a developer's own secrets file. Unset, nothing changes.
+ */
+const WORKER_VARS = (process.env.SQ_WORKER_VARS ?? "")
+  .split(/\s+/)
+  .filter((pair) => pair.includes("="))
+  .flatMap((pair) => ["--var", pair.replace("=", ":")]);
+
 const TASKS = [
-  { name: "api", args: ["--filter", "@schoolquest/api", "dev"] },
+  { name: "api", args: ["--filter", "@schoolquest/api", "dev", ...WORKER_VARS] },
   { name: "web", args: ["--filter", "@schoolquest/web", "dev"] },
 ];
 

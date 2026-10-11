@@ -9,6 +9,7 @@ import type {
   TermProgressView,
 } from "../lib/types";
 import { formatDueDay, LONG_DUE_DAY } from "../lib/due-time";
+import { standingPassFailCount } from "../lib/record-results";
 
 /**
  * Where the term stands, and whether the long work is going to land.
@@ -897,6 +898,9 @@ export function Stats({
    * five times. When it is universally true it is stated once, in the card's footnote.
    */
   const anyGraded = courses.some((c) => standings[c.id]?.estimatedPercent != null);
+  // Pass/Fail results are results, just not scored ones: a course holding only those has been
+  // graded, and saying "no result recorded" beside the dashboard's Pass/Fail count contradicts it.
+  const anyPassFail = courses.some((c) => standingPassFailCount(standings[c.id]) > 0);
 
   return (
     <>
@@ -1368,14 +1372,15 @@ export function Stats({
                           ` ${floorPercent(standing.remainingWeightFraction * 100)}% of the grade is still ahead.`}
                       </p>
                     ) : (
-                      anyGraded && (
+                      (anyGraded || anyPassFail) && (
                         <p
                           className="muted"
                           style={{ margin: "0.25rem 0 0", fontSize: "0.84rem" }}
                         >
                           <span aria-hidden="true">{"◇ "}</span>
-                          No graded results in this course yet, so there is no grade to
-                          estimate.
+                          {standingPassFailCount(standing) > 0
+                            ? `No scored results in this course yet, only ${standingPassFailCount(standing)} Pass/Fail, so there is no grade to estimate.`
+                            : "No graded results in this course yet, so there is no grade to estimate."}
                         </p>
                       )
                     )}
@@ -1388,7 +1393,9 @@ export function Stats({
           <Note quest={quest}>
             {anyGraded
               ? "A grade estimate covers graded work only. Anything still pending is counted as unknown, never as a zero."
-              : "No course has a graded result recorded yet, so no grade is estimated for any of them. When one arrives it will cover graded work only — anything still pending counts as unknown, never as a zero."}
+              : anyPassFail
+                ? "No course has a scored result recorded yet — only Pass/Fail, which carries no percentage — so no grade is estimated for any of them. Anything still pending counts as unknown, never as a zero."
+                : "No course has a graded result recorded yet, so no grade is estimated for any of them. When one arrives it will cover graded work only — anything still pending counts as unknown, never as a zero."}
           </Note>
         </section>
       )}

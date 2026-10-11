@@ -15,70 +15,25 @@
  *
  * Needs DEV_MODE on the Worker (the dev scripts set it) for the on-screen sign-in link.
  */
-import { chromium } from "playwright";
-import { chromiumLaunchOptions } from "./browser.mjs";
-import { ATTACH, startServers, stopServers, waitForServers } from "./servers.mjs";
-
-const APP = "http://127.0.0.1:5173";
-const API = "http://127.0.0.1:8787";
-
-// --- Helpers -----------------------------------------------------------------------------
-
-async function api(path, method = "GET", body, token) {
-  const res = await fetch(API + path, {
-    method,
-    headers: { "X-SchoolQuest-Client": "2", "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`${method} ${path} -> ${res.status} ${text.slice(0, 200)}`);
-  return text ? JSON.parse(text) : null;
-}
-
-const results = [];
-function check(step, passed, detail = "") {
-  results.push({ step, passed, detail });
-  console.log(`${passed ? "ok  " : "FAIL"} ${step}${detail ? ` -- ${detail}` : ""}`);
-}
+import { API, TODAY, api, at, check, dateFrom, openApp, runJourney, signUp } from "./harness.mjs";
 
 /**
- * The moment the journey plans from: nine in the morning, today, UTC.
- *
- * Pinned rather than read from the wall clock, because the journey needs blocks *today* -- to
- * start one, and to give the day up -- and a run at 23:50 UTC has no today left to book. The
- * app reads `sq_dev_now` and the Worker honours `now` in dev mode, which is what the
- * screenshot tools use to look at a term from week nine. The date is still the real date, so
- * "today" agrees everywhere; only the hour is fixed.
+ * The moment the journey plans from: nine in the morning, today. Pinned rather than read from
+ * the wall clock, because the journey needs blocks *today* -- to start one, and to give the day
+ * up -- and a run at 23:50 has no today left to book.
  */
-const TODAY = new Date().toISOString().slice(0, 10);
-const NOW = `${TODAY}T09:00:00.000Z`;
+const NOW = at(TODAY, "09:00");
 
-/**
- * ISO date `days` from today, on the student's clock. The browser is pinned to UTC below, so the
- * student lives in UTC and their date is the UTC date -- on any host, in any zone. Left to the
- * host's zone, "the lost day" was compared against a UTC date and a run west of Greenwich in the
- * evening looked at the wrong day.
- */
-function dateFromToday(days) {
-  return new Date(Date.parse(NOW) + days * 86_400_000).toISOString().slice(0, 10);
-}
+/** ISO date `days` from today, in the app's wall clock. */
+const dateFromToday = (days) => dateFrom(TODAY, days);
 
 // --- The journey -------------------------------------------------------------------------
 
-const serverLog = ATTACH ? [] : startServers();
-let browser;
-try {
-  await waitForServers();
-
+await runJourney("acceptance steps", async ({ browser }) => {
   // 1. Sign in. The dev link comes back on screen, which is what a local run relies on.
-  const email = `acceptance-${Date.now()}@example.edu`;
-  const login = await api("/api/auth/login", "POST", { email });
-  check("sign-in link is returned on screen in dev mode", typeof login.devLoginUrl === "string");
-  const { sessionToken } = await api("/api/auth/callback", "POST", {
-    token: new URL(login.devLoginUrl).searchParams.get("token"),
-  });
+  const { token: sessionToken, email } = await signUp("acceptance");
   const me = await api("/api/me", "GET", undefined, sessionToken);
-  check("the account exists and answers /api/me", me.user.email === email);
+  check("a fresh account signs in through the on-screen dev link and answers /api/me", me.user.email === email);
 
   // Setup the journey needs, through the API: a term with hours today, so Today has something
   // to show whatever hour CI runs at.
@@ -102,24 +57,7 @@ try {
   );
   check("a term, hours and a fixed commitment were created", true);
 
-  browser = await chromium.launch(chromiumLaunchOptions());
-  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, timezoneId: "UTC" });
-  const pageErrors = [];
-  page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 300)));
-  await page.addInitScript(
-    ({ token, now }) => {
-      localStorage.setItem("sq_session_token", token);
-      localStorage.setItem("sq_dev_now", now);
-    },
-    { token: sessionToken, now: NOW },
-  );
-  await page.goto(APP);
-  const nav = page.getByRole("navigation", { name: "Main" });
-  await nav.waitFor({ timeout: 30_000 });
-  const go = async (name) => {
-    await nav.getByRole("button", { name }).click();
-    await page.waitForTimeout(800);
-  };
+  const { page, nav, go, errors: pageErrors } = await openApp(browser, sessionToken, { now: NOW });
 
   // 2. Create a course in Setup, and see it appear without a reload (issue #6).
   await go("Setup");
@@ -264,6 +202,68 @@ try {
   const standing = (await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken)).standings[course.id];
   check("a recorded grade produces a course standing", typeof standing?.estimatedPercent === "number", `estimated ${standing?.estimatedPercent}`);
 
+  // 9b. Record a Pass from the assignments table, for work marked Pass/Fail rather than scored.
+  //     It counts as recorded but moves no percentage; a Fail raises a concern instead.
+  const { workItem: labSafety } = await api(
+    "/api/work-items",
+    "POST",
+    { courseId: course.id, title: "Lab safety quiz", workType: "quiz", dueAt: `${dateFromToday(-2)}T23:59:00.000Z`, pointsPossible: 5 },
+    sessionToken,
+  );
+  // Made through the API, so reload to read it, in the table view the Pass button lives in.
+  await page.evaluate(() => localStorage.setItem("sq_view_mode", "table"));
+  await page.reload();
+  await nav.waitFor({ timeout: 30_000 });
+  await go("Assignments");
+  const labRow = page.locator("tr", { hasText: "Lab safety quiz" });
+  // Handed in first, as a student would; that is what brings up the result box.
+  await labRow.getByRole("button", { name: /^Handed in$/ }).click({ timeout: 15_000 });
+  await labRow.getByRole("button", { name: /^Pass$/ }).click({ timeout: 15_000 });
+  // Wait for the save itself rather than for a fixed time a slow runner could overrun.
+  let afterPass;
+  let passGrade;
+  for (let tries = 0; tries < 30 && !passGrade; tries += 1) {
+    if (tries > 0) await new Promise((r) => setTimeout(r, 500));
+    afterPass = await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken);
+    passGrade = (afterPass.grades ?? []).find((g) => g.workItemId === labSafety.id);
+  }
+  check(
+    "Pass in the assignments table records a Pass with no points",
+    passGrade?.letterGrade === "Pass" && passGrade.pointsEarned === null && passGrade.pointsPossible === null,
+    JSON.stringify(passGrade ?? null),
+  );
+  check(
+    "a Pass leaves the course standing where the score put it",
+    afterPass.standings[course.id]?.estimatedPercent === standing?.estimatedPercent,
+    `estimated ${afterPass.standings[course.id]?.estimatedPercent}`,
+  );
+  const passFailInStanding = (afterPass.standings[course.id]?.categories ?? []).reduce((n, c) => n + (c.passFailCount ?? 0), 0);
+  check("the course standing counts the Pass as a Pass/Fail result", passFailInStanding === 1, `passFailCount ${passFailInStanding}`);
+  const empty = await fetch(`${API}/api/work-items/${labSafety.id}/grade`, {
+    method: "PUT",
+    headers: { "X-SchoolQuest-Client": "2", "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+    body: "{}",
+  });
+  check("an empty grade body is refused rather than recorded", empty.status === 400, `status ${empty.status}`);
+  await api(`/api/work-items/${labSafety.id}/grade`, "PUT", { passFail: "fail" }, sessionToken);
+  const afterFail = await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken);
+  const courseHealth = afterFail.health?.courses.find((h) => h.courseId === course.id);
+  check(
+    "a recorded Fail is raised as a concern on the course",
+    (courseHealth?.concerns ?? []).some((x) => x.code === "PASS_FAIL_FAILED"),
+    (courseHealth?.concerns ?? []).map((x) => x.code).join(", "),
+  );
+  // The gauge's "Look at the failed work" opens the assignments table, so the failed row must be
+  // there without asking for finished work.
+  await page.reload();
+  await nav.waitFor({ timeout: 30_000 });
+  await go("Assignments");
+  await page.locator("tr", { hasText: "Lab safety quiz" }).first().waitFor({ timeout: 15_000 }).catch(() => {});
+  check(
+    "work recorded as a Fail stays on the assignments table",
+    (await page.locator("tr", { hasText: "Lab safety quiz" }).count()) === 1,
+  );
+
   // 10. Switch themes from Setup.
   await go("Setup");
   await page.getByRole("button", { name: /^quest$/i }).first().click();
@@ -282,16 +282,4 @@ try {
   check("the coach without a key explains itself in its own terms", /503/.test(coachMessage) && /coach/.test(coachMessage));
 
   check("no page errors were thrown anywhere on the journey", pageErrors.length === 0, pageErrors.join(" | "));
-} catch (error) {
-  check("the journey ran to the end", false, String(error?.stack ?? error).slice(0, 600));
-} finally {
-  await browser?.close().catch(() => {});
-  if (!ATTACH) stopServers();
-}
-
-const failed = results.filter((r) => !r.passed);
-console.log(`\n${results.length - failed.length} of ${results.length} acceptance steps passed.`);
-if (failed.length > 0) {
-  if (serverLog.length > 0) console.log("\n--- last server output ---\n" + serverLog.slice(-60).join("\n"));
-  process.exitCode = 1;
-}
+});

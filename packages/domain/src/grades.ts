@@ -20,6 +20,8 @@ export interface CategoryStanding {
   /** Percentage earned on graded work only, or null when nothing is graded yet. */
   percent: number | null;
   gradedCount: number;
+  /** Pass/Fail results: recorded, so not pending, but carrying no points to average. */
+  passFailCount: number;
   pendingCount: number;
 }
 
@@ -42,6 +44,28 @@ export function isGraded(grade: GradeResult): boolean {
     grade.pointsPossible !== null &&
     grade.pointsPossible > 0
   );
+}
+
+/**
+ * Pass/Fail is stored as the result's letter with no points, so an existing column carries it.
+ * The full words are used rather than "P"/"F" because "F" is already a letter grade.
+ */
+export const PASS_LETTER = "Pass";
+export const FAIL_LETTER = "Fail";
+
+export type PassFail = "pass" | "fail";
+
+/**
+ * The Pass/Fail outcome of a result, or null when it is a scored (or pending) result. Both point
+ * fields must be empty: a "Fail" letter with a total attached is a letter grade, not this.
+ */
+export function passFailOf(
+  grade: Pick<GradeResult, "pointsEarned" | "pointsPossible" | "letterGrade">,
+): PassFail | null {
+  if (grade.pointsEarned !== null || grade.pointsPossible !== null) return null;
+  if (grade.letterGrade === PASS_LETTER) return "pass";
+  if (grade.letterGrade === FAIL_LETTER) return "fail";
+  return null;
 }
 
 /**
@@ -97,6 +121,7 @@ export function computeCourseStanding(input: {
     const category = categoryId ? categoriesById.get(categoryId) : undefined;
     const grades = applyDropRule(rawGrades, category);
     const graded = grades.filter(isGraded);
+    const passFailCount = grades.filter((g) => passFailOf(g) !== null).length;
 
     const pointsEarned = graded.reduce((sum, g) => sum + g.pointsEarned!, 0);
     const pointsPossible = graded.reduce((sum, g) => sum + g.pointsPossible!, 0);
@@ -109,8 +134,10 @@ export function computeCourseStanding(input: {
       pointsPossible,
       percent: pointsPossible > 0 ? (pointsEarned / pointsPossible) * 100 : null,
       gradedCount: graded.length,
-      // Anything in the bucket that is not graded is pending, never a zero.
-      pendingCount: grades.length - graded.length,
+      passFailCount,
+      // Anything in the bucket that is not graded is pending, never a zero. A Pass/Fail result
+      // is neither: it is known, it just has no number to average.
+      pendingCount: grades.length - graded.length - passFailCount,
     });
   }
 
