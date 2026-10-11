@@ -1,4 +1,4 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * D1 (SQLite) schema. Mirrors docs/05-data-model-and-api.md §2.
@@ -68,6 +68,23 @@ export const loginTokens = sqliteTable(
     createdAt: text("created_at").notNull(),
   },
   (t) => [uniqueIndex("login_tokens_token_hash_idx").on(t.tokenHash)],
+);
+
+/**
+ * Fixed-window request counters for the rate limiter (`apps/api/src/rate-limit.ts`).
+ *
+ * One row per bucket per window. `bucketKey` is the rule name plus a hash of the subject (an
+ * email, an IP, a user id) — never the raw value, so the table does not become a log of who
+ * tried to sign in from where. `windowStart` is epoch milliseconds, floored to the window.
+ */
+export const rateLimits = sqliteTable(
+  "rate_limits",
+  {
+    bucketKey: text("bucket_key").notNull(),
+    windowStart: integer("window_start").notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.bucketKey, t.windowStart] })],
 );
 
 export const terms = sqliteTable(

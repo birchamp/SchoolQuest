@@ -14,6 +14,7 @@ import { assertTermOwner, getDb, loadTermSnapshot, toPlanningInput } from "../db
 import { loadReview } from "./review.js";
 import { studentZone } from "../student-zone.js";
 import { NO_COACH_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
+import { rateLimitPerUser } from "../rate-limit.js";
 import type { AppBindings } from "../env.js";
 
 const messageBody = z.object({
@@ -31,7 +32,7 @@ export const coachRoute = new Hono<AppBindings>();
  * coach always answers against the student's real current state. It is a pure function
  * over data we already hold, so this costs no extra model call.
  */
-coachRoute.post("/coach/messages", async (c) => {
+coachRoute.post("/coach/messages", rateLimitPerUser("coach"), async (c) => {
   const parsed = messageBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 

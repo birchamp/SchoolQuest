@@ -31,13 +31,20 @@ import { MODELS } from "./provider.js";
  *   it is judging.
  */
 
+/** The labels the classifier may return. */
 export const GUARD_VERDICTS = ["ALLOW", "OFF_TOPIC", "DO_MY_WORK", "DISTRESS"] as const;
-export type GuardVerdict = (typeof GUARD_VERDICTS)[number];
+export type ClassifierLabel = (typeof GUARD_VERDICTS)[number];
+/**
+ * UNCHECKED is the gate's own verdict, never the classifier's: the message needed a classifier
+ * and the classifier could not give an answer. It is kept out of GUARD_VERDICTS so the model
+ * cannot be asked to choose it.
+ */
+export type GuardVerdict = ClassifierLabel | "UNCHECKED";
 
 export interface GuardDecision {
   verdict: GuardVerdict;
   /** How the verdict was reached — useful in logs when tuning the gate. */
-  source: "prefilter" | "classifier" | "classifier_failed_open";
+  source: "prefilter" | "classifier" | "classifier_failed_closed";
   /** Populated for every non-ALLOW verdict; this is what the student sees. */
   refusal?: string;
 }
@@ -117,6 +124,9 @@ const DO_MY_WORK_REFUSALS = [
   "That is the work itself, and doing it for you would not help you. I can plan it instead: when to start, how to split it up, and what has to happen before it. Want me to?",
   "I do not answer coursework. I do help you get to it — I can find you the right block of time this week and tell you which step to start with.",
 ];
+
+const UNCHECKED_RESPONSE =
+  "I could not check that message just now, so I have not answered it. Give it a moment and send it again. Your plan is unaffected, and a question about what to work on next will still get through.";
 
 const DISTRESS_RESPONSE =
   "That sounds really heavy, and it matters more than any assignment. I am a planning tool, not a person who can help with this — please reach out to someone who can: in the US you can call or text 988 (Suicide & Crisis Lifeline), and your campus counseling center can usually see you quickly. If you are in immediate danger, please call emergency services. I will be here for the schoolwork whenever you want to come back to it.";
@@ -218,9 +228,27 @@ const classifierOutput = z.object({ label: z.enum(GUARD_VERDICTS) });
 /**
  * Full guard: prefilter, then a small classifier call for anything ambiguous.
  *
- * If the classifier call fails (network, provider outage) the gate fails OPEN to ALLOW.
- * The coach's own system prompt is the backstop, and hard-refusing every message during a
- * provider blip would break the app for legitimate use. The `source` field records it.
+ * If the classifier call fails, or answers with something that is not a label, the gate fails
+ * CLOSED: the message is not sent to the coach, and the student is told calmly that it could
+ * not be checked and to send it again. The `source` field records it.
+ *
+ * It used to fail open, on the reasoning that refusing during a provider blip breaks the app.
+ * That reasoning does not survive a closer look:
+ *
+ *  - Only messages the prefilter had no confident verdict on ever reach the classifier. The
+ *    plain planning and app questions ("what should I work on now?", "what does skip do?") are
+ *    allowed deterministically before this point, so they keep working whatever the classifier
+ *    is doing. What fails closed is exactly the set the gate exists to look at.
+ *  - In a real outage the coach call goes to the same provider and fails too, so failing open
+ *    buys no answer -- only a second, larger request into the same failure.
+ *  - The case where failing open *does* change the outcome is the classifier alone breaking:
+ *    malformed output, a truncated reply, a refusal to label. A message crafted to make the
+ *    classifier produce non-JSON is then a bypass of the whole gate, and the coach's system
+ *    prompt would be the only layer left -- the layer this classifier was split out from
+ *    precisely because a message can talk it round.
+ *
+ * Failing closed costs an honest student one resend of an unusual message; failing open hands
+ * an adversarial one the coach.
  */
 export async function guardMessage(
   message: string,
@@ -230,7 +258,7 @@ export async function guardMessage(
   const early = prefilter(message);
   if (early) return early;
 
-  let label: GuardVerdict;
+  let label: ClassifierLabel;
   try {
     const result = await provider.complete({
       model: options.model ?? MODELS.GUARD,
@@ -244,13 +272,13 @@ export async function guardMessage(
     });
     label = classifierOutput.parse(JSON.parse(result.text)).label;
   } catch {
-    return { verdict: "ALLOW", source: "classifier_failed_open" };
+    return { verdict: "UNCHECKED", source: "classifier_failed_closed", refusal: UNCHECKED_RESPONSE };
   }
 
   return { ...decisionFor(label, message), source: "classifier" };
 }
 
-function decisionFor(label: GuardVerdict, message: string): Omit<GuardDecision, "source"> {
+function decisionFor(label: ClassifierLabel, message: string): Omit<GuardDecision, "source"> {
   switch (label) {
     case "ALLOW":
       return { verdict: "ALLOW" };
