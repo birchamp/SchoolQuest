@@ -1,5 +1,17 @@
 # End-to-end checks
 
+## Writing a journey
+
+Every journey builds on `harness.mjs`, which owns the parts that are the same everywhere: `api()`,
+`signUp(label)` for a fresh account through the dev sign-in link, the pinned clock (`TODAY`, `at`,
+`dateFrom`), `openApp(browser, token, { now, viewMode, landOn, shell, context })`, `check()`, and
+`runJourney(noun, body)`, which starts the servers (or attaches with `--attach`), launches
+Chromium, and exits non-zero on any failed check, a journey that throws, or a run that recorded no
+checks at all. `journey()` wraps one of several independent stories so one that throws does not
+stop the rest. A new journey is only its story; see the example at the top of `harness.mjs`.
+
+Before trusting a new journey, break the behaviour it guards and watch it fail.
+
 ## The acceptance journey (runs on every push)
 
 `pnpm test:acceptance` starts both halves, drives the release acceptance list from
@@ -55,6 +67,62 @@ so the journey only runs against a local Worker -- which is all it is for.
 `--attach` uses servers that are already running; `--verbose` prints each audit as a table.
 Remember that `wrangler dev` does not reload when only `packages/` changes, so restart the
 servers after editing the planning engine, or the journey will test the old one.
+
+## The intake journey (runs on every push)
+
+`pnpm test:intake` is a new student from the first screen to a planned week, all through the
+browser: choose a theme, name the term, set study hours, save an OpenRouter key, add spring
+break to the calendar by hand, add two courses, upload each syllabus, answer what the review
+asks, confirm, and check that the open questions and the plan follow. The other journeys set all
+of that up through the API, so until this one none of those screens was rendered by a test.
+
+The model is the only thing replaced. The journey starts a mock OpenRouter on 9099 that serves
+the committed `semester4/` extractions (Math 104 and GEOG 062), and points the Worker at it for
+this run only through `SQ_WORKER_VARS`, which `tools/dev.mjs` turns into `wrangler dev --var`.
+Nothing in `.dev.vars` is touched. The syllabus is a real .docx, built from `semester4/pages.json`
+with a page break between pages, picked through the file input, and read to page text by the
+app's own reader. So the checks cover what reached the model, which key paid for it, the
+evidence check against the page text, and what the review shows.
+
+With `--attach`, the Worker has to already be running with the var. The journey prints the
+command for that.
+
+Its first run found that "Still unanswered" on Setup only loaded on mount. After a student
+confirmed a syllabus on that same page, the card went on saying nothing was open.
+
+## The multi-week journey (runs on every push)
+
+`pnpm test:weeks` lives three weeks on the simulated clock, opening the app the way a student
+does. The student studies Monday and Thursday evenings. Each Monday they do the reading from
+Today. Each Thursday they let the problem set's block go with "Not now", naming the shift that
+took the time. In week two the weekly review asks about that Thursday once, as possibly a
+one-off. In week three it proposes the shift as a standing commitment in the student's own
+words. One click adds it, and the plan stops booking that evening, warning about the work that
+no longer fits rather than dropping it. Then the term ends: "Start a new semester" archives it,
+and reopening it from onboarding brings back every piece of work.
+
+The evenings are 20:00 to 21:00 on purpose. The default dinner window floats as late as 20:00,
+blocks are 45 minutes, and deadlines keep a one-day buffer. A journey that ignores those tests
+the defaults rather than the review. The student opens the app on the hour because the first
+load of a new day replans from "now", which moves a 20:00 block to 20:05 if opened at 20:05.
+
+## The settings journey (runs on every push)
+
+`pnpm test:settings` changes each setting from its card on Setup and follows it into the plan.
+A setting that saves but never reaches the plan is the failure it is for: the card says
+"Saved", and next Tuesday is booked exactly as before. So each step checks three things: the
+server stored what was typed, the plan was rebuilt, and the rebuilt plan honours the change.
+
+- **AI and model.** A saved key is shown only as a hint, the field clears, and Remove takes the
+  key off the account. Picking another reader stores it.
+- **Study hours.** After moving the start from 15:00 to 17:00 and taking tomorrow off, nothing
+  is booked before 17:00 or on that day, capacity shrinks, and the card shows the new hours
+  after a reload.
+- **Meals.** Dropping dinner gives the week its time back, and putting it back takes exactly
+  that time away again.
+- **Term.** A new name and an earlier last day are stored, the week is replanned, and the radar
+  shows the new name. It does not assert "nothing booked after the last day": that is the last
+  day of instruction, and work due after it, finals included, is still booked on purpose.
 
 # End-to-end semester test
 

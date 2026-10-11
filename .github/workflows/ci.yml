@@ -67,6 +67,23 @@ jobs:
       - name: Scheduling journey
         run: pnpm test:scheduling
 
+      # A new student through the browser: onboarding, key, calendar, courses, a .docx syllabus
+      # read by the app's own reader, review, confirm, plan. The model is a mock serving the
+      # committed semester4 extractions; everything else is the real path.
+      - name: Intake journey
+        run: pnpm test:intake
+
+      # Three weeks on the simulated clock: a Thursday lost to the same shift twice becomes a
+      # review question, then a standing commitment the plan stops booking over. Then the term
+      # is archived and reopened with all of its work.
+      - name: Multi-week journey
+        run: pnpm test:weeks
+
+      # Each setting changed on Setup and followed into the plan: the key, the reader, study
+      # hours, meals and the term. Saved is not enough; the replanned week has to honour it.
+      - name: Settings journey
+        run: pnpm test:settings
+
       # WCAG AA on every rendered screen, per theme. The servers are started once for all
       # three runs; the walker signs in on its own.
       - name: Start the app for the contrast checks
