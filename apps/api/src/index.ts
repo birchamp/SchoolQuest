@@ -23,6 +23,7 @@ import { coursesRoute } from "./routes/courses.js";
 import { commitmentsRoute } from "./routes/commitments.js";
 import { workItemsRoute } from "./routes/work-items.js";
 import { gradesRoute } from "./routes/grades.js";
+import { usageRoute } from "./routes/usage.js";
 import { isDevMode, type AppBindings } from "./env.js";
 import { isTimeZone } from "@schoolquest/domain";
 
@@ -151,6 +152,8 @@ const profileBody = z.object({
   theme: themeName.optional(),
   reducedMotion: z.boolean().optional(),
   detailMode: detailMode.optional(),
+  /** Whether screen and button counts go into the usage log (see usage.ts). */
+  shareUsage: z.boolean().optional(),
   /**
    * The student's OpenRouter key. Empty string clears it, which is the only way back to the
    * deployment's own key once one has been set.
@@ -226,6 +229,7 @@ app.route("/api", reviewRoute);
 app.route("/api", coachRoute);
 app.route("/api", documentsRoute);
 app.route("/api", extractionRoute);
+app.route("/api", usageRoute);
 
 app.onError((error, c) => {
   console.error("[api]", error);

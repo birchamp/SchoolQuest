@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { explainRisk, label } from "@schoolquest/theme-language";
 import { appToday, formatInstant, formatTime, localDate } from "../lib/clock";
 import { api } from "../lib/api";
+import { track } from "../lib/usage";
 import { addDays } from "@schoolquest/domain";
 import { clearSessionStarted, minutesSinceStarted, noteSessionStarted } from "../lib/session-clock";
 import type { PlanResponse } from "../lib/types";
@@ -218,7 +219,10 @@ export function Today({
     setError(null);
     try {
       await api.post(`/api/work-sessions/${sessionId}/${action}`, body);
-      if (action === "start") noteSessionStarted(sessionId);
+      if (action === "start") {
+        noteSessionStarted(sessionId);
+        track("session.start");
+      }
       if (action === "skip") clearSessionStarted(sessionId);
       // A skipped block's work is still due. Reloading alone left it with that much less time
       // booked and nothing to say so until someone pressed replan; the replan treats the hour
@@ -251,6 +255,7 @@ export function Today({
         worked === null ? { outcome } : { outcome, actualMinutes: worked },
       );
       clearSessionStarted(sessionId);
+      track("session.stop");
       if (worked !== null) minutes = worked;
       if (result.workItemStatus === "completed") {
         setFinished({

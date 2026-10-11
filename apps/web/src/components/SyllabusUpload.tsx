@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Course } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
+import { track } from "../lib/usage";
 import { extractDocxText } from "../lib/docx-text";
 import { extractPdfText, type DocumentPage } from "../lib/pdf-text";
 import type { ExtractionResponse } from "../lib/extraction-types";
@@ -252,6 +253,7 @@ export function SyllabusUpload({
       `/api/courses/${courseId}/documents`,
       form,
     );
+    track("syllabus.upload");
     return document;
   }
 

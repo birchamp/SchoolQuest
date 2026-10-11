@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness, type TestHarness } from "wrangler";
 import { CLIENT_PROTOCOL, CLIENT_PROTOCOL_HEADER } from "./client-protocol.js";
+import { usageSubject } from "./usage.js";
 
 /**
  * The real Worker, over HTTP, against a real local D1.
@@ -738,5 +739,79 @@ describe("saving a grading scheme", () => {
     });
     expect(res.status).toBe(200);
     expect(await categories(courseId)).toHaveLength(24);
+  });
+});
+
+describe("usage log", () => {
+  async function rows() {
+    const env = await server.getWorker<{ DB: D1Database }>().getEnv();
+    const { results } = await env.DB.prepare(
+      "SELECT day, event, subject, count FROM usage_daily ORDER BY event",
+    ).all<{ day: string; event: string; subject: string; count: number }>();
+    return results;
+  }
+
+  async function userId(client: Client): Promise<string> {
+    const me = (await (await client.get("/api/me")).json()) as { user: { id: string } };
+    return me.user.id;
+  }
+
+  it("counts allowlisted events under the HMAC subject, never the user id", async () => {
+    const client = await signIn("usage-counted@example.com");
+    const id = await userId(client);
+    const subject = await usageSubject(id, "http-test-secret");
+
+    const first = await client.send("POST", "/api/usage", {
+      events: { "tab.week": 2, "coach.send": 1, "course.Biology": 5, "tab.radar": "x" },
+    });
+    expect(first.status).toBe(204);
+    await client.send("POST", "/api/usage", { events: { "tab.week": 3 } });
+
+    const mine = (await rows()).filter((r) => r.subject === subject);
+    expect(mine.map((r) => [r.event, r.count])).toEqual([
+      ["coach.send", 1],
+      ["tab.week", 5],
+    ]);
+    expect(mine[0]!.day).toBe(new Date().toISOString().slice(0, 10));
+    // Unknown names were dropped, and the raw id appears nowhere in the table.
+    const all = await rows();
+    expect(all.some((r) => r.event === "course.Biology")).toBe(false);
+    expect(all.some((r) => r.subject.includes(id))).toBe(false);
+  });
+
+  it("writes nothing for a user who has opted out", async () => {
+    const client = await signIn("usage-opted-out@example.com");
+    const subject = await usageSubject(await userId(client), "http-test-secret");
+    const saved = await client.send("PATCH", "/api/me", { shareUsage: false });
+    expect(((await saved.json()) as { user: Json }).user["shareUsage"]).toBe(false);
+
+    const before = await rows();
+    const res = await client.send("POST", "/api/usage", { events: { "tab.week": 1 } });
+    expect(res.status).toBe(204);
+    // Nothing at all changed, whatever key a row might have been written under.
+    expect(await rows()).toEqual(before);
+    expect(before.filter((r) => r.subject === subject)).toHaveLength(0);
+  });
+
+  it("refuses a body of the wrong shape, and anyone signed out", async () => {
+    const client = await signIn("usage-shape@example.com");
+    expect((await client.send("POST", "/api/usage", { events: ["tab.week"] })).status).toBe(400);
+    expect((await post("/api/usage", { events: { "tab.week": 1 } })).status).toBe(401);
+  });
+
+  it("still answers 204 when the table does not exist yet", async () => {
+    // A Worker deployed ahead of migration 0012: a counter must never become an error on screen.
+    const client = await signIn("usage-before-migration@example.com");
+    const env = await server.getWorker<{ DB: D1Database }>().getEnv();
+    const table = await env.DB.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'usage_daily'",
+    ).first<{ sql: string }>();
+    await env.DB.prepare("DROP TABLE usage_daily").run();
+    try {
+      const res = await client.send("POST", "/api/usage", { events: { "tab.week": 1 } });
+      expect(res.status).toBe(204);
+    } finally {
+      await env.DB.prepare(table!.sql).run();
+    }
   });
 });

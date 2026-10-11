@@ -31,7 +31,8 @@
     "db:migrate:local": "pnpm --filter @schoolquest/api db:migrate:local",
     "db:seed:local": "pnpm --filter @schoolquest/api db:seed:local",
     "db:reset-progress:local": "pnpm --filter @schoolquest/api db:reset-progress:local",
-    "test:docx-browser": "node tools/e2e/docx-in-chromium.mjs"
+    "test:docx-browser": "node tools/e2e/docx-in-chromium.mjs",
+    "usage:report": "node tools/usage-report.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -1,9 +1,12 @@
 import type { PassFail } from "@schoolquest/domain";
 import { api } from "../lib/api";
+import { track } from "../lib/usage";
 
 /** Records a Pass/Fail outcome in place of a score, for work that is not marked in points. */
-export function recordPassFail(workItemId: string, passFail: PassFail): Promise<unknown> {
-  return api.put(`/api/work-items/${workItemId}/grade`, { passFail });
+export async function recordPassFail(workItemId: string, passFail: PassFail): Promise<unknown> {
+  const saved = await api.put(`/api/work-items/${workItemId}/grade`, { passFail });
+  track("grade.record");
+  return saved;
 }
 
 /**
