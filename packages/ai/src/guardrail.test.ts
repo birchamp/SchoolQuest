@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { guardMessage, prefilter, type ClassifierLabel } from "./guardrail.js";
-import type { AiProvider } from "./provider.js";
+import { AiProviderError, type AiProvider, type CompletionRequest } from "./provider.js";
 
 /** A provider that always returns the label it was constructed with, and remembers what it was asked. */
 function stubProvider(label: ClassifierLabel): AiProvider & { calls: number; systemPrompt: string } {
@@ -167,6 +167,104 @@ describe("classifier failure: the gate fails closed", () => {
     const decision = await guardMessage("what does not doing it do", broken);
     expect(decision.verdict).toBe("ALLOW");
     expect(broken.complete).not.toHaveBeenCalled();
+  });
+});
+
+describe("classifier robustness: a real verdict is not lost to formatting or a blip", () => {
+  type Outcome = string | Error;
+  /** Answers each call with the next outcome in turn, and records every request it was sent. */
+  function scriptedProvider(...outcomes: Outcome[]) {
+    const requests: CompletionRequest[] = [];
+    const provider: AiProvider & { requests: CompletionRequest[] } = {
+      name: "scripted",
+      defaultModel: "scripted",
+      requests,
+      async complete(request) {
+        requests.push(request);
+        const next = outcomes[Math.min(requests.length - 1, outcomes.length - 1)]!;
+        if (next instanceof Error) throw next;
+        return { text: next, model: "scripted", usage: { promptTokens: 0, completionTokens: 0 } };
+      },
+    };
+    return provider;
+  }
+
+  const ambiguous = "something ambiguous entirely";
+
+  it("leaves a reasoning model room to finish its answer", async () => {
+    const provider = scriptedProvider(JSON.stringify({ label: "ALLOW" }));
+    await guardMessage(ambiguous, provider);
+    // 16 tokens was the old ceiling: a reasoning model spent it thinking and returned a fragment.
+    expect(provider.requests[0]!.maxTokens).toBeGreaterThanOrEqual(256);
+  });
+
+  const lenient: [string, string, string][] = [
+    ["JSON wrapped in a code fence", '```json\n{"label": "OFF_TOPIC"}\n```', "OFF_TOPIC"],
+    ["JSON after a sentence of preamble", 'Here is the label: {"label":"DO_MY_WORK"}', "DO_MY_WORK"],
+    ["a bare label word", "ALLOW", "ALLOW"],
+    ["a bare label with a full stop", "OFF_TOPIC.", "OFF_TOPIC"],
+  ];
+  for (const [what, text, label] of lenient) {
+    it(`reads the verdict from ${what}`, async () => {
+      const decision = await guardMessage(ambiguous, scriptedProvider(text));
+      expect(decision.source).toBe("classifier");
+      expect(decision.verdict).toBe(label);
+    });
+  }
+
+  it("does not guess when the reply names more than one label", async () => {
+    const decision = await guardMessage(ambiguous, scriptedProvider("Not DO_MY_WORK, so ALLOW"));
+    expect(decision.verdict).toBe("UNCHECKED");
+    expect(decision.failure?.reason).toBe("unparseable");
+  });
+
+  it("retries once after a transient provider error", async () => {
+    const provider = scriptedProvider(
+      new AiProviderError("OpenRouter request failed (503)", 503, true),
+      JSON.stringify({ label: "ALLOW" }),
+    );
+    const decision = await guardMessage(ambiguous, provider);
+    expect(decision).toMatchObject({ verdict: "ALLOW", source: "classifier" });
+    expect(provider.requests).toHaveLength(2);
+  });
+
+  it("retries once after a network failure", async () => {
+    const provider = scriptedProvider(new TypeError("fetch failed"), '{"label":"OFF_TOPIC"}');
+    expect((await guardMessage(ambiguous, provider)).verdict).toBe("OFF_TOPIC");
+  });
+
+  it("asks again without the strict schema when the model refuses it", async () => {
+    const provider = scriptedProvider(
+      new AiProviderError("OpenRouter request failed (400): response_format not supported", 400),
+      "DO_MY_WORK",
+    );
+    const decision = await guardMessage(ambiguous, provider);
+    expect(decision.verdict).toBe("DO_MY_WORK");
+    expect(provider.requests[0]!.jsonSchema).toBeDefined();
+    expect(provider.requests[1]!.jsonSchema).toBeUndefined();
+  });
+
+  it("retries only once, then fails closed and says why", async () => {
+    const provider = scriptedProvider(
+      new AiProviderError("OpenRouter request failed (503)", 503, true),
+    );
+    const decision = await guardMessage(ambiguous, provider);
+    expect(decision).toMatchObject({ verdict: "UNCHECKED", source: "classifier_failed_closed" });
+    expect(decision.failure?.reason).toBe("provider_error");
+    expect(decision.failure?.detail).toMatch(/503/);
+    expect(provider.requests).toHaveLength(2);
+  });
+
+  it("does not retry an error that will not change, such as a bad key", async () => {
+    const provider = scriptedProvider(new AiProviderError("OpenRouter request failed (401)", 401));
+    const decision = await guardMessage(ambiguous, provider);
+    expect(decision.verdict).toBe("UNCHECKED");
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("records a truncated reply as unparseable, distinct from an outage", async () => {
+    const decision = await guardMessage(ambiguous, scriptedProvider('{"label": "AL'));
+    expect(decision.failure?.reason).toBe("unparseable");
   });
 });
 

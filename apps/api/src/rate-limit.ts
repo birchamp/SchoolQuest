@@ -23,9 +23,16 @@ export interface RateRule {
   windowSeconds: number;
   /** Plain-language reason, shown to the student; the wait is appended. */
   message: string;
+  /**
+   * Whether a refused request still counts. True by default: a client hammering its own bucket
+   * gains nothing. False for a bucket a stranger can fill on someone else's behalf, where every
+   * counted refusal is lockout time inflicted on the bucket's owner.
+   */
+  countRefused?: boolean;
 }
 
-const HOUR = 60 * 60;
+const MINUTE = 60;
+const HOUR = 60 * MINUTE;
 
 /**
  * Every limit in one place. Tuned so a real student never meets one: the busiest honest session
@@ -33,11 +40,21 @@ const HOUR = 60 * 60;
  * coach -- stays well under each. Raise a number here if that ever stops being true.
  */
 export const RATE_LIMITS = {
-  /** Sign-in links sent to one address. A student retrying a slow inbox needs three or four. */
+  /**
+   * Sign-in links sent to one address. A student retrying a slow inbox needs three or four.
+   *
+   * Anyone can type anyone's address, so a stranger can reach this limit for a victim. It is
+   * shaped to make that cheap to recover from: a short window, so a lockout lasts minutes rather
+   * than an hour, and only requests it lets through count -- a refused one never does, so the
+   * stranger cannot keep the address locked by continuing to send. Sustained abuse from one
+   * source is the per-network rule's job.
+   */
   loginEmail: {
-    limit: 10,
-    windowSeconds: HOUR,
-    message: "Too many sign-in links have been sent to that address. Check your inbox (and spam) for the last one",
+    limit: 5,
+    windowSeconds: 15 * MINUTE,
+    countRefused: false,
+    message:
+      "Too many sign-in links have been sent to that address. Check your inbox (and spam) for the last one",
   },
   /**
    * Sign-in requests from one network address, whatever the email. Higher than per-email because
@@ -88,9 +105,13 @@ export function windowStartFor(nowMs: number, windowSeconds: number): number {
   return Math.floor(nowMs / size) * size;
 }
 
-/** Atomically adds one to a bucket's count for a window and returns the new count. */
+/**
+ * Atomically adds one to a bucket's count for a window and returns the new count. Given
+ * `onlyBelow`, adds one only while the count is below it, and returns null -- having changed
+ * nothing -- when it is not.
+ */
 export interface CounterStore {
-  increment(bucketKey: string, windowStart: number): Promise<number>;
+  increment(bucketKey: string, windowStart: number, onlyBelow?: number): Promise<number | null>;
 }
 
 export interface RateDecision {
@@ -100,24 +121,48 @@ export interface RateDecision {
 }
 
 /**
- * Counts this request against the bucket and decides. Every attempt counts, refused ones
- * included, so hammering a closed bucket does not reopen it any sooner -- but the window still
- * ends on schedule.
+ * Counts this request against the bucket and decides. By default every attempt counts, refused
+ * ones included, so hammering a closed bucket does not reopen it any sooner -- but the window
+ * still ends on schedule. A rule with `countRefused: false` counts only what it allows.
+ *
+ * If the counter table does not exist the request is allowed. That is a Worker deployed ahead of
+ * migration 0010, and refusing there would take sign-in down for everyone over a missing ceiling.
  */
 export async function consume(
   store: CounterStore,
   bucketKey: string,
-  rule: Pick<RateRule, "windowSeconds">,
+  rule: Pick<RateRule, "windowSeconds" | "countRefused">,
   limit: number,
   nowMs: number,
 ): Promise<RateDecision> {
   const windowStart = windowStartFor(nowMs, rule.windowSeconds);
-  const count = await store.increment(bucketKey, windowStart);
   const windowEnd = windowStart + rule.windowSeconds * 1000;
-  return {
-    allowed: count <= limit,
-    retryAfterSeconds: Math.max(1, Math.ceil((windowEnd - nowMs) / 1000)),
-  };
+  const retryAfterSeconds = Math.max(1, Math.ceil((windowEnd - nowMs) / 1000));
+
+  let count: number | null;
+  try {
+    count =
+      rule.countRefused === false
+        ? await store.increment(bucketKey, windowStart, limit)
+        : await store.increment(bucketKey, windowStart);
+  } catch (error) {
+    if (!isMissingTable(error)) throw error;
+    console.warn(
+      "[rate-limit] rate_limits table is missing; allowing the request. Apply migration 0010.",
+      bucketKey.split(":")[0],
+    );
+    return { allowed: true, retryAfterSeconds };
+  }
+  return { allowed: count !== null && count <= limit, retryAfterSeconds };
+}
+
+/** D1's "no such table", wherever in the cause chain drizzle left it. */
+function isMissingTable(error: unknown): boolean {
+  for (let e: unknown = error, depth = 0; e instanceof Error && depth < 5; depth++) {
+    if (/no such table:?\s*`?"?rate_limits/i.test(e.message)) return true;
+    e = e.cause;
+  }
+  return false;
 }
 
 /** The refusal body, with the wait in words a person reads rather than a header they don't. */
@@ -133,16 +178,20 @@ const RETAIN_MS = 24 * HOUR * 1000;
 export function d1CounterStore(db: D1Database, nowMs: number): CounterStore {
   const orm = drizzle(db);
   return {
-    async increment(bucketKey, windowStart) {
+    async increment(bucketKey, windowStart, onlyBelow) {
+      // With `onlyBelow`, the upsert's own WHERE skips the update at the ceiling, so no row comes
+      // back -- one statement, so two concurrent requests cannot both slip under it.
       const [row] = await orm
         .insert(rateLimits)
         .values({ bucketKey, windowStart, count: 1 })
         .onConflictDoUpdate({
           target: [rateLimits.bucketKey, rateLimits.windowStart],
           set: { count: sql`${rateLimits.count} + 1` },
+          ...(onlyBelow === undefined ? {} : { setWhere: sql`${rateLimits.count} < ${onlyBelow}` }),
         })
         .returning({ count: rateLimits.count });
-      const count = row?.count ?? 1;
+      if (!row) return null;
+      const count = row.count;
       // Opportunistic cleanup, as login_tokens does, so the table never needs a cron job. Only
       // on the first hit of a new window, so it runs at most once per bucket per window.
       if (count === 1) {
