@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { extractedAssignment, extractedDate } from "@schoolquest/ai";
+import type { ExtractedDate } from "@schoolquest/ai";
 
 /**
  * Shapes of `extraction_claims.payload_json`, one per `claim_type`.
@@ -16,12 +16,31 @@ import { extractedAssignment, extractedDate } from "@schoolquest/ai";
  * routes handled before.
  */
 
+/**
+ * A stored due date. Looser than the extraction's `extractedDate` on purpose: `iso` is the only
+ * field every writer sets, and older or hand-written claims carry no `raw` or `ambiguity` at all.
+ * Optional rather than defaulted, so a rewrite does not add keys the claim never had.
+ */
+export const storedDueDate = z
+  .object({
+    iso: z.string().nullable(),
+    raw: z.string().nullable().optional(),
+    time: z.string().nullable().optional(),
+    ambiguity: z.string().optional(),
+  })
+  .passthrough();
+
+/** The stored date as the `ExtractedDate` `toDueAt` takes; it reads only `iso` and `time`. */
+export function asExtractedDate(date: z.infer<typeof storedDueDate>): ExtractedDate {
+  return { iso: date.iso, raw: date.raw ?? null, time: date.time ?? null, ambiguity: "none" };
+}
+
 /** An assignment claim, as promoted by confirm and re-dated by the answer routes. */
 export const assignmentClaimPayload = z
   .object({
     title: z.string(),
-    type: extractedAssignment.shape.type,
-    dueDate: extractedDate.passthrough(),
+    type: z.string(),
+    dueDate: storedDueDate,
     pointsPossible: z.number().nullable().default(null),
     category: z.string().nullable().default(null),
     isMajorProject: z.boolean().default(false),
@@ -35,7 +54,7 @@ export type AssignmentClaimPayload = z.infer<typeof assignmentClaimPayload>;
 export const gradingCategoryClaimPayload = z
   .object({
     name: z.string(),
-    weightPercent: z.number().nullable(),
+    weightPercent: z.number().nullable().default(null),
     dropLowest: z.number().nullable().optional(),
   })
   .passthrough();
@@ -52,7 +71,7 @@ export const meetingPatternClaimPayload = z
 /** A week header, read back to calibrate what this document means by "Week N". */
 export const scheduleAnchorClaimPayload = z.object({
   weekNumber: z.number(),
-  raw: z.string().nullable(),
+  raw: z.string().nullable().default(null),
   isBreak: z.boolean().default(false),
 });
 

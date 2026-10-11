@@ -17,8 +17,9 @@ import {
   type ReportedInterruption,
   type SlotResolution,
 } from "@schoolquest/planning-engine";
-import { auditEvents, commitments, courses, interruptions, terms, workItems, workSessions } from "../db/schema.js";
+import { auditEvents, commitments, courses, interruptions, workItems, workSessions } from "../db/schema.js";
 import { assertTermOwner, getDb, serializeDays, type Db } from "../db/repo.js";
+import { loadOwnedSession } from "../db/ownership.js";
 import { studentCalendar, studentZone } from "../student-zone.js";
 import type { AppBindings } from "../env.js";
 
@@ -132,13 +133,7 @@ reviewRoute.post("/work-sessions/:id/interrupted", async (c) => {
   const parsed = reportBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const [owned] = await db
-    .select({ session: workSessions, termId: courses.termId })
-    .from(workSessions)
-    .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
-    .innerJoin(courses, eq(courses.id, workItems.courseId))
-    .innerJoin(terms, eq(terms.id, courses.termId))
-    .where(and(eq(workSessions.id, id), eq(terms.userId, c.get("userId"))));
+  const owned = await loadOwnedSession(db, id, c.get("userId"));
 
   if (!owned) return c.json({ error: "Session not found" }, 404);
 
@@ -149,7 +144,7 @@ reviewRoute.post("/work-sessions/:id/interrupted", async (c) => {
 
   const row = {
     id: newId("interruption"),
-    termId: owned.termId,
+    termId: owned.term.id,
     kind: "reported",
     slotKey,
     workSessionId: id,

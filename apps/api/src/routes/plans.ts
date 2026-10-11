@@ -31,6 +31,7 @@ import {
   type Db,
 } from "../db/repo.js";
 import { loadReview } from "./review.js";
+import { jsonObject, parseJsonColumn } from "../lib/json-column.js";
 import { isDevMode, type AppBindings } from "../env.js";
 import { studentZone } from "../student-zone.js";
 
@@ -303,7 +304,9 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     .filter((s) => s.status !== "released");
 
   const snapshot = await loadTermSnapshot(db, termId);
-  const summary = JSON.parse(current.summaryJson) as Record<string, unknown>;
+  // Display: every field read from the summary is already checked (see `isCapacity`), so an
+  // unreadable one reads as an empty summary rather than a 500 on the app's main screen.
+  const summary = parseJsonColumn(jsonObject, current.summaryJson, {}, "plan_versions.summary_json");
 
   // Recommendations are recomputed here rather than read out of the plan summary. A plan
   // version is written once and then read for up to a week, so the baked-in list was still
@@ -323,7 +326,12 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
       const item = itemsById.get(session.workItemId);
       // Written by the engine, so read back as its codes. A code since renamed still renders:
       // the explainers humanise anything they have no wording for.
-      const reasonCodes = JSON.parse(session.reasonCodesJson) as ReasonCode[];
+      const reasonCodes = parseJsonColumn(
+        z.array(z.string()),
+        session.reasonCodesJson,
+        [],
+        "work_sessions.reason_codes_json",
+      ) as ReasonCode[];
       const tradeoffCode = session.tradeoffCode as TradeoffCode | null;
       const title = item?.title ?? "Study session";
       return {
@@ -507,7 +515,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     sessions: sessions.map((s) => ({
       ...s,
       courseId: itemsById.get(s.workItemId)?.courseId ?? "",
-      reasonCodes: JSON.parse(s.reasonCodesJson) as string[],
+      reasonCodes: parseJsonColumn(z.array(z.string()), s.reasonCodesJson, [], "work_sessions.reason_codes_json"),
     })),
     courses: snapshot.courses,
     workItems: snapshot.workItems,

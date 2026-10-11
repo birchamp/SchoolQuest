@@ -3,10 +3,7 @@ import { and, eq, getTableColumns, inArray, sql, type Table } from "drizzle-orm"
 import { z } from "zod";
 import { newId, termCalendar } from "@schoolquest/domain";
 import {
-  AiProviderError,
-  createOpenRouterProvider,
   extractSyllabus,
-  ExtractionError,
   isWithinTerm,
   parseStatedDate,
   calibrateWeeks,
@@ -22,10 +19,21 @@ import {
   gradingCategories,
   meetingPatterns,
   sourceDocuments,
-  terms,
   workItems,
 } from "../db/schema.js";
 import { getDb, serializeDays, type Db } from "../db/repo.js";
+import {
+  asExtractedDate,
+  assignmentClaimPayload,
+  gradingCategoryClaimPayload,
+  meetingPatternClaimPayload,
+  questionClaimPayload,
+  scheduleAnchorClaimPayload,
+} from "../db/claim-payloads.js";
+import { loadOwnedClaim, loadOwnedDocument } from "../db/ownership.js";
+import { aiErrorResponse } from "../lib/ai-errors.js";
+import { jsonObject, parseJsonColumn, requireJsonColumn } from "../lib/json-column.js";
+import { openRouterFor } from "../lib/openrouter.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import { studentZone } from "../student-zone.js";
 import { rateLimitPerUser } from "../rate-limit.js";
@@ -34,18 +42,13 @@ import type { AppBindings } from "../env.js";
 export const extractionRoute = new Hono<AppBindings>();
 
 /**
- * Loads a document only if the signed-in user owns it, walking
- * document -> course -> term -> user.
+ * Stored claim payloads are read with `requireJsonColumn` throughout this file: every read here is
+ * followed by a write -- a rewrite of the claim, or its promotion into real records -- and a
+ * corrupt payload must stop that rather than be written back as defaults. Only `toClaimView`,
+ * which renders, falls back. See lib/json-column.ts.
  */
-async function loadOwnedDocument(db: Db, documentId: string, userId: string) {
-  const [row] = await db
-    .select({ document: sourceDocuments, course: courses, term: terms })
-    .from(sourceDocuments)
-    .innerJoin(courses, eq(courses.id, sourceDocuments.courseId))
-    .innerJoin(terms, eq(terms.id, courses.termId))
-    .where(and(eq(sourceDocuments.id, documentId), eq(terms.userId, userId)));
-  return row ?? null;
-}
+const PAYLOAD = "extraction_claims.payload_json";
+const CALENDAR = "terms.calendar_json";
 
 const extractBody = z.object({
   pages: z
@@ -122,7 +125,7 @@ extractionRoute.post("/documents/:id/extract", rateLimitPerUser("syllabusExtract
    * are the kind nobody notices until the deadline has passed. So the API refuses, which is the
    * only place the rule actually holds regardless of which client is calling.
    */
-  const calendar = termCalendar.parse(JSON.parse(owned.term.calendarJson || "{}"));
+  const calendar = requireJsonColumn(termCalendar, owned.term.calendarJson || "{}", CALENDAR);
   if (calendar.exceptions.length === 0) {
     return c.json(
       {
@@ -146,13 +149,7 @@ extractionRoute.post("/documents/:id/extract", rateLimitPerUser("syllabusExtract
     .set({ processingStatus: "processing" })
     .where(eq(sourceDocuments.id, documentId));
 
-  const provider = createOpenRouterProvider({
-    apiKey: provider_.apiKey,
-    defaultModel: provider_.extractionModel,
-    appUrl: c.env.APP_URL,
-    appName: c.env.APP_NAME,
-    ...(c.env.OPENROUTER_BASE_URL ? { baseUrl: c.env.OPENROUTER_BASE_URL } : {}),
-  });
+  const provider = openRouterFor(c.env, provider_.apiKey, provider_.extractionModel);
 
   let outcome;
   try {
@@ -169,20 +166,11 @@ extractionRoute.post("/documents/:id/extract", rateLimitPerUser("syllabusExtract
       .set({ processingStatus: "failed" })
       .where(eq(sourceDocuments.id, documentId));
 
-    if (error instanceof ExtractionError) {
-      console.error("[extract]", error.message, error.cause);
-      return c.json({ error: error.message }, 422);
-    }
-    if (error instanceof AiProviderError) {
-      console.error("[extract] provider error", error.message);
-      return c.json(
-        {
-          error: "The extraction service is unreachable right now. Your file is saved — try again.",
-          retryable: error.retryable,
-        },
-        502,
-      );
-    }
+    const answer = aiErrorResponse(c, error, {
+      unreachable: "The extraction service is unreachable right now. Your file is saved — try again.",
+      logTag: "extract",
+    });
+    if (answer) return answer;
     throw error;
   }
 
@@ -252,21 +240,14 @@ extractionRoute.patch("/extraction-claims/:id", async (c) => {
   const db = getDb(c.env.DB);
   const claimId = c.req.param("id");
 
-  const [row] = await db
-    .select({ claim: extractionClaims })
-    .from(extractionClaims)
-    .innerJoin(sourceDocuments, eq(sourceDocuments.id, extractionClaims.sourceDocumentId))
-    .innerJoin(courses, eq(courses.id, sourceDocuments.courseId))
-    .innerJoin(terms, eq(terms.id, courses.termId))
-    .where(and(eq(extractionClaims.id, claimId), eq(terms.userId, c.get("userId"))));
-  if (!row) return c.json({ error: "Claim not found" }, 404);
+  const claim = await loadOwnedClaim(db, claimId, c.get("userId"));
+  if (!claim) return c.json({ error: "Claim not found" }, 404);
 
   const parsed = patchClaimBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const payload = parsed.data.payload
-    ? { ...(JSON.parse(row.claim.payloadJson) as Record<string, unknown>), ...parsed.data.payload }
-    : (JSON.parse(row.claim.payloadJson) as Record<string, unknown>);
+  const stored = requireJsonColumn(jsonObject, claim.payloadJson, PAYLOAD);
+  const payload = parsed.data.payload ? { ...stored, ...parsed.data.payload } : stored;
 
   const [updated] = await db
     .update(extractionClaims)
@@ -316,7 +297,7 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
     );
   }
 
-  const calendar = termCalendar.parse(JSON.parse(owned.term.calendarJson || "{}"));
+  const calendar = requireJsonColumn(termCalendar, owned.term.calendarJson || "{}", CALENDAR);
 
   /**
    * What this document means by "Week N", worked out before any claim is resolved.
@@ -330,11 +311,7 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
   ).filter((claim) => claim.claimType === "schedule_anchor");
   const calibration = calibrateWeeks(
     anchorRows.map((row) => {
-      const payload = JSON.parse(row.payloadJson) as {
-        weekNumber: number;
-        raw: string | null;
-        isBreak: boolean;
-      };
+      const payload = requireJsonColumn(scheduleAnchorClaimPayload, row.payloadJson, PAYLOAD);
       return {
         ...payload,
         evidence: { page: row.pageNumber ?? 1, excerpt: row.sourceExcerpt ?? "" },
@@ -363,13 +340,10 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
   const registrarPending: string[] = [];
 
   for (const claim of claims) {
-    const payload = JSON.parse(claim.payloadJson) as ClaimAssignmentPayload & {
-      issues?: string[];
-      confidenceStatus?: string;
-    };
+    const payload = requireJsonColumn(assignmentClaimPayload, claim.payloadJson, PAYLOAD);
     // Only items still missing a date are candidates; an already-dated item is left alone.
     if (payload.dueDate.iso !== null) continue;
-    if (payload.dueDate.raw === null) continue;
+    if (payload.dueDate.raw === null || payload.dueDate.raw === undefined) continue;
 
     const result = resolveWeekdayForClaim(payload.dueDate.raw, weekday, {
       startDate: owned.term.startDate,
@@ -484,7 +458,7 @@ extractionRoute.post("/documents/:id/extraction/resolve-weekday", async (c) => {
   ).filter((claim) => claim.claimType === "clarification_question");
 
   for (const question of questions) {
-    const payload = JSON.parse(question.payloadJson) as { kind?: string };
+    const payload = requireJsonColumn(questionClaimPayload, question.payloadJson, PAYLOAD);
     if (payload.kind !== "relative_date") continue;
     await db
       .update(extractionClaims)
@@ -540,7 +514,7 @@ async function raiseRegistrarQuestion(db: Db, documentId: string, titles: string
       .where(eq(extractionClaims.sourceDocumentId, documentId))
   ).find((claim) => {
     if (claim.claimType !== "clarification_question") return false;
-    return (JSON.parse(claim.payloadJson) as { source?: string }).source === "registrar_window";
+    return requireJsonColumn(questionClaimPayload, claim.payloadJson, PAYLOAD).source === "registrar_window";
   });
 
   if (existing) {
@@ -618,11 +592,7 @@ extractionRoute.post("/documents/:id/extraction/answer", async (c) => {
   );
   if (!question) return c.json({ error: "Question not found" }, 404);
 
-  const qPayload = JSON.parse(question.payloadJson) as {
-    kind?: string;
-    relatesToTitle?: string | null;
-    relatesToTitles?: string[];
-  };
+  const qPayload = requireJsonColumn(questionClaimPayload, question.payloadJson, PAYLOAD);
 
   await db
     .update(extractionClaims)
@@ -658,10 +628,7 @@ extractionRoute.post("/documents/:id/extraction/answer", async (c) => {
 
   for (const claim of claims) {
     if (claim.claimType !== "assignment") continue;
-    const payload = JSON.parse(claim.payloadJson) as ClaimAssignmentPayload & {
-      issues?: string[];
-      confidenceStatus?: string;
-    };
+    const payload = requireJsonColumn(assignmentClaimPayload, claim.payloadJson, PAYLOAD);
     if (!titles.has(payload.title)) continue;
 
     const issues = (payload.issues ?? []).filter(
@@ -775,11 +742,7 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
   );
 
   for (const claim of claims.filter((c) => c.claimType === "grading_category")) {
-    const payload = JSON.parse(claim.payloadJson) as {
-      name: string;
-      weightPercent: number | null;
-      dropLowest: number | null;
-    };
+    const payload = requireJsonColumn(gradingCategoryClaimPayload, claim.payloadJson, PAYLOAD);
     const key = payload.name.trim().toLowerCase();
     if (categoryIdByName.has(key)) continue;
 
@@ -822,12 +785,7 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
 
   // --- Meeting patterns.
   for (const claim of claims.filter((c) => c.claimType === "meeting_pattern")) {
-    const payload = JSON.parse(claim.payloadJson) as {
-      daysOfWeek: number[];
-      startTime: string;
-      endTime: string;
-      location: string | null;
-    };
+    const payload = requireJsonColumn(meetingPatternClaimPayload, claim.payloadJson, PAYLOAD);
     const id = newId("meetingPattern");
     newPatterns.push({
       id,
@@ -846,9 +804,9 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
   // --- Assignments. The syllabus's dates are the student's local ones; stored as UTC.
   const timeZone = await studentZone(db, c.get("userId"));
   for (const claim of claims.filter((c) => c.claimType === "assignment")) {
-    const payload = JSON.parse(claim.payloadJson) as ClaimAssignmentPayload;
+    const payload = requireJsonColumn(assignmentClaimPayload, claim.payloadJson, PAYLOAD);
     const id = newId("workItem");
-    const dueAt = toDueAt(payload.dueDate, timeZone);
+    const dueAt = toDueAt(asExtractedDate(payload.dueDate), timeZone);
 
     newItems.push({
       id,
@@ -1036,28 +994,6 @@ function markResolved(
   return statements;
 }
 
-interface ClaimAssignmentPayload {
-  title: string;
-  type:
-    | "reading"
-    | "quiz"
-    | "problem_set"
-    | "paper"
-    | "presentation"
-    | "group_project"
-    | "exam"
-    | "lab"
-    | "discussion"
-    | "other";
-  dueDate: Parameters<typeof toDueAt>[0];
-  pointsPossible: number | null;
-  category: string | null;
-  isMajorProject: boolean;
-  issues?: string[];
-  duplicateOf?: string | null;
-  confidenceStatus?: string;
-}
-
 type ClaimRow = typeof extractionClaims.$inferInsert;
 
 /** Flattens the validated extraction into ExtractionClaim rows (docs/05 §2). */
@@ -1210,7 +1146,8 @@ function toClaimView(claim: ClaimRow) {
   return {
     id: claim.id,
     claimType: claim.claimType,
-    payload: JSON.parse(claim.payloadJson) as Record<string, unknown>,
+    // Rendered, so an unreadable payload shows as empty rather than failing the whole queue.
+    payload: parseJsonColumn(jsonObject, claim.payloadJson, {}, PAYLOAD),
     pageNumber: claim.pageNumber ?? null,
     sourceExcerpt: claim.sourceExcerpt ?? null,
     confidence: claim.confidence ?? null,
