@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { z } from "zod";
 import { COURSE_COLOR_TOKENS, newId } from "@schoolquest/domain";
 import { readCourseList } from "@schoolquest/ai";
@@ -11,7 +12,7 @@ import {
   sourceDocuments,
   workItems,
 } from "../db/schema.js";
-import { assertTermOwner, getDb, serializeDays, type Db } from "../db/repo.js";
+import { assertTermOwner, chunk, getDb, serializeDays, type Db } from "../db/repo.js";
 import { deleteWorkItems } from "../db/delete-work.js";
 import { assertCourseOwner } from "../db/ownership.js";
 import { aiErrorResponse } from "../lib/ai-errors.js";
@@ -303,24 +304,66 @@ coursesRoute.put("/courses/:courseId/grading", async (c) => {
     return c.json({ error: `The weights add up to ${Math.round(total)}%, which is over 100%.` }, 400);
   }
 
-  await db.delete(gradingCategories).where(eq(gradingCategories.courseId, courseId));
-  if (parsed.data.categories.length > 0) {
-    await db.insert(gradingCategories).values(
-      parsed.data.categories.map((cat) => ({
+  /**
+   * Categories are matched to the stored ones by name and keep their ids. This used to delete
+   * every category and insert fresh rows, so after any edit -- one weight changed -- every work
+   * item still pointed at an id that no longer existed: its results counted as uncategorized in
+   * the standing and its category weight dropped out of prioritising (found in review on #39).
+   * A category that is gone takes its items' link with it rather than leaving them dangling.
+   * One batch, so a failure leaves the old scheme whole.
+   */
+  const stored = await db
+    .select({ id: gradingCategories.id, name: gradingCategories.name })
+    .from(gradingCategories)
+    .where(eq(gradingCategories.courseId, courseId));
+  const unmatched = new Map<string, string[]>();
+  for (const row of stored) {
+    const key = row.name.trim().toLowerCase();
+    unmatched.set(key, [...(unmatched.get(key) ?? []), row.id]);
+  }
+  const updates: BatchItem<"sqlite">[] = [];
+  const inserts: (typeof gradingCategories.$inferInsert)[] = [];
+  for (const cat of parsed.data.categories) {
+    const name = cat.name.trim();
+    const keep = unmatched.get(name.toLowerCase())?.shift();
+    if (keep) {
+      updates.push(
+        db
+          .update(gradingCategories)
+          .set({ name, weightPercent: cat.weightPercent, confidenceStatus: "confirmed" })
+          .where(eq(gradingCategories.id, keep)),
+      );
+    } else {
+      inserts.push({
         id: newId("gradingCategory"),
         courseId,
-        name: cat.name.trim(),
+        name,
         weightPercent: cat.weightPercent,
         dropRuleJson: null,
         confidenceStatus: "confirmed",
-      })),
-    );
+      });
+    }
   }
+  const removed = [...unmatched.values()].flat();
 
-  await db
-    .update(courses)
-    .set({ gradingConfidence: parsed.data.categories.length > 0 ? "confirmed" : "unknown" })
-    .where(eq(courses.id, courseId));
+  await db.batch([
+    db
+      .update(courses)
+      .set({ gradingConfidence: parsed.data.categories.length > 0 ? "confirmed" : "unknown" })
+      .where(eq(courses.id, courseId)),
+    ...updates,
+    ...(removed.length > 0
+      ? [
+          db
+            .update(workItems)
+            .set({ gradingCategoryId: null })
+            .where(and(eq(workItems.courseId, courseId), inArray(workItems.gradingCategoryId, removed))),
+          db.delete(gradingCategories).where(inArray(gradingCategories.id, removed)),
+        ]
+      : []),
+    // Six columns a row, so 16 rows stay under D1's 100 bound parameters a statement.
+    ...chunk(inserts, 16).map((rows) => db.insert(gradingCategories).values(rows)),
+  ]);
 
   return c.json({ ok: true, categories: parsed.data.categories.length });
 });

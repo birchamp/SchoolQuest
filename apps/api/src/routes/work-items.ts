@@ -110,7 +110,12 @@ workItemsRoute.patch("/work-items/:id", async (c) => {
       return c.json({ error: "Parent work item not found in this course" }, 404);
     }
   }
-  if (!(await categoryIsInCourse(db, parsed.data.gradingCategoryId, existing.courseId))) {
+  // Checked only when it changes: an edit that leaves the category alone is not about it.
+  if (
+    parsed.data.gradingCategoryId !== undefined &&
+    parsed.data.gradingCategoryId !== existing.gradingCategoryId &&
+    !(await categoryIsInCourse(db, parsed.data.gradingCategoryId, existing.courseId))
+  ) {
     return c.json({ error: "Grading category not found in this course" }, 404);
   }
 

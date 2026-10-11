@@ -965,8 +965,11 @@ function MeetingTimesForm({
   );
   const [busy, setBusy] = useState(false);
 
-  async function save() {
-    const bad = rows.find((r) => r.endTime <= r.startTime || r.days.size === 0);
+  // Takes the rows to save rather than reading state: "Clear all" sets the rows to empty and
+  // saves in the same click, before React has applied that update, so reading `rows` here sent
+  // the old class times back and nothing was cleared (found in review on #39).
+  async function save(toSave: typeof rows = rows) {
+    const bad = toSave.find((r) => r.endTime <= r.startTime || r.days.size === 0);
     if (bad) {
       onError("Every class needs at least one day and an end after its start.");
       return;
@@ -975,7 +978,7 @@ function MeetingTimesForm({
     onError(null);
     try {
       await api.put(`/api/courses/${courseId}/meeting-patterns`, {
-        patterns: rows.map((r) => ({
+        patterns: toSave.map((r) => ({
           daysOfWeek: [...r.days].sort(),
           startTime: r.startTime,
           endTime: r.endTime,
@@ -1094,7 +1097,7 @@ function MeetingTimesForm({
           Cancel
         </button>
         {rows.length > 0 && (
-          <button className="action" disabled={busy} onClick={() => { setRows([]); void save(); }}>
+          <button className="action" disabled={busy} onClick={() => { setRows([]); void save([]); }}>
             Clear all
           </button>
         )}

@@ -253,7 +253,9 @@ describe("split route files, owner and stranger", () => {
   });
 
   it("routes/courses.ts", async () => {
-    const made = await both("POST", `/api/terms/${owned.termId}/courses`, 201, { name: "Chemistry" });
+    const made = await both("POST", `/api/terms/${owned.termId}/courses`, 201, {
+      name: "Chemistry",
+    });
     const courseId = (made["course"] as { id: string }).id;
     await both("PATCH", `/api/courses/${courseId}`, 200, { code: "CHEM 101" });
     await both("PUT", `/api/courses/${courseId}/meeting-patterns`, 200, {
@@ -312,8 +314,11 @@ describe("split route files, owner and stranger", () => {
   it("the routes that now share db/ownership.ts", async () => {
     await both("GET", `/api/courses/${owned.courseId}/documents`, 200);
     expect(
-      (await b.send("PATCH", "/api/extraction-claims/claim_nobody_has", { reviewStatus: "rejected" }))
-        .status,
+      (
+        await b.send("PATCH", "/api/extraction-claims/claim_nobody_has", {
+          reviewStatus: "rejected",
+        })
+      ).status,
     ).toBe(404);
     expect((await b.send("POST", "/api/work-sessions/session_nobody_has/start")).status).toBe(404);
     expect(
@@ -368,13 +373,17 @@ describe("unreadable stored JSON", () => {
       calendar: { exceptions: [] },
     });
     expect(merge.status).toBe(500);
-    expect(await count("terms", "id = ? AND calendar_json = ?", owned.termId, '{"exceptions": [')).toBe(1);
+    expect(
+      await count("terms", "id = ? AND calendar_json = ?", owned.termId, '{"exceptions": ['),
+    ).toBe(1);
 
     const confirm = await a.send("POST", `/api/documents/${owned.documentId}/extraction/confirm`, {
       acceptedClaimIds: ["claim_corrupt"],
     });
     expect(confirm.status).toBe(500);
-    expect(await count("extraction_claims", "id = ? AND review_status = 'pending'", "claim_corrupt")).toBe(1);
+    expect(
+      await count("extraction_claims", "id = ? AND review_status = 'pending'", "claim_corrupt"),
+    ).toBe(1);
   });
 });
 
@@ -612,5 +621,91 @@ describe("sign-in before migration 0011", () => {
     } finally {
       await env.DB.prepare(table!.sql).run();
     }
+  });
+});
+
+describe("saving a grading scheme", () => {
+  async function categories(courseId: string) {
+    const env = await server.getWorker<{ DB: D1Database }>().getEnv();
+    const { results } = await env.DB.prepare(
+      "SELECT id, name, weight_percent AS weight FROM grading_categories WHERE course_id = ? ORDER BY name",
+    )
+      .bind(courseId)
+      .all<{ id: string; name: string; weight: number | null }>();
+    return results;
+  }
+
+  async function categoryOf(workItemId: string) {
+    const env = await server.getWorker<{ DB: D1Database }>().getEnv();
+    const row = await env.DB.prepare(
+      "SELECT grading_category_id AS id FROM work_items WHERE id = ?",
+    )
+      .bind(workItemId)
+      .first<{ id: string | null }>();
+    return row!.id;
+  }
+
+  it("keeps each category's id, so work items stay linked through an edit", async () => {
+    const client = await signIn("grading-scheme@example.com");
+    const { courseId, workItemId } = await buildTerm(client);
+    const put = (body: unknown) => client.send("PUT", `/api/courses/${courseId}/grading`, body);
+
+    expect(
+      (
+        await put({
+          categories: [
+            { name: "Labs", weightPercent: 30 },
+            { name: "Quizzes", weightPercent: 20 },
+          ],
+        })
+      ).status,
+    ).toBe(200);
+    const before = await categories(courseId);
+    const labs = before.find((cat) => cat.name === "Labs")!;
+    const quizzes = before.find((cat) => cat.name === "Quizzes")!;
+
+    const created = await client.send("POST", "/api/work-items", {
+      courseId,
+      title: "Quiz 1",
+      workType: "quiz",
+      gradingCategoryId: quizzes.id,
+    });
+    const second = ((await created.json()) as { workItem: { id: string } }).workItem.id;
+    expect(
+      (await client.send("PATCH", `/api/work-items/${workItemId}`, { gradingCategoryId: labs.id }))
+        .status,
+    ).toBe(200);
+
+    // One weight changed, Quizzes dropped, Exams added.
+    expect(
+      (
+        await put({
+          categories: [
+            { name: "labs ", weightPercent: 40 },
+            { name: "Exams", weightPercent: 50 },
+          ],
+        })
+      ).status,
+    ).toBe(200);
+
+    const after = await categories(courseId);
+    expect(after.map((cat) => cat.name)).toEqual(["Exams", "labs"]);
+    expect(after.find((cat) => cat.name === "labs")).toMatchObject({ id: labs.id, weight: 40 });
+    expect(await categoryOf(workItemId)).toBe(labs.id);
+    // The dropped category takes its link with it rather than leaving the item dangling.
+    expect(await categoryOf(second)).toBeNull();
+  });
+
+  it("saves a full scheme of 24 categories in one go", async () => {
+    const client = await signIn("grading-scheme-full@example.com");
+    const { courseId } = await buildTerm(client);
+    const res = await client.send("PUT", `/api/courses/${courseId}/grading`, {
+      categories: Array.from({ length: 24 }, (_, i) => ({
+        name: `Part ${i + 1}`,
+        weightPercent: 4,
+      })),
+    });
+    expect(res.status).toBe(200);
+    expect(await categories(courseId)).toHaveLength(24);
   });
 });
