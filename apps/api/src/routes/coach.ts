@@ -118,6 +118,15 @@ coachRoute.post("/coach/messages", rateLimitPerUser("coach"), async (c) => {
     throw error;
   }
 
+  // The student only sees "send it again"; the log says whether that was an outage or a reply
+  // the gate could not read, which need different fixes. The message itself is not logged.
+  if (result.guard.failure) {
+    console.warn(
+      `[coach] guard failed closed: ${result.guard.failure.reason}`,
+      result.guard.failure.detail,
+    );
+  }
+
   // Persisting the guard verdict is what makes the gate tunable against real traffic.
   await db.insert(coachMessages).values([
     {
