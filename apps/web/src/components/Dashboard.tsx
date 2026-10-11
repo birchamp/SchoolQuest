@@ -3,7 +3,7 @@ import type { Course, GradeResult, PassFail, ThemeName, WorkItem } from "@school
 import { explainHealth, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { courseChipFill, courseInitials } from "../lib/course-colour";
-import { workAwaitingResult } from "../lib/record-results";
+import { parseScoreEntry, workAwaitingResult } from "../lib/record-results";
 import { PassFailButtons, recordPassFail } from "./PassFailButtons";
 import type { CourseHealthView, TermHealthView } from "../lib/types";
 import { appNow } from "../lib/clock";
@@ -343,18 +343,18 @@ function RecordResults({
   if (pending.length === 0) return null;
 
   async function save(item: WorkItem) {
-    const entry = scores[item.id];
-    const earned = Number(entry?.earned);
-    const outOf = Number(entry?.outOf ?? item.pointsPossible ?? NaN);
-    if (!Number.isFinite(earned) || !Number.isFinite(outOf) || outOf <= 0) return;
+    const score = parseScoreEntry(scores[item.id], item.pointsPossible);
+    // Said, not swallowed: this used to return silently, so Save looked broken.
+    if (!score) {
+      setError("A score needs a number, and a total to be out of.");
+      return;
+    }
 
     setBusy(item.id);
     setError(null);
     try {
-      await api.put(`/api/work-items/${item.id}/grade`, {
-        pointsEarned: earned,
-        pointsPossible: outOf,
-      });
+      await api.put(`/api/work-items/${item.id}/grade`, score);
+      setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not save.");

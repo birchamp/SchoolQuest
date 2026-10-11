@@ -5,6 +5,7 @@ import { appToday, formatTime, localMinuteOfDay, planTimeZone } from "../lib/clo
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
+import { parseScoreEntry } from "../lib/record-results";
 import { PassFailButtons, recordPassFail } from "./PassFailButtons";
 import {
   DEFAULT_DUE_TIME,
@@ -307,24 +308,15 @@ export function AssignmentsTable({
   }
 
   async function saveScore(item: WorkItem) {
-    const entry = scores[item.id];
-    const earned = Number(entry?.earned);
-    // An *empty* total falls back to what the syllabus said the thing was out of, which is
-    // usually right and always editable. Only empty: `||` would also swallow a typed "0",
-    // and silently grading 42/100 when the student wrote 42/0 is worse than the error.
-    const outOfTyped = (entry?.outOf ?? "").trim();
-    const outOf = outOfTyped === "" ? (item.pointsPossible ?? NaN) : Number(outOfTyped);
-    if (!Number.isFinite(earned) || !Number.isFinite(outOf) || outOf <= 0) {
+    const score = parseScoreEntry(scores[item.id], item.pointsPossible);
+    if (!score) {
       setError("A score needs a number, and a total to be out of.");
       return;
     }
     setBusy(item.id);
     setError(null);
     try {
-      await api.put(`/api/work-items/${item.id}/grade`, {
-        pointsEarned: earned,
-        pointsPossible: outOf,
-      });
+      await api.put(`/api/work-items/${item.id}/grade`, score);
       setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
       setEditingGrade(null);
       onChanged();

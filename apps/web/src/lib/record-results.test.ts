@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorkItem } from "@schoolquest/domain";
-import { workAwaitingResult } from "./record-results";
+import { parseScoreEntry, workAwaitingResult } from "./record-results";
 
 function item(overrides: Partial<WorkItem> & Pick<WorkItem, "id">): WorkItem {
   return {
@@ -46,5 +46,26 @@ describe("workAwaitingResult", () => {
     ];
     const ids = workAwaitingResult(items, "crs_1", new Set(), now).map((w) => w.id);
     expect(ids).toEqual(["wi_done", "wi_handed_in"]);
+  });
+});
+
+describe("parseScoreEntry", () => {
+  it("falls back to the item's total only when the total box is empty", () => {
+    expect(parseScoreEntry({ earned: "8", outOf: "" }, 10)).toEqual({ pointsEarned: 8, pointsPossible: 10 });
+    expect(parseScoreEntry({ earned: "18", outOf: "20" }, 10)).toEqual({ pointsEarned: 18, pointsPossible: 20 });
+    // A typed 0 is an error, not a request for the fallback.
+    expect(parseScoreEntry({ earned: "8", outOf: "0" }, 10)).toBeNull();
+  });
+
+  it("never reads an empty score box as a zero", () => {
+    expect(parseScoreEntry({ earned: "", outOf: "10" }, 10)).toBeNull();
+    expect(parseScoreEntry({ earned: "  ", outOf: "" }, 10)).toBeNull();
+    expect(parseScoreEntry(undefined, 10)).toBeNull();
+    expect(parseScoreEntry({ earned: "0", outOf: "" }, 10)).toEqual({ pointsEarned: 0, pointsPossible: 10 });
+  });
+
+  it("needs a total from somewhere", () => {
+    expect(parseScoreEntry({ earned: "8", outOf: "" }, null)).toBeNull();
+    expect(parseScoreEntry({ earned: "abc", outOf: "10" }, 10)).toBeNull();
   });
 });
