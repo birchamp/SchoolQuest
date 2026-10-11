@@ -42,6 +42,7 @@ import { PlanChanges } from "./components/PlanChanges";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { saveShareUsage, Seen, setUsageEnabled, track } from "./lib/usage";
 import { afterOvertaken, latestRequest } from "./lib/latest-request";
+import { mergeProfile } from "./lib/merge-profile";
 import { errorMessage, runAction } from "./lib/run-action";
 import { labelOf, TimeZoneSettings } from "./components/TimeZoneSettings";
 import {
@@ -509,7 +510,7 @@ export function App() {
       run(async () => {
         const { user } = await api.get<{ user: Me }>("/api/me");
         setPlanTimeZone(user.timezone);
-        setMe(user);
+        setMe((m) => mergeProfile(m, user, ["timezone", "timezoneMode"]));
         await regenerate();
       }, "Your time zone saved, but your plan could not be rebuilt just now."),
     [run, regenerate],
@@ -569,7 +570,7 @@ export function App() {
     track("theme.change");
     await run(async () => {
       const { user } = await api.patch<{ user: Me }>("/api/me", { theme: next });
-      setMe(user);
+      setMe((m) => mergeProfile(m, user, ["theme"]));
     }, "Your theme did not save.");
   }
 
@@ -580,7 +581,7 @@ export function App() {
       await saveShareUsage(next, () =>
         run(async () => {
           const { user } = await api.patch<{ user: Me }>("/api/me", { shareUsage: next });
-          setMe(user);
+          setMe((m) => mergeProfile(m, user, ["shareUsage"]));
         }, "That setting did not save."),
       );
     } finally {
