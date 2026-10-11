@@ -32,7 +32,7 @@ a connection failure is described; nothing is gated to one shell.
 ## Stack
 
 - **Frontend** — Vite + React + TypeScript SPA, installable as a PWA via `vite-plugin-pwa`
-- **Desktop** — Tauri v2 wrapping that same bundle (~10 MB, native file dialogs)
+- **Desktop** — Tauri v2 wrapping that same bundle (~10 MB; no native plugins, files go through the web upload)
 - **API** — Hono on Cloudflare Workers
 - **Database** — Cloudflare D1 (SQLite) with Drizzle
 - **Files** — Cloudflare R2 (syllabus PDFs, grade screenshots)

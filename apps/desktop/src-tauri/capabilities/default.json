@@ -3,8 +3,5 @@
   "identifier": "default",
   "description": "Capabilities granted to the SchoolQuest main window.",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "dialog:allow-open"
-  ]
+  "permissions": ["core:default"]
 }
