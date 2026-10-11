@@ -1,5 +1,5 @@
 import type { Course, GradingCategory, WorkItem } from "@schoolquest/domain";
-import { DEFAULT_EFFORT_MINUTES } from "./scheduler.js";
+import { defaultEffortFor, givenRemainingMinutes, isOpen } from "./work-item.js";
 
 /**
  * Decides what to ask the student about how long their work takes.
@@ -155,7 +155,9 @@ export interface EffortSurveyInput {
 
 /** Work that is finished, abandoned, or planned through stages is not worth asking about. */
 function isOpenLeaf(item: WorkItem, parentsWithStages: ReadonlySet<string>): boolean {
-  if (item.status === "completed" || item.status === "canceled") return false;
+  // Owed work only: submitted work is finished too, and optional work is never planned, so
+  // neither has an effort the plan rests on.
+  if (!isOpen(item)) return false;
   // A decomposed project is scheduled through its stages; its own remaining is zeroed, and
   // asking about it would double-count the same hours.
   if (parentsWithStages.has(item.id)) return false;
@@ -261,14 +263,12 @@ export function buildEffortSurvey(input: EffortSurveyInput): EffortSurvey {
   const families = new Map<string, WorkItem[]>();
 
   for (const item of open) {
-    // remainingMinutes is what is still owed and is set from estimatedMinutes at creation, so
-    // either one being present means somebody put a real number on this.
-    const given = item.remainingMinutes ?? item.estimatedMinutes;
+    const given = givenRemainingMinutes(item);
     if (given !== null) {
       knownMinutes += given;
       continue;
     }
-    assumedMinutes += DEFAULT_EFFORT_MINUTES[item.workType] ?? 60;
+    assumedMinutes += defaultEffortFor(item.workType);
     assumedItemCount++;
     const key = `${item.courseId}:${item.workType}`;
     families.set(key, [...(families.get(key) ?? []), item]);
@@ -279,7 +279,7 @@ export function buildEffortSurvey(input: EffortSurveyInput): EffortSurvey {
       const first = items[0]!;
       const course = coursesById.get(first.courseId);
       const label = courseLabel(course);
-      const each = DEFAULT_EFFORT_MINUTES[first.workType] ?? 60;
+      const each = defaultEffortFor(first.workType);
       const total = each * items.length;
       const share = gradeShare(items, categoriesById);
       const plural = items.length > 1;

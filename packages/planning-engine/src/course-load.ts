@@ -1,6 +1,7 @@
 import type { WorkItem } from "@schoolquest/domain";
 import { toEpochMinutes } from "@schoolquest/domain";
-import { effortOf, PROJECT_MINUTES } from "./project-progress.js";
+import { PROJECT_MINUTES } from "./project-progress.js";
+import { isOpen, totalEffort } from "./work-item.js";
 import { findRecurringTitles, routineKeyOf } from "./session-brief.js";
 
 /**
@@ -144,7 +145,7 @@ export function computeCourseLoad(input: CourseLoadInput): TermLoad {
     const booked = bookedByCourse.get(courseId) ?? { minutes: 0, blocks: 0 };
     const invested = investedByCourse.get(courseId);
     const open = input.workItems.filter(
-      (w) => w.courseId === courseId && isOpen(w.status) && !parentIds.has(w.id),
+      (w) => w.courseId === courseId && isOpen(w) && !parentIds.has(w.id),
     );
 
     const dated = open
@@ -199,15 +200,11 @@ function upkeepFor(hasRoutine: boolean, overdue: number): UpkeepStatus {
   return "current";
 }
 
-function isOpen(status: string): boolean {
-  return status !== "completed" && status !== "submitted" && status !== "canceled";
-}
-
 /**
  * Shares the Chronicle's threshold *and* its effort fallback. A local copy of the rule read
  * `estimatedMinutes ?? remainingMinutes ?? 0`, which is zero for every extracted item — so
  * this table reported no projects at all for a term the Chronicle listed seven in.
  */
 function isBigEnough(item: WorkItem): boolean {
-  return effortOf(item).minutes >= PROJECT_MINUTES;
+  return totalEffort(item).minutes >= PROJECT_MINUTES;
 }

@@ -23,8 +23,8 @@ import {
   buildEffortSurvey,
   buildOpenQuestions,
   canDecompose,
-  DEFAULT_EFFORT_MINUTES,
   proposeStages,
+  totalEffort,
   type PendingClarification,
   type PendingPolicy,
 } from "@schoolquest/planning-engine";
@@ -1208,11 +1208,7 @@ termsRoute.get("/work-items/:id/stage-proposal", async (c) => {
   if (!row) return c.json({ error: "Work item not found" }, 404);
 
   const item = row.item as unknown as WorkItem;
-  const effortMinutes =
-    item.estimatedMinutes ??
-    (item.remainingMinutes && item.remainingMinutes > 0 ? item.remainingMinutes : null) ??
-    DEFAULT_EFFORT_MINUTES[item.workType] ??
-    60;
+  const effortMinutes = totalEffort(item).minutes;
 
   const existing = await db
     .select({ id: workItems.id })

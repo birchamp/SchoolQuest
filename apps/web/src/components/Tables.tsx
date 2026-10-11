@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
 import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
-import { buildWeekCalendar, DEFAULT_EFFORT_MINUTES, type SlotKind } from "@schoolquest/planning-engine";
+import { buildWeekCalendar, defaultEffortFor, type SlotKind } from "@schoolquest/planning-engine";
 import { appToday, formatTime, localMinuteOfDay, planTimeZone } from "../lib/clock";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
@@ -146,7 +146,7 @@ type AssignmentKey = "title" | "course" | "type" | "due" | "effort" | "worth" | 
  */
 /** The per-type effort the planner falls back to when nobody has said, formatted for a cell. */
 function assumedEffortLabel(workType: string): string {
-  const mins = DEFAULT_EFFORT_MINUTES[workType] ?? 60;
+  const mins = defaultEffortFor(workType);
   if (mins < 60) return `${mins}m`;
   const hours = Math.floor(mins / 60);
   const rest = mins % 60;

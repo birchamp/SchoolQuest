@@ -16,6 +16,7 @@ import { buildCapacity, totalCapacityMinutes } from "./capacity.js";
 // are the same judgement seen from two sides, so they share one number rather than drifting.
 import { runwayDays } from "./terrain.js";
 import { isSchedulable, scoreWorkItems } from "./priority.js";
+import { remainingEffortMinutes } from "./work-item.js";
 import type { ReasonCode, RiskCode } from "./reason-codes.js";
 import type {
   CapacityWindow,
@@ -37,23 +38,6 @@ import type {
  * comparable.
  */
 export const ALGORITHM_VERSION = "heuristic-v4";
-
-/** Fallback effort by work type, used only when the student has given us nothing better. */
-const DEFAULT_EFFORT_MINUTES: Record<string, number> = {
-  reading: 60,
-  quiz: 30,
-  quiz_prep: 45,
-  problem_set: 90,
-  paper: 240,
-  presentation: 180,
-  group_project: 180,
-  exam: 60,
-  exam_prep: 120,
-  lab: 120,
-  discussion: 30,
-  milestone: 45,
-  other: 60,
-};
 
 interface PendingWork {
   item: WorkItem;
@@ -618,9 +602,7 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
 
 /** Effort still owed on an item, from the best source available (docs/04 §9). */
 function requiredMinutes(item: WorkItem): number {
-  if (item.remainingMinutes !== null) return item.remainingMinutes;
-  if (item.estimatedMinutes !== null) return item.estimatedMinutes;
-  return DEFAULT_EFFORT_MINUTES[item.workType] ?? 60;
+  return remainingEffortMinutes(item);
 }
 
 /**
@@ -1232,5 +1214,5 @@ function addDaily(
 }
 
 /** Exported for tests that need the same fallback the scheduler uses. */
-export { requiredMinutes, DEFAULT_EFFORT_MINUTES };
+export { requiredMinutes };
 export type { RiskCode };

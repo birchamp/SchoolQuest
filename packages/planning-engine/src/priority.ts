@@ -7,6 +7,7 @@ import {
   type WorkItem,
 } from "@schoolquest/domain";
 import type { ReasonCode } from "./reason-codes.js";
+import { isOpen, remainingEffortMinutes } from "./work-item.js";
 import type { PlanningInput, PriorityComponents, PriorityScore } from "./types.js";
 
 /**
@@ -74,8 +75,7 @@ export function scoreWorkItems(
 }
 
 export function isSchedulable(item: WorkItem): boolean {
-  if (item.status === "completed" || item.status === "submitted") return false;
-  if (item.status === "canceled" || item.status === "optional") return false;
+  if (!isOpen(item)) return false;
   // A parent project is scheduled through its milestones, not directly.
   return true;
 }
@@ -89,7 +89,8 @@ function deadlinePressure(item: WorkItem, now: number): number {
   const minutesUntilDue = toEpochMinutes(item.dueAt) - now;
   if (minutesUntilDue <= 0) return 1;
 
-  const remaining = item.remainingMinutes ?? item.estimatedMinutes ?? 60;
+  // The same effort the scheduler books, so pressure and placement agree about the item.
+  const remaining = remainingEffortMinutes(item);
   const slack = minutesUntilDue - remaining;
   if (slack <= 0) return 1;
 

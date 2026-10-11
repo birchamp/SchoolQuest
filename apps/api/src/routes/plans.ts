@@ -304,6 +304,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
       .filter((s) => s.status === "planned" || s.status === "started")
       .map((s) => ({ workItemId: s.workItemId, minutes: minutesOf(s) })),
     now: asOf,
+    timeZone,
     // Health claims are measured against the student's real weekly study time, not against
     // how much this horizon happens to hold.
     weeklyCapacityMinutes: isCapacity(summary["capacity"]) ? summary["capacity"].availableMinutes : 0,
@@ -335,6 +336,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     load: courseLoad.courses,
     projects: projectRows,
     now: asOf,
+    timeZone,
   });
 
   // What is coming, and whether time has been set aside for it. Built from the term's whole
