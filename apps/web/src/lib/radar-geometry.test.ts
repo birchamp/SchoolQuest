@@ -108,6 +108,25 @@ describe("projectEncounter", () => {
       expect(p.y).toBeGreaterThan(RADAR_CENTER.y);
     });
 
+    it("draws work due at 09:00 behind the student at 15:00 the same day", () => {
+      // `daysAway` is still 0 -- same calendar day -- but the engine's instant comparison says
+      // the deadline has passed. Status comes from `overdue`, never from `daysAway < 0`.
+      const p = late("wi_morning", 0);
+      expect(p.behind).toBe(true);
+      expect(p.y).toBeGreaterThan(RADAR_CENTER.y);
+      // At the near edge of the band: less late than anything from an earlier date.
+      expect(p.radius).toBeLessThan(late("wi_morning", -1).radius);
+    });
+
+    it("keeps today's open work above the line while its deadline is still ahead", () => {
+      const p = projectEncounter(
+        encounter({ id: "wi_evening", daysAway: 0, distanceDays: 0.25, overdue: false }),
+        4,
+      )!;
+      expect(p.behind).toBe(false);
+      expect(p.y).toBeLessThanOrEqual(RADAR_CENTER.y);
+    });
+
     it("separates two late items instead of stacking them on the centre mark", () => {
       // Clamping distance to zero — the obvious reading of the original geometry — put every
       // late item on top of the "you are here" square. A real term six weeks in has nineteen.

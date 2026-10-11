@@ -123,10 +123,14 @@ export function projectEncounter(
     bearingJitter;
   const radians = (degrees * Math.PI) / 180;
 
-  const behind = encounter.daysAway < 0;
+  // The engine's verdict (the deadline instant), not the date: due at nine this morning is
+  // behind the student this afternoon, though `daysAway` still reads 0. How far behind is still
+  // counted in calendar days, so earlier today sits at the near edge of the overdue band.
+  const behind = encounter.overdue;
   const radius = behind
     ? MIN_RADIUS +
-      (Math.min(-encounter.daysAway, OVERDUE_SATURATION_DAYS) / OVERDUE_SATURATION_DAYS) *
+      (Math.min(Math.max(0, -encounter.daysAway), OVERDUE_SATURATION_DAYS) /
+        OVERDUE_SATURATION_DAYS) *
         (OVERDUE_REACH - MIN_RADIUS) +
       radiusJitter
     : Math.max(

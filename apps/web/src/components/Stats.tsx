@@ -9,6 +9,7 @@ import type {
   TermProgressView,
 } from "../lib/types";
 import { formatDueDay, LONG_DUE_DAY } from "../lib/due-time";
+import { dueDistanceShort, dueDistanceSpoken } from "../lib/due-label";
 import { standingPassFailCount } from "../lib/record-results";
 import { QUEST_PALETTE as Q } from "../lib/quest-palette";
 import { courseLabel, formatEffort, initialsFor } from "../lib/format";
@@ -389,7 +390,9 @@ function PaceChip({
   quest: boolean;
 }) {
   const undated = p.daysAway === null;
-  const urgent = p.daysAway !== null && p.daysAway <= 0;
+  // Past due by the engine's verdict (the deadline instant, so due at nine this morning counts
+  // this afternoon), or due later today: either way all of it is needed now.
+  const urgent = p.health === "past_due" || p.daysAway === 0;
   const attention = undated || urgent;
 
   const visible = undated
@@ -523,24 +526,13 @@ function ProjectRow({
   const started = p.investedMinutes > 0 || p.completionFraction > 0;
   const done = p.health === "finished";
   const percent = percentOf(p.completionFraction);
-  const overdue = p.daysAway !== null && p.daysAway < 0;
+  // The engine's verdict (the deadline instant), not the date: due at nine this morning is past
+  // due this afternoon while `daysAway` still reads 0.
+  const overdue = p.health === "past_due";
+  const due = p.daysAway === null ? null : { daysAway: p.daysAway, pastDue: overdue };
 
-  const distanceVisible =
-    p.daysAway === null
-      ? "no date"
-      : p.daysAway < 0
-        ? `${-p.daysAway}d ago`
-        : p.daysAway === 0
-          ? "today"
-          : `${p.daysAway}d`;
-  const distancePlain =
-    p.daysAway === null
-      ? "no due date on record"
-      : p.daysAway < 0
-        ? `past due by ${-p.daysAway} ${-p.daysAway === 1 ? "day" : "days"}`
-        : p.daysAway === 0
-          ? "due today"
-          : `due in ${p.daysAway} ${p.daysAway === 1 ? "day" : "days"}`;
+  const distanceVisible = due === null ? "no date" : dueDistanceShort(due);
+  const distancePlain = due === null ? "no due date on record" : dueDistanceSpoken(due);
 
   const stagesDone = p.stages.filter((s) => s.done).length;
 

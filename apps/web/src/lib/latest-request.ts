@@ -20,3 +20,20 @@ export function latestRequest(): LatestRequest {
     isCurrent: (ticket) => ticket === latest,
   };
 }
+
+/**
+ * What a load that has been overtaken does once it finds out.
+ *
+ * Normally nothing: whatever it read is older than what the newer load will show. The exception
+ * is a load whose own replan went through. Two stale loads can both ask the server to generate;
+ * the later one commits version N+1 and shows it, while the earlier one loses the unique-index
+ * race, retries on the server and commits N+2. By the time the earlier one reads N+2 back its
+ * ticket is stale, so dropping that read leaves N+1 on screen though N+2 is the current plan.
+ *
+ * So a load that committed a plan and was overtaken asks for a fresh read (`"reread"`) under a
+ * new ticket. That cannot loop: the fresh read replans only if the plan it finds is stale, and
+ * the plan just committed is today's.
+ */
+export function afterOvertaken(committedPlan: boolean): "drop" | "reread" {
+  return committedPlan ? "reread" : "drop";
+}

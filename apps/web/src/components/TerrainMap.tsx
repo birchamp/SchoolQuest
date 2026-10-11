@@ -7,6 +7,7 @@ import {
   type TerrainMarker,
 } from "@schoolquest/planning-engine";
 import { formatDueDay } from "../lib/due-time";
+import { terrainDueLine } from "../lib/due-label";
 import { courseChipFill } from "../lib/course-colour";
 import type { PlanResponse } from "../lib/types";
 import { appNow, planTimeZone } from "../lib/clock";
@@ -247,14 +248,13 @@ function surfaceAt(field: HeightField, u: number, v: number): number {
   return Math.max(0, base * (1 + rough * 0.95) * groundOpacity(v));
 }
 
-function formatDue(iso: string | null, daysAway: number | null): string {
+function formatDue(marker: TerrainMarker): string {
+  const { dueAt: iso, daysAway } = marker;
   if (!iso || daysAway === null) return "no date known";
   // The stored calendar day, not the instant: rendering the instant in the browser's zone prints
-  // a different day here than the assignments table shows for the same deadline.
-  const when = formatDueDay(iso);
-  if (daysAway < 0) return `${when} · ${Math.abs(daysAway)}d ago`;
-  if (daysAway === 0) return `${when} · today`;
-  return `${when} · in ${daysAway}d`;
+  // a different day here than the assignments table shows for the same deadline. Whether it has
+  // passed is the beacon's state (the instant), never the date.
+  return terrainDueLine(formatDueDay(iso), { daysAway, pastDue: marker.state === "overdue" });
 }
 
 export function TerrainMap({
@@ -476,7 +476,7 @@ export function TerrainMap({
           <strong>{focused.title}</strong>{" "}
           <span className="muted">
             {coursesById.get(focused.courseId)?.code ?? coursesById.get(focused.courseId)?.name} ·{" "}
-            {formatDue(focused.dueAt, focused.daysAway)}
+            {formatDue(focused)}
           </span>
           <br />
           {focused.detail}
@@ -501,7 +501,7 @@ export function TerrainMap({
               />
               <strong>{m.title}</strong>{" "}
               <span className="muted">
-                {coursesById.get(m.courseId)?.code ?? ""} · {formatDue(m.dueAt, m.daysAway)}
+                {coursesById.get(m.courseId)?.code ?? ""} · {formatDue(m)}
               </span>
               <span className="muted" style={{ display: "block", fontSize: "0.84rem" }}>
                 {m.detail}

@@ -42,7 +42,7 @@ import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 import { CampaignRadar } from "./components/CampaignRadar";
 import { PlanChanges } from "./components/PlanChanges";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { latestRequest } from "./lib/latest-request";
+import { afterOvertaken, latestRequest } from "./lib/latest-request";
 import { errorMessage, runAction } from "./lib/run-action";
 import { labelOf, TimeZoneSettings } from "./components/TimeZoneSettings";
 import {
@@ -233,9 +233,22 @@ export function App() {
    */
   const planRequests = useRef(latestRequest());
 
-  const loadPlan = useCallback(async (termId: string, options?: { rebuild?: boolean }) => {
+  // A named function so an overtaken load can start a fresh one (`load` below) without the
+  // callback depending on itself.
+  const loadPlan = useCallback(async function load(
+    termId: string,
+    options?: { rebuild?: boolean },
+  ): Promise<void> {
     const ticket = planRequests.current.begin();
     const isCurrent = () => planRequests.current.isCurrent(ticket);
+    // Set once this load's generate call has committed a plan. An overtaken load that committed
+    // must not simply go quiet: its plan can be newer than the one the overtaking load showed
+    // (see `afterOvertaken`), so it starts a fresh read under a new ticket. That read does not
+    // rebuild, and replans only if the plan it finds is stale -- which the one just made is not.
+    let committed = false;
+    const overtaken = () => {
+      if (afterOvertaken(committed) === "reread") void load(termId);
+    };
     try {
       const when = devNow();
       const read = () =>
@@ -264,8 +277,12 @@ export function App() {
           reason: current.planVersion ? "daily_refresh" : "initial",
           ...(when ? { now: when, horizonStart: localDate(when) } : {}),
         });
+        committed = true;
         const reread = await read();
-        if (!isCurrent()) return;
+        if (!isCurrent()) {
+          overtaken();
+          return;
+        }
         if (reread.timeZone) setPlanTimeZone(reread.timeZone);
         const rebuilt = normalizePlan(reread);
         // Said once, like any replan: the student opened the app and the week moved.
@@ -276,6 +293,8 @@ export function App() {
       }
     } catch (e) {
       if (isCurrent()) setError(errorMessage(e, "Could not load your plan."));
+      // Committed, then overtaken while the reread failed: still owed one fresh read.
+      else overtaken();
     }
   }, []);
 

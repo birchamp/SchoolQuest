@@ -23,6 +23,7 @@ import {
 } from "../lib/radar-geometry";
 import type { CampaignRadarView } from "../lib/types";
 import { appNow, localDayOfWeek } from "../lib/clock";
+import { radarDueWord } from "../lib/due-label";
 import { useTheme } from "../lib/theme-context";
 
 /**
@@ -103,12 +104,12 @@ function hours(value: number): string {
   return `${Number(value.toFixed(1))}h`;
 }
 
+/** Status from the engine's `overdue` (the instant), distance from `daysAway` (the date). */
 function dueWord(encounter: RadarEncounter): string {
-  const { daysAway } = encounter;
-  if (daysAway < 0) return `${Math.abs(daysAway)} day${daysAway === -1 ? "" : "s"} overdue`;
-  if (daysAway === 0) return "Today";
-  if (daysAway === 1) return "Tomorrow";
-  return `${weekdayName(encounter.dayOfWeek)} · ${daysAway} days`;
+  return radarDueWord(
+    { daysAway: encounter.daysAway, pastDue: encounter.overdue },
+    weekdayName(encounter.dayOfWeek),
+  );
 }
 
 export function CampaignRadar({
@@ -202,7 +203,8 @@ export function CampaignRadar({
   const overdue = useMemo(() => inRange.filter((e) => e.overdue), [inRange]);
   const band = useMemo(() => overdueBandGeometry(), []);
   const upcoming = useMemo(
-    () => radar.encounters.filter((e) => e.daysAway >= 0 && e.daysAway <= 7),
+    // Past-due work has its own list above, even when it was due earlier today.
+    () => radar.encounters.filter((e) => !e.overdue && e.daysAway >= 0 && e.daysAway <= 7),
     [radar.encounters],
   );
 
@@ -658,7 +660,7 @@ export function CampaignRadar({
                   <ForecastRow
                     key={encounter.id}
                     encounter={encounter}
-                    day={`${Math.abs(encounter.daysAway)}d`}
+                    day={encounter.daysAway < 0 ? `${-encounter.daysAway}d` : "earlier"}
                     courseName={courseName}
                     onPick={preview}
                     onCommit={select}

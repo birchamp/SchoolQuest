@@ -4,6 +4,7 @@ import type { MilestoneView, UndatedMilestoneView } from "../lib/types";
 import { courseTincture } from "../lib/course-colour";
 import { localDate } from "../lib/clock";
 import { formatDueDay, LONG_DUE_DAY } from "../lib/due-time";
+import { arcBand, dueDistanceShort, dueDistanceSpoken, type ArcBand } from "../lib/due-label";
 import { QUEST_PALETTE as Q } from "../lib/quest-palette";
 import { courseLabel, formatEffort, initialsFor } from "../lib/format";
 import { Themed } from "./Themed";
@@ -87,22 +88,19 @@ function recessedInk(quest: boolean): string {
  * Order is nearest-first within a band, which the incoming array already guarantees.
  */
 const BANDS: {
-  key: string;
-  holds: (daysAway: number) => boolean;
+  key: ArcBand;
   quest: string;
   plain: string;
 }[] = [
   {
     key: "overdue",
-    holds: (d) => d < 0,
     quest: "Already behind you — still open",
     plain: "Past due — still open",
   },
-  { key: "week", holds: (d) => d <= 7, quest: "Within the week", plain: "Within 7 days" },
-  { key: "month", holds: (d) => d <= 30, quest: "Within the month", plain: "Within 30 days" },
+  { key: "week", quest: "Within the week", plain: "Within 7 days" },
+  { key: "month", quest: "Within the month", plain: "Within 30 days" },
   {
     key: "term",
-    holds: () => true,
     quest: "Further along the road",
     plain: "Later in the term",
   },
@@ -400,14 +398,10 @@ function DatedRow({
   const ink = recede ? recessedInk(quest) : undefined;
 
   // Distance: the numeral is the scale, because the layout deliberately is not one.
-  const distanceVisible =
-    m.daysAway < 0 ? `${-m.daysAway}d ago` : m.daysAway === 0 ? "today" : `${m.daysAway}d`;
-  const distancePlain =
-    m.daysAway < 0
-      ? `past due by ${-m.daysAway} ${-m.daysAway === 1 ? "day" : "days"}`
-      : m.daysAway === 0
-        ? "due today"
-        : `in ${m.daysAway} ${m.daysAway === 1 ? "day" : "days"}`;
+  // `daysAway` for the distance, `pastDue` (the instant) for the verdict: due at nine this
+  // morning reads "earlier today" this afternoon, not "today".
+  const distanceVisible = dueDistanceShort(m);
+  const distancePlain = dueDistanceSpoken(m);
 
   return (
     <li
@@ -482,7 +476,7 @@ function DatedRow({
             // A receded overdue row gives up the wax red with everything else. The date is
             // still past, and the band heading it sits under says so in words — colour was
             // never the only signal here, which is exactly what makes it safe to spend.
-            color: ink ?? (quest ? (m.daysAway < 0 ? Q.wax : Q.ink) : "var(--text)"),
+            color: ink ?? (quest ? (m.pastDue ? Q.wax : Q.ink) : "var(--text)"),
           }}
         >
           <Themed visible={distanceVisible} plain={distancePlain} />
@@ -615,7 +609,7 @@ export function CampaignArc({
   const unprepared = all.filter((m) => m.prepBlocks === 0).length;
   const prepBlocks = all.reduce((sum, m) => sum + m.prepBlocks, 0);
   const prepMinutes = all.reduce((sum, m) => sum + m.prepMinutes, 0);
-  const overdue = milestones.filter((m) => m.daysAway < 0).length;
+  const overdue = milestones.filter((m) => m.pastDue).length;
 
   /**
    * Date provenance — the second judgement call, and the reason `markRows` exists.
@@ -804,14 +798,10 @@ export function CampaignArc({
             )}
           </Rule>
 
-          {BANDS.map((band, bandIndex) => {
-            // A row belongs to the first band that holds it, so the tests can stay simple
-            // one-sided comparisons and no row can land in two bands.
-            const rows = milestones.filter(
-              (m) =>
-                band.holds(m.daysAway) &&
-                !BANDS.slice(0, bandIndex).some((earlier) => earlier.holds(m.daysAway)),
-            );
+          {BANDS.map((band) => {
+            // `arcBand` places each row in exactly one band, past due (the instant) first --
+            // so work due at nine this morning leaves "within 7 days" this afternoon.
+            const rows = milestones.filter((m) => arcBand(m) === band.key);
             if (rows.length === 0) return null;
             const attention = band.key === "overdue";
 
