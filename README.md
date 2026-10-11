@@ -378,7 +378,7 @@ So the owner can see which screens and controls students actually use, the app c
 - **Reading it:** `pnpm usage:report` (local database) or `pnpm usage:report --remote`, with
   `--days N` for the window (default 30). It prints distinct people and total count per event,
   most-used first, then every allowlisted event nobody used.
-- **Retention:** rows older than 180 days are deleted as new counts are written.
+- **Retention:** rows older than 180 days are deleted on every write and by a daily cron trigger (`[triggers]` in `apps/api/wrangler.toml`), so the window holds even when nobody writes.
 
 ## Status
 

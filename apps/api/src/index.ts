@@ -24,7 +24,8 @@ import { commitmentsRoute } from "./routes/commitments.js";
 import { workItemsRoute } from "./routes/work-items.js";
 import { gradesRoute } from "./routes/grades.js";
 import { usageRoute } from "./routes/usage.js";
-import { isDevMode, type AppBindings } from "./env.js";
+import { isDevMode, type AppBindings, type Env } from "./env.js";
+import { pruneUsage } from "./usage.js";
 import { isTimeZone } from "@schoolquest/domain";
 
 const app = new Hono<AppBindings>();
@@ -256,4 +257,17 @@ app.onError((error, c) => {
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 
-export default app;
+/**
+ * The fetch handler is the app; the daily cron (wrangler.toml `[triggers]`) deletes usage counts
+ * past the retention window, so the 180 days hold even when nobody writes.
+ */
+export default {
+  fetch: app.fetch,
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(
+      pruneUsage(env.DB, Date.now()).catch((error: unknown) => {
+        console.warn("[usage] prune failed:", error instanceof Error ? error.message : String(error));
+      }),
+    );
+  },
+} satisfies ExportedHandler<Env>;

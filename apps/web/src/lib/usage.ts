@@ -101,7 +101,21 @@ export const flushUsage = (): Promise<void> => tracker.flush();
 export const setUsageEnabled = (enabled: boolean): void => tracker.setEnabled(enabled);
 
 /**
- * Counts `event` once per mount, the first time at least half of `ref`'s element is on screen.
+ * Whether enough of a card is on screen to count it as seen: half of the card, or half of the
+ * viewport for a card taller than it. A ratio of the card alone never reaches one half for a card
+ * more than twice the viewport's height -- the whole Stats screen, a long table on a phone -- so
+ * those were never counted however far the student scrolled (found in review on #41).
+ */
+export function isSeen(visibleHeight: number, elementHeight: number, viewportHeight: number): boolean {
+  if (elementHeight <= 0 || viewportHeight <= 0) return false;
+  return visibleHeight >= 0.5 * Math.min(elementHeight, viewportHeight);
+}
+
+/** Callback points for the observer, so tall cards are re-checked as they scroll. */
+const SEEN_THRESHOLDS = Array.from({ length: 21 }, (_, i) => i / 20);
+
+/**
+ * Counts `event` once per mount, the first time `isSeen` holds for `ref`'s element.
  * Without IntersectionObserver (an old webview, a test) it counts nothing rather than guessing.
  */
 export function useSeen<T extends Element>(event: UsageEvent) {
@@ -112,12 +126,21 @@ export function useSeen<T extends Element>(event: UsageEvent) {
     let counted = false;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (counted || !entries.some((e) => e.isIntersecting && e.intersectionRatio >= 0.5)) return;
+        const seen = entries.some(
+          (e) =>
+            e.isIntersecting &&
+            isSeen(
+              e.intersectionRect.height,
+              e.boundingClientRect.height,
+              e.rootBounds?.height ?? window.innerHeight,
+            ),
+        );
+        if (counted || !seen) return;
         counted = true;
         track(event);
         observer.disconnect();
       },
-      { threshold: 0.5 },
+      { threshold: SEEN_THRESHOLDS },
     );
     observer.observe(element);
     return () => observer.disconnect();

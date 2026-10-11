@@ -26,10 +26,13 @@ import { isUsageEvent, USAGE_MAX_COUNT, USAGE_MAX_KEYS, type UsageEvent } from "
  * database failure, a missing table included (a Worker deployed ahead of migration 0012).
  */
 
-/** Rows older than this are deleted, opportunistically, as new counts are written. */
+/**
+ * Rows older than this are deleted on every write and by a daily scheduled run (`pruneUsage`,
+ * wired in index.ts and wrangler.toml), so the window holds even when no one writes for a while.
+ * It used to prune on one write in a hundred, which bounded nothing: rows outlived the window for
+ * as long as writes kept missing the roll, forever once they stopped (found in review on #41).
+ */
 export const RETENTION_DAYS = 180;
-/** Share of writes that also prune old rows. One in a hundred keeps the table trimmed for free. */
-export const PRUNE_PROBABILITY = 0.01;
 
 /**
  * The body as sent. Values are loosely typed on purpose: one malformed count should cost only
@@ -136,7 +139,8 @@ export function pruneStatement(nowMs: number): Statement {
 }
 
 /**
- * Writes one report in a single D1 batch, pruning old rows on roughly one write in a hundred.
+ * Writes one report in a single D1 batch that also prunes rows past the window. The delete is
+ * cheap: `day` leads the primary key, so it is a range scan over rows that are due to go anyway.
  * Throws on database failure; the route decides that nobody needs to hear about it.
  */
 export async function recordUsage(
@@ -146,12 +150,17 @@ export async function recordUsage(
     authSecret: string;
     counts: ReadonlyMap<UsageEvent, number>;
     nowMs: number;
-    random?: () => number;
   },
 ): Promise<void> {
   if (input.counts.size === 0) return;
   const subject = await usageSubject(input.userId, input.authSecret);
   const statements = upsertStatements(utcDay(input.nowMs), subject, input.counts);
-  if ((input.random ?? Math.random)() < PRUNE_PROBABILITY) statements.push(pruneStatement(input.nowMs));
+  statements.push(pruneStatement(input.nowMs));
   await db.batch(statements.map((s) => db.prepare(s.sql).bind(...s.params)));
+}
+
+/** The daily scheduled run: deletes every row past the retention window. */
+export async function pruneUsage(db: D1Database, nowMs: number): Promise<void> {
+  const { sql, params } = pruneStatement(nowMs);
+  await db.prepare(sql).bind(...params).run();
 }

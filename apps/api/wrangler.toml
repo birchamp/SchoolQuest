@@ -19,6 +19,11 @@ database_name = "schoolquest"
 database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 migrations_dir = "drizzle"
 
+# Daily at 03:17 UTC: delete usage counts past the 180-day retention window (src/usage.ts).
+# Cron triggers are on the free tier.
+[triggers]
+crons = ["17 3 * * *"]
+
 [[r2_buckets]]
 binding = "DOCUMENTS"
 bucket_name = "schoolquest-documents"

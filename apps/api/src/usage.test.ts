@@ -127,23 +127,21 @@ describe("recording a report", () => {
       authSecret: SECRET,
       counts: new Map([["tab.week", 2]]),
       nowMs: now,
-      random: () => 0.5,
     });
     expect(batches).toHaveLength(1);
-    expect(batches[0]).toHaveLength(1);
+    expect(batches[0]).toHaveLength(2);
     const params = batches[0]![0]!.params;
     expect(params).toEqual(["2026-10-11", "tab.week", await usageSubject("user-123", SECRET), 2]);
     expect(params).not.toContain("user-123");
   });
 
-  it("prunes old rows on an unlucky roll, in the same batch", async () => {
+  it("prunes rows past the window on every write, in the same batch", async () => {
     const { db, batches } = fakeD1();
     await recordUsage(db, {
       userId: "u",
       authSecret: SECRET,
       counts: new Map([["tab.week", 1]]),
       nowMs: now,
-      random: () => 0.001,
     });
     expect(batches[0]!.at(-1)).toEqual({
       sql: "DELETE FROM usage_daily WHERE day < ?",

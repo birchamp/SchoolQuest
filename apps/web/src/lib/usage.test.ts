@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createUsageTracker, FLUSH_INTERVAL_MS, type UsageSender } from "./usage";
+import { createUsageTracker, FLUSH_INTERVAL_MS, isSeen, type UsageSender } from "./usage";
 
 function setup(send: UsageSender = vi.fn(async () => undefined)) {
   const tracker = createUsageTracker(send);
@@ -98,5 +98,23 @@ describe("the usage tracker", () => {
     await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS * 3);
     expect(send).toHaveBeenCalledTimes(1);
     tracker.setEnabled(false);
+  });
+});
+
+describe("isSeen", () => {
+  it("counts a short card once half of it is on screen", () => {
+    expect(isSeen(150, 300, 800)).toBe(true);
+    expect(isSeen(149, 300, 800)).toBe(false);
+  });
+
+  it("counts a card taller than twice the viewport once it fills half the screen", () => {
+    // 3000px of Stats on an 800px screen can never be half visible; a full screen of it is seen.
+    expect(isSeen(800, 3000, 800)).toBe(true);
+    expect(isSeen(400, 3000, 800)).toBe(true);
+    expect(isSeen(399, 3000, 800)).toBe(false);
+  });
+
+  it("counts nothing for an element with no height", () => {
+    expect(isSeen(0, 0, 800)).toBe(false);
   });
 });
