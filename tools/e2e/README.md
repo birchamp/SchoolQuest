@@ -100,6 +100,24 @@ blocks are 45 minutes, and deadlines keep a one-day buffer. A journey that ignor
 the defaults rather than the review. The student opens the app on the hour because the first
 load of a new day replans from "now", which moves a 20:00 block to 20:05 if opened at 20:05.
 
+## The settings journey (runs on every push)
+
+`pnpm test:settings` changes each setting from its card on Setup and follows it into the plan.
+A setting that saves but never reaches the plan is the failure it is for: the card says
+"Saved", and next Tuesday is booked exactly as before. So each step checks three things: the
+server stored what was typed, the plan was rebuilt, and the rebuilt plan honours the change.
+
+- **AI and model.** A saved key is shown only as a hint, the field clears, and Remove takes the
+  key off the account. Picking another reader stores it.
+- **Study hours.** After moving the start from 15:00 to 17:00 and taking tomorrow off, nothing
+  is booked before 17:00 or on that day, capacity shrinks, and the card shows the new hours
+  after a reload.
+- **Meals.** Dropping dinner gives the week its time back, and putting it back takes exactly
+  that time away again.
+- **Term.** A new name and an earlier last day are stored, the week is replanned, and the radar
+  shows the new name. It does not assert "nothing booked after the last day": that is the last
+  day of instruction, and work due after it, finals included, is still booked on purpose.
+
 # End-to-end semester test
 
 Drives the complete student journey through the real Worker API: fresh account,

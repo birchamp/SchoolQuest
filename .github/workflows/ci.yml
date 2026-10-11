@@ -71,6 +71,11 @@ jobs:
       - name: Multi-week journey
         run: pnpm test:weeks
 
+      # Each setting changed on Setup and followed into the plan: the key, the reader, study
+      # hours, meals and the term. Saved is not enough; the replanned week has to honour it.
+      - name: Settings journey
+        run: pnpm test:settings
+
       # WCAG AA on every rendered screen, per theme. The servers are started once for all
       # three runs; the walker signs in on its own.
       - name: Start the app for the contrast checks

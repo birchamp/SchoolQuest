@@ -18,6 +18,7 @@
     "test:scheduling": "node tools/e2e/scheduling.mjs",
     "test:intake": "node tools/e2e/intake.mjs",
     "test:weeks": "node tools/e2e/weeks.mjs",
+    "test:settings": "node tools/e2e/settings.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "version:check": "node tools/version.mjs check",
