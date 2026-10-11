@@ -52,16 +52,18 @@ export function setStoredToken(token: string | null): void {
 }
 
 /**
- * The device's IANA zone, on every request.
+ * Sent on every request: which app this is, and where its device is.
  *
- * Tells the server this is an app that knows every time is UTC, and where the device is: an
- * account still holding old local-time records is converted only on a request that carries it,
- * in that zone, and an older app gets "reload" instead of a server acting on records it would
- * misread (see `apps/api/src/auth.ts`).
+ * The protocol version tells the server this app knows every stored time is UTC; an app without
+ * it is refused with 426 and told to reload, rather than served records it would misread (see
+ * `apps/api/src/client-protocol.ts`). The device's zone is what an old account still on sign-up
+ * defaults is converted in, once.
  */
-function deviceZoneHeader(): Record<string, string> {
+export const CLIENT_PROTOCOL = "2";
+
+function clientHeaders(): Record<string, string> {
   const zone = browserTimeZone();
-  return zone ? { "X-Device-Time-Zone": zone } : {};
+  return { "X-SchoolQuest-Client": CLIENT_PROTOCOL, ...(zone ? { "X-Device-Time-Zone": zone } : {}) };
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -74,7 +76,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers: {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...deviceZoneHeader(),
+      ...clientHeaders(),
       ...init.headers,
     },
   });
@@ -116,7 +118,7 @@ export const api = {
     const token = storedToken();
     const response = await fetch(`${API_BASE}${path}`, {
       credentials: "include",
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...deviceZoneHeader() },
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...clientHeaders() },
     });
     recordDiagnostic("api", `GET ${path} -> ${response.status}`);
     if (!response.ok) {

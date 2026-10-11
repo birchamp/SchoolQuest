@@ -15,8 +15,8 @@ DELETE FROM coach_messages WHERE user_id = 'usr_seed';
 DELETE FROM auth_sessions WHERE user_id = 'usr_seed';
 DELETE FROM terms WHERE user_id = 'usr_seed';
 DELETE FROM users WHERE id = 'usr_seed';
-INSERT INTO users (id, email, display_name, timezone, theme, reduced_motion, detail_mode, created_at) VALUES
-  ('usr_seed', 'demo@schoolquest.local', 'Demo Student', 'America/New_York', 'plain', 0, 'standard', '2026-07-27T19:43:49.456Z');
+INSERT INTO users (id, email, display_name, timezone, theme, reduced_motion, detail_mode, created_at, time_standard) VALUES
+  ('usr_seed', 'demo@schoolquest.local', 'Demo Student', 'America/New_York', 'plain', 0, 'standard', '2026-07-27T19:43:49.456Z', 1);
 
 INSERT INTO terms (id, user_id, name, start_date, end_date, status, planning_preferences_json) VALUES
   ('trm_fall', 'usr_seed', 'Fall 2026', '2026-07-20', '2026-11-06', 'active', '{"maxDailyAcademicMinutes":240,"preferredSessionMinutes":45,"minSessionMinutes":20,"maxSessionMinutes":90,"breakMinutes":10,"protectedDaysOfWeek":[],"deadlineBufferDays":1}');

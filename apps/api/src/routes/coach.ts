@@ -12,7 +12,6 @@ import { generatePlan } from "@schoolquest/planning-engine";
 import { coachMessages, users } from "../db/schema.js";
 import { assertTermOwner, getDb, loadTermSnapshot, toPlanningInput } from "../db/repo.js";
 import { loadReview } from "./review.js";
-import { studentZone } from "../student-zone.js";
 import { NO_COACH_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import type { AppBindings } from "../env.js";
 
@@ -48,7 +47,7 @@ coachRoute.post("/coach/messages", async (c) => {
   const theme = parsed.data.theme ?? (user?.theme as "quest" | "mission" | "plain") ?? "plain";
 
   const now = new Date().toISOString();
-  const timeZone = await studentZone(db, userId);
+  const timeZone = c.get("timeZone");
   const calendar = zoneCalendar(timeZone);
   const horizonStart = calendar.dateOf(toEpochMinutes(now));
   const snapshot = await loadTermSnapshot(db, parsed.data.termId, {

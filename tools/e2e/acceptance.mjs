@@ -27,7 +27,7 @@ const API = "http://127.0.0.1:8787";
 async function api(path, method = "GET", body, token) {
   const res = await fetch(API + path, {
     method,
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { "X-SchoolQuest-Client": "2", "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -53,7 +53,12 @@ function check(step, passed, detail = "") {
 const TODAY = new Date().toISOString().slice(0, 10);
 const NOW = `${TODAY}T09:00:00.000Z`;
 
-/** ISO date `days` from today, in the app's UTC wall clock. */
+/**
+ * ISO date `days` from today, on the student's clock. The browser is pinned to UTC below, so the
+ * student lives in UTC and their date is the UTC date -- on any host, in any zone. Left to the
+ * host's zone, "the lost day" was compared against a UTC date and a run west of Greenwich in the
+ * evening looked at the wrong day.
+ */
 function dateFromToday(days) {
   return new Date(Date.parse(NOW) + days * 86_400_000).toISOString().slice(0, 10);
 }
@@ -98,7 +103,7 @@ try {
   check("a term, hours and a fixed commitment were created", true);
 
   browser = await chromium.launch(chromiumLaunchOptions());
-  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, timezoneId: "UTC" });
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 300)));
   await page.addInitScript(

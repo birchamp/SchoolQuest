@@ -27,7 +27,6 @@ import {
 } from "../db/schema.js";
 import { getDb, insertInChunks, serializeDays, type Db } from "../db/repo.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
-import { studentZone } from "../student-zone.js";
 import type { AppBindings } from "../env.js";
 
 export const extractionRoute = new Hono<AppBindings>();
@@ -773,7 +772,7 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
   }
 
   // --- Assignments. The syllabus's dates are the student's local ones; stored as UTC.
-  const timeZone = await studentZone(db, c.get("userId"));
+  const timeZone = c.get("timeZone");
   for (const claim of claims.filter((c) => c.claimType === "assignment")) {
     const payload = JSON.parse(claim.payloadJson) as ClaimAssignmentPayload;
     const id = newId("workItem");

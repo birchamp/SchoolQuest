@@ -28,3 +28,12 @@ describe("floatingToUtc", () => {
     expect(floatingToUtc("2026-10-16T09:00:00.000Z", zoneCalendar("Asia/Kolkata"))).toBe("2026-10-16T03:30:00.000Z");
   });
 });
+
+describe("a value that is not a time", () => {
+  it("is left alone instead of stopping the account's conversion", () => {
+    const chicago = zoneCalendar("America/Chicago");
+    expect(floatingToUtc("not a date", chicago)).toBeNull();
+    expect(floatingToUtc("2026-13-45", chicago)).toBeNull();
+    expect(floatingToUtc("", chicago)).toBeNull();
+  });
+});

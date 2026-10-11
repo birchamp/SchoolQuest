@@ -6,6 +6,13 @@ import { isTimeZone, newId } from "@schoolquest/domain";
 import { authSessions, loginTokens, users } from "./db/schema.js";
 import type { AppBindings, Env } from "./env.js";
 import { ensureUtcStandard } from "./db/utc-conversion.js";
+import {
+  CLIENT_PROTOCOL_HEADER,
+  conversionZone,
+  DEVICE_ZONE_HEADER,
+  servesClient,
+  UPGRADE_MESSAGE,
+} from "./client-protocol.js";
 
 /**
  * Passwordless email sign-in.
@@ -190,33 +197,38 @@ export const requireAuth: MiddlewareHandler<AppBindings> = async (c, next) => {
   const [user] = await db.select().from(users).where(eq(users.id, session.userId));
   if (!user) return c.json({ error: "Not signed in" }, 401);
 
-  /**
-   * An account from before every stored time was UTC (migration 0008).
-   *
-   * Converted on the first request from an app that says where the device is -- every request
-   * from the updated app carries `X-Device-Time-Zone` -- in that zone, or in the zone the student
-   * pinned. Not before: the stored zone may be the sign-up default, and a conversion in the wrong
-   * zone is permanent. And an older app, which sends no zone, is not served at all until it is
-   * reloaded: it would read UTC records as local ones, and anything it made the server write --
-   * a replan, a moved block -- would be stored as UTC and then shifted a second time by the
-   * conversion. Found in review.
-   */
-  if (user.timeStandard < 1) {
-    const device = c.req.header("X-Device-Time-Zone");
-    if (!device || !isTimeZone(device)) {
-      return c.json(
-        { error: "SchoolQuest was updated. Reload this page (or restart the app) to carry on." },
-        409,
-      );
-    }
-    const zone = user.timezoneMode === "pinned" && isTimeZone(user.timezone) ? user.timezone : device;
-    // Never at the cost of the request beyond this point: a failed conversion is retried on the
-    // next request, and the account stays unconverted until one succeeds.
-    await ensureUtcStandard(db, c.env.DB, user.id, zone).catch((error: unknown) => {
-      console.error("utc conversion failed", user.id, error);
-    });
+  // Only apps that know every stored time is UTC are served; see `client-protocol.ts`.
+  if (!servesClient(c.req.header(CLIENT_PROTOCOL_HEADER))) {
+    return c.json({ error: UPGRADE_MESSAGE, upgrade: true }, 426);
   }
 
+  /**
+   * An account from before every stored time was UTC (migration 0008) is converted on its first
+   * request, in the zone `conversionZone` chooses.
+   *
+   * And a request is never served against an account that is still unconverted. If the
+   * conversion fails, the request fails with it: serving it would read the old local values as
+   * UTC and write new true-UTC rows alongside them, which the next successful conversion would
+   * then shift a second time. A review found exactly that path behind the old "log and carry on".
+   */
+  let zone = user.timezone;
+  if (user.timeStandard < 1) {
+    const choice = conversionZone({
+      stored: user.timezone,
+      mode: user.timezoneMode,
+      device: c.req.header(DEVICE_ZONE_HEADER),
+    });
+    try {
+      await ensureUtcStandard(db, c.env.DB, user.id, choice.zone, choice.adopt);
+    } catch (error) {
+      console.error("utc conversion failed", user.id, error);
+      return c.json({ error: "SchoolQuest is updating your saved times. Try again in a moment." }, 503);
+    }
+    zone = choice.adopt ? choice.zone : user.timezone;
+  }
+
+  // The student's zone, read once per request for every route that needs it.
+  c.set("timeZone", isTimeZone(zone) ? zone : "UTC");
   c.set("userId", user.id);
   c.set("userEmail", user.email);
   await next();

@@ -242,6 +242,8 @@ export const planVersions = sqliteTable(
     status: text("status").notNull().default("proposed"),
     summaryJson: text("summary_json").notNull().default("{}"),
     createdAt: text("created_at").notNull(),
+    /** The student's zone when the plan was made; null before migration 0009. */
+    timeZone: text("time_zone"),
   },
   (t) => [index("plan_versions_term_idx").on(t.termId, t.versionNumber)],
 );

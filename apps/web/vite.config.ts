@@ -129,7 +129,10 @@ export default defineConfig({
                   urlPattern: ({ url }) => /\/api\/(terms|plans)\//.test(url.pathname),
                   handler: "NetworkFirst",
                   options: {
-                    cacheName: "plan-data",
+                    // Renamed when every stored time became UTC (issue #4): the old cache
+                    // holds plans from before the conversion, whose times would show hours off
+                    // if a student opened the app offline. A new name is never read from it.
+                    cacheName: "plan-data-utc",
                     networkTimeoutSeconds: 6,
                     expiration: { maxEntries: 40, maxAgeSeconds: 60 * 60 * 24 },
                   },

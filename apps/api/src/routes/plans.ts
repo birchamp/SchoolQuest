@@ -27,7 +27,6 @@ import {
 } from "../db/repo.js";
 import { loadReview } from "./review.js";
 import { isDevMode, type AppBindings } from "../env.js";
-import { studentZone } from "../student-zone.js";
 
 const generateBody = z.object({
   horizonStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -82,7 +81,7 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
   const now =
     timeTravelAllowed && parsed.data.now ? new Date(parsed.data.now).toISOString() : new Date().toISOString();
   // "Today" is the student's date, and the plan's days begin at their midnight.
-  const timeZone = await studentZone(db, c.get("userId"));
+  const timeZone = c.get("timeZone");
   const calendar = zoneCalendar(timeZone);
   const horizonStart = parsed.data.horizonStart ?? calendar.dateOf(toEpochMinutes(now));
 
@@ -116,6 +115,7 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
     horizonEnd: plan.horizonEnd,
     generationReason: parsed.data.reason,
     algorithmVersion: plan.algorithmVersion,
+    timeZone,
     status: "proposed",
     summaryJson: JSON.stringify({
       capacity: plan.capacity,
@@ -235,7 +235,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     isDevMode(c.env) && c.req.query("now")
       ? new Date(c.req.query("now")!).toISOString()
       : new Date().toISOString();
-  const timeZone = await studentZone(db, c.get("userId"));
+  const timeZone = c.get("timeZone");
 
   const sessions = (
     await db.select().from(workSessions).where(eq(workSessions.planVersionId, current.id))
@@ -255,13 +255,7 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
   // the scheduler uses picks among them.
   const itemsById = new Map(snapshot.workItems.map((w) => [w.id, w]));
   const open = sessions.filter((s) => s.status === "planned" || s.status === "started");
-  const recommendations = selectRecommendedSessions(
-    open,
-    toEpochMinutes(asOf),
-    undefined,
-    3,
-    timeZone,
-  ).map(
+  const recommendations = selectRecommendedSessions(open, toEpochMinutes(asOf), { timeZone }).map(
     (session, index) => {
       const item = itemsById.get(session.workItemId);
       const reasonCodes = JSON.parse(session.reasonCodesJson) as string[];
@@ -389,9 +383,10 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
     // which can disagree with the server's and with a zone the student has pinned.
     asOf,
     timeZone,
-    // Made by an earlier planner, whose stored times and meal slots are in another frame. The
-    // app rebuilds a stale plan before showing it.
-    stale: current.algorithmVersion !== ALGORITHM_VERSION,
+    // Made by an earlier planner, whose stored times and meal slots are in another frame, or in
+    // another zone, whose weekly hours fall at other instants. The app rebuilds a stale plan
+    // before showing it.
+    stale: current.algorithmVersion !== ALGORITHM_VERSION || current.timeZone !== timeZone,
     ...summary,
     recommendations,
     // The week read as prepared session notes rather than a grid (see
