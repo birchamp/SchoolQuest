@@ -50,6 +50,13 @@ await page.evaluate((t) => localStorage.setItem("sq_session_token", t), sessionT
 // each brings its own grounds — a parchment table header, a calendar band. Measuring only
 // what the app happens to open on is how a theme ships an unreadable screen.
 await page.evaluate((v) => localStorage.setItem("sq_view_mode", v), process.env.SQ_VIEW ?? "visual");
+// A fixed "today" for a seeded account. The demo seed's term has fixed dates, so on the real
+// clock it ends and its screens go empty -- and an empty screen passes a contrast check while
+// measuring nothing. The app reads `sq_dev_now` in development and the Worker honours it.
+await page.evaluate((now) => {
+  if (now) localStorage.setItem("sq_dev_now", now);
+  else localStorage.removeItem("sq_dev_now");
+}, process.env.SQ_NOW ?? null);
 await page.goto(APP, { waitUntil: "networkidle" });
 await page.waitForTimeout(1500);
 
@@ -274,6 +281,11 @@ const TABS = [
 ];
 
 let failures = 0;
+// The fewest text nodes a tab may show and still count as measured. Zero by default, for a
+// quick look at any account; CI sets it, because a walk over an empty account reports
+// "0 below AA" on screens that drew nothing (about 11 nodes a tab) -- and that passed.
+const MIN_NODES = Number(process.env.SQ_MIN_NODES ?? 0);
+const thin = [];
 
 
 for (const [name, matcher] of TABS) {
@@ -310,6 +322,7 @@ for (const [name, matcher] of TABS) {
     console.log(`  ${String(r.ratio).padStart(6)}:1  (disabled — WCAG-exempt)  "${r.text}"`);
   }
   failures += bad.length;
+  if (results.length < MIN_NODES) thin.push(`${name} (${results.length})`);
 }
 
 await browser.close();
@@ -318,4 +331,10 @@ await browser.close();
 // checks them rather than silently counted as passing.
 
 console.log(`\n${failures} contrast failures in the ${THEME} theme.`);
-process.exit(failures > 0 ? 1 : 0);
+if (thin.length > 0) {
+  console.log(
+    `Too little on screen to measure (fewer than ${MIN_NODES} text nodes): ${thin.join(", ")}. ` +
+      "Is the account seeded, and is SQ_NOW inside its term?",
+  );
+}
+process.exit(failures > 0 || thin.length > 0 ? 1 : 0);

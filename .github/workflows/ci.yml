@@ -91,6 +91,13 @@ jobs:
 
       # WCAG AA on every rendered screen, per theme. The servers are started once for all
       # three runs; the walker signs in on its own.
+      # The contrast walker measures what is on screen, so it needs an account with something
+      # on it. Against a fresh account every tab is the onboarding card (about 11 text nodes),
+      # and the walk passed while checking almost nothing. The demo seed is a full
+      # semester; it only replaces its own user, so the journeys above are unaffected.
+      - name: Seed the demo semester for the contrast checks
+        run: pnpm db:seed:local
+
       - name: Start the app for the contrast checks
         run: |
           nohup node tools/dev.mjs > /tmp/dev.log 2>&1 &
@@ -100,7 +107,14 @@ jobs:
           done
           echo "servers did not start"; tail -50 /tmp/dev.log; exit 1
 
+      # Signed in as the seeded student, on a day inside the seed's fixed term (it ends
+      # 2026-11-06; on the real clock the screens would empty out again once it is over). A
+      # tab drawing fewer than 15 text nodes fails the run instead of passing unmeasured.
       - name: Contrast (plain, quest, mission)
+        env:
+          SQ_EMAIL: demo@schoolquest.local
+          SQ_NOW: "2026-09-16T14:00:00.000Z"
+          SQ_MIN_NODES: "15"
         run: |
           node tools/e2e/contrast.mjs plain
           node tools/e2e/contrast.mjs quest
