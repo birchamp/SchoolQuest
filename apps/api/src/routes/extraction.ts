@@ -898,26 +898,82 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
     resolved.work_item.push({ claimId: claim.id, entityId: id });
   }
 
-  await db.batch([
-    db
-      .update(sourceDocuments)
-      .set({ processingStatus: "confirmed" })
-      .where(eq(sourceDocuments.id, documentId)),
-    ...insertStatements(newCategories, gradingCategories, (rows) =>
-      db.insert(gradingCategories).values(rows),
-    ),
-    ...gradingKnown,
-    ...insertStatements(newPatterns, meetingPatterns, (rows) =>
-      db.insert(meetingPatterns).values(rows),
-    ),
-    ...insertStatements(newItems, workItems, (rows) => db.insert(workItems).values(rows)),
-    ...(Object.keys(resolved) as ResolvedEntityType[]).flatMap((type) =>
-      markResolved(db, type, resolved[type]),
-    ),
-  ]);
+  const claimIds = claims.map((claim) => claim.id);
+  try {
+    await db.batch([
+      stillPendingGuard(db, documentId, claimIds),
+      db
+        .update(sourceDocuments)
+        .set({ processingStatus: "confirmed" })
+        .where(eq(sourceDocuments.id, documentId)),
+      ...insertStatements(newCategories, gradingCategories, (rows) =>
+        db.insert(gradingCategories).values(rows),
+      ),
+      ...gradingKnown,
+      ...insertStatements(newPatterns, meetingPatterns, (rows) =>
+        db.insert(meetingPatterns).values(rows),
+      ),
+      ...insertStatements(newItems, workItems, (rows) => db.insert(workItems).values(rows)),
+      ...(Object.keys(resolved) as ResolvedEntityType[]).flatMap((type) =>
+        markResolved(db, type, resolved[type]),
+      ),
+    ]);
+  } catch (error) {
+    /**
+     * The guard refused, or something else failed; either way nothing above was written. Which
+     * one is told by looking: if another submit promoted any of these claims between our read
+     * and our batch, that is the guard. Two simultaneous submits of the same list -- a double
+     * click that beat the button disabling -- leave the loser with nothing left to do, which is
+     * the same answer a repeat submit gets. A list that only partly overlapped is refused, so
+     * the student reloads and sees what is actually still waiting.
+     */
+    const now = await db
+      .select({ id: extractionClaims.id, reviewStatus: extractionClaims.reviewStatus })
+      .from(extractionClaims)
+      .where(eq(extractionClaims.sourceDocumentId, documentId));
+    const stillPending = now.filter(
+      (claim) => claim.reviewStatus === "pending" && claimIds.includes(claim.id),
+    ).length;
+    if (stillPending === claimIds.length) throw error;
+    const none = { categories: 0, meetingPatterns: 0, workItems: 0 };
+    if (stillPending === 0) return c.json({ ok: true, created: none });
+    return c.json(
+      { error: "Some of these were confirmed somewhere else meanwhile. Reload and try again." },
+      409,
+    );
+  }
 
   return c.json({ ok: true, created });
 });
+
+/**
+ * The first statement of the confirm batch: fails the whole batch unless every claim it is about
+ * to promote is still pending *at the moment the batch runs*.
+ *
+ * The route filters to pending claims when the request starts, but two submits arriving together
+ * both pass that read before either writes, and both batches then committed -- every assignment
+ * created twice. D1 runs a batch as one transaction and one writer at a time, so a check inside
+ * the batch sees the other submit's committed claims.
+ *
+ * SQLite has no RAISE outside a trigger, so the refusal is a constraint: when the count is wrong
+ * this sets this document's claim ids to NULL, which their NOT NULL constraint rejects, and the
+ * batch rolls back. When the count is right the WHERE matches no row and nothing changes. The ids travel as one JSON array so
+ * a long syllabus stays under D1's bound-parameter ceiling.
+ */
+function stillPendingGuard(db: Db, documentId: string, claimIds: string[]) {
+  const pending = sql`(
+    SELECT count(*) FROM extraction_claims
+    WHERE source_document_id = ${documentId}
+      AND review_status = 'pending'
+      AND id IN (SELECT value FROM json_each(${JSON.stringify(claimIds)}))
+  )`;
+  return db
+    .update(extractionClaims)
+    .set({ id: sql`NULL` })
+    .where(
+      and(eq(extractionClaims.sourceDocumentId, documentId), sql`${pending} != ${claimIds.length}`),
+    );
+}
 
 /**
  * D1 refuses a statement with more than 100 bound parameters, so a multi-row INSERT has to be

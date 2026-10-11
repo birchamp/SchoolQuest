@@ -316,6 +316,47 @@ describe("syllabus confirm", () => {
     expect(await created()).toEqual({ categories: 1, meetingPatterns: 1, workItems: 41 });
   });
 
+  it("promotes claims once when two submits arrive at the same moment", async () => {
+    // A second document with claims of its own, so this does not depend on the test above.
+    const env = await server.getWorker<{ DB: D1Database }>().getEnv();
+    const doc = await buildTerm(a);
+    const ids = Array.from({ length: 6 }, (_, i) => `claim_http_race_${i}`);
+    const claim = env.DB.prepare(
+      "INSERT INTO extraction_claims (id, source_document_id, claim_type, payload_json, review_status) VALUES (?, ?, 'assignment', ?, 'pending')",
+    );
+    await env.DB.batch(
+      ids.map((id, i) =>
+        claim.bind(
+          id,
+          doc.documentId,
+          JSON.stringify({
+            title: `Race ${i + 1}`,
+            type: "reading",
+            dueDate: { iso: "2026-10-02", time: null },
+            pointsPossible: null,
+            category: null,
+            isMajorProject: false,
+          }),
+        ),
+      ),
+    );
+
+    // Both requests read the claims as pending before either one writes.
+    const path = `/api/documents/${doc.documentId}/extraction/confirm`;
+    const responses = await Promise.all([
+      a.send("POST", path, { acceptedClaimIds: ids }),
+      a.send("POST", path, { acceptedClaimIds: ids }),
+    ]);
+    const bodies = (await Promise.all(responses.map((r) => r.json()))) as Json[];
+
+    expect(responses.map((r) => r.status)).toEqual([200, 200]);
+    const createdItems = bodies.map((b) => (b["created"] as { workItems: number }).workItems);
+    expect(createdItems.sort()).toEqual([0, 6]);
+    expect(await count("work_items", "course_id = ? AND title LIKE 'Race %'", doc.courseId)).toBe(
+      6,
+    );
+  });
+
   it("still refuses a submission that names no claim of this document", async () => {
     const res = await a.send("POST", `/api/documents/${owned.documentId}/extraction/confirm`, {
       acceptedClaimIds: ["claim_that_does_not_exist"],
