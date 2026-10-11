@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createUsageTracker, FLUSH_INTERVAL_MS, isSeen, type UsageSender } from "./usage";
+import {
+  createUsageTracker,
+  FLUSH_INTERVAL_MS,
+  isSeen,
+  seenThresholds,
+  type UsageSender,
+} from "./usage";
 
 function setup(send: UsageSender = vi.fn(async () => undefined)) {
   const tracker = createUsageTracker(send);
@@ -116,5 +122,26 @@ describe("isSeen", () => {
 
   it("counts nothing for an element with no height", () => {
     expect(isSeen(0, 0, 800)).toBe(false);
+  });
+});
+
+describe("seenThresholds", () => {
+  it("always has a callback point the seen rule can be met at, however tall the card", () => {
+    for (const height of [300, 3000, 20_000, 40_000, 400_000]) {
+      const viewport = 800;
+      const needed = (0.5 * Math.min(height, viewport)) / height;
+      // The first point at or above the needed ratio must itself satisfy isSeen.
+      const point = seenThresholds(height, viewport).find((t) => t >= needed)!;
+      expect(isSeen(point * height, height, viewport)).toBe(true);
+      // And reachable: no more of the card than a screen can show at once.
+      expect(point).toBeLessThanOrEqual(Math.min(1, viewport / height));
+    }
+  });
+
+  it("stays a sorted list of ratios between 0 and 1", () => {
+    const t = seenThresholds(40_000, 800);
+    expect(t[0]).toBe(0);
+    expect(t.at(-1)).toBe(1);
+    expect([...t].sort((a, b) => a - b)).toEqual(t);
   });
 });
