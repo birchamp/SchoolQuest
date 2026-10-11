@@ -1,13 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import type { Course, ThemeName } from "@schoolquest/domain";
-import { toEpochMinutes } from "@schoolquest/domain";
+import { addDays, formatTimeOfDay, fromEpochMinutes, toEpochMinutes } from "@schoolquest/domain";
 import {
   buildWeekCalendar,
   type CalendarDeadline,
   type CalendarSlot,
   type SlotKind,
 } from "@schoolquest/planning-engine";
-import { wallClockToday } from "../lib/clock";
+import {
+  appToday,
+  formatClock,
+  formatInstant,
+  formatTime,
+  fromLocal,
+  localDate,
+  localMinuteOfDay,
+  localTime,
+  planTimeZone,
+} from "../lib/clock";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
@@ -110,13 +120,11 @@ function formatMinutes(minutes: number): string {
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
 
+/** A minute of the student's day as a clock reading: "9 AM", "9:30 AM". */
 function clockOf(minuteOfDay: number): string {
-  const h = Math.floor(minuteOfDay / 60) % 24;
-  const m = minuteOfDay % 60;
-  return new Date(Date.UTC(2000, 0, 1, h, m)).toLocaleTimeString(undefined, {
+  return formatClock(formatTimeOfDay(minuteOfDay), {
     hour: "numeric",
-    minute: m === 0 ? undefined : "2-digit",
-    timeZone: "UTC",
+    ...(minuteOfDay % 60 === 0 ? {} : { minute: "2-digit" as const }),
   });
 }
 
@@ -151,7 +159,7 @@ export function WeekCalendar({
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
   // The student's own date, in the frame every stored time is written in (lib/clock.ts).
-  const today = wallClockToday();
+  const today = appToday();
 
   /**
    * Editing a block from the grid.
@@ -195,6 +203,16 @@ export function WeekCalendar({
     await edit(session.id, () => api.post(`/api/work-sessions/${session.id}/move`, { startAt, endAt }));
   }
 
+  /**
+   * To the same time of day on another day. Not plus or minus 24 hours: across a change of the
+   * clocks that lands an hour off, and "the same block, tomorrow" means the same local time.
+   */
+  async function moveByDays(session: PlannedSession, days: number) {
+    const startAt = fromLocal(addDays(localDate(session.startAt), days), localTime(session.startAt));
+    const endAt = new Date(Date.parse(startAt) + (Date.parse(session.endAt) - Date.parse(session.startAt))).toISOString();
+    await edit(session.id, () => api.post(`/api/work-sessions/${session.id}/move`, { startAt, endAt }));
+  }
+
   async function toggleLock(session: PlannedSession) {
     await edit(session.id, () => api.post(`/api/work-sessions/${session.id}/lock`, { locked: !session.locked }));
   }
@@ -221,8 +239,8 @@ export function WeekCalendar({
     const handlers: Record<string, () => void> = {
       ArrowUp: () => void moveBy(session, -NUDGE_MINUTES),
       ArrowDown: () => void moveBy(session, NUDGE_MINUTES),
-      ArrowLeft: () => void moveBy(session, -24 * 60),
-      ArrowRight: () => void moveBy(session, 24 * 60),
+      ArrowLeft: () => void moveByDays(session, -1),
+      ArrowRight: () => void moveByDays(session, 1),
       l: () => void toggleLock(session),
       L: () => void toggleLock(session),
       Enter: () => setSelectedId(session.id),
@@ -239,6 +257,7 @@ export function WeekCalendar({
   const calendar = buildWeekCalendar({
     horizonStart,
     horizonDays: 7,
+    timeZone: planTimeZone(),
     meetingPatterns: plan.meetingPatterns ?? [],
     commitments: plan.commitments ?? [],
     availability: plan.availabilityRules ?? [],
@@ -265,8 +284,6 @@ export function WeekCalendar({
   const height = windowMinutes * PIXELS_PER_MINUTE;
   const hourMarks: number[] = [];
   for (let m = calendar.windowStartMinute; m <= calendar.windowEndMinute; m += 60) hourMarks.push(m);
-
-  const dayBase = (date: string) => Date.parse(`${date}T00:00:00Z`) / 60_000;
 
   return (
     <section className="card" aria-labelledby="calendar-heading">
@@ -385,7 +402,6 @@ export function WeekCalendar({
           </div>
 
           {calendar.days.map((day) => {
-            const base = dayBase(day.date);
             return (
               <div
                 key={day.date}
@@ -422,7 +438,6 @@ export function WeekCalendar({
                     <Band
                       key={`${slot.kind}-${slot.start}`}
                       slot={slot}
-                      base={base}
                       windowStart={calendar.windowStartMinute}
                       quest={quest}
                       course={slot.courseId ? coursesById.get(slot.courseId) : undefined}
@@ -523,13 +538,9 @@ export function WeekCalendar({
   );
 }
 
-/** "Mon 9:00 AM", in the app's UTC wall clock. */
+/** "Mon 9:00 AM", on the student's clock. */
 function describeWhen(session: PlannedSession): string {
-  const d = new Date(session.startAt);
-  return `${d.toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" })} ${d.toLocaleTimeString(
-    undefined,
-    { hour: "numeric", minute: "2-digit", timeZone: "UTC" },
-  )}`;
+  return `${formatInstant(session.startAt, { weekday: "short" })} ${formatTime(session.startAt)}`;
 }
 
 /**
@@ -609,7 +620,6 @@ function DueChip({
 
 function Band({
   slot,
-  base,
   windowStart,
   quest,
   course,
@@ -620,7 +630,6 @@ function Band({
   onKey,
 }: {
   slot: CalendarSlot;
-  base: number;
   windowStart: number;
   quest: boolean;
   course: Course | undefined;
@@ -632,7 +641,10 @@ function Band({
   onKey?: (e: React.KeyboardEvent) => void;
 }) {
   const interactive = Boolean(session && onSelect);
-  const top = (slot.start - base - windowStart) * PIXELS_PER_MINUTE;
+  // Where the band starts on the student's clock -- exact on a day the clocks change, where
+  // minutes counted from midnight run an hour ahead of, or behind, the clock on the wall.
+  const startMinute = localMinuteOfDay(fromEpochMinutes(slot.start));
+  const top = (startMinute - windowStart) * PIXELS_PER_MINUTE;
   const height = slot.minutes * PIXELS_PER_MINUTE;
   const own = bandStyle(slot.kind);
   /**
@@ -704,7 +716,7 @@ function Band({
           competes with the label, and the band's height already carries it visually. */}
       <span className="sr-only">
         {KIND_WORD[slot.kind]}: {label}, {formatMinutes(slot.minutes)} from{" "}
-        {clockOf(slot.start - base)}
+        {clockOf(startMinute)}
         {session?.locked ? ", locked in place" : ""}
         {interactive ? ". Press Enter to select, arrow keys to move, L to lock." : ""}
       </span>
@@ -714,7 +726,7 @@ function Band({
               put it at 4.27:1 — the third time this codebase has shipped transparency as
               de-emphasis and measured below the floor for it. The band's own colour is
               already the quiet one; the prefix simply shares it. */}
-          {slot.kind !== "free" && <span>{clockOf(slot.start - base)} </span>}
+          {slot.kind !== "free" && <span>{clockOf(startMinute)} </span>}
           {session?.locked && <span title="Locked in place">&#9646; </span>}
           {label}
           {course && height > 40 && (

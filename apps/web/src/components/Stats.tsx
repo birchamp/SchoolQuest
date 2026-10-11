@@ -8,6 +8,7 @@ import type {
   ProjectsSummaryView,
   TermProgressView,
 } from "../lib/types";
+import { formatDueDay } from "../lib/due-time";
 
 /**
  * Where the term stands, and whether the long work is going to land.
@@ -121,20 +122,12 @@ function workTypeLabel(workType: string): string {
 }
 
 /**
- * The due date, formatted from the date part in UTC — the same treatment as CampaignArc.tsx
- * and for the same reason: `daysAway` was computed from `dueAt.slice(0, 10)`, so formatting
- * those ten characters keeps the printed date and the printed distance from contradicting
- * each other. The year is always shown, because the test semester carries a stale 2025 date
- * beside 2026 work and an omitted year would hide exactly the fault the row is flagging.
+ * The due date, on the student's calendar -- the same formatter as CampaignArc.tsx. The year is
+ * always shown, because the test semester carries a stale 2025 date beside 2026 work and an
+ * omitted year would hide exactly the fault the row is flagging.
  */
 function formatDue(dueAt: string): string {
-  return new Date(`${dueAt.slice(0, 10)}T12:00:00Z`).toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  return formatDueDay(dueAt, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 
 /** Course code appended only when the name does not already carry it (see WeekMap). */

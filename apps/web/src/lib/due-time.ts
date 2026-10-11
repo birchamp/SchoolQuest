@@ -1,71 +1,48 @@
+import { formatInstant, fromLocal, localDate, localTime } from "./clock";
+
 /**
- * The clock half of a due date.
+ * The two halves of a due date, as the student edits them.
  *
- * Everything that could set a due date wrote `T23:59:00.000Z` and nothing could change it, so a
- * quiz that closes at 9am and a paper accepted until midnight were the same date to the planner:
- * the whole day before a 9am deadline was offered as time to work in, which is a plan that is
- * wrong in the one direction that costs a grade. The scheduler already reasons in instants
- * (`toEpochMinutes(item.dueAt)`), so a real time of day flows straight through it -- the only
- * thing missing was a way to say one.
- *
- * **These are UTC wall-clock characters, not local time.** Every other view formats a due date
- * from `dueAt.slice(0, 10)` on purpose, so that a date does not slide a day for a student in
- * Tokyo, and a time read in local zone would contradict the date printed beside it -- "due Oct 5,
- * 8:59am" on a row whose instant is Oct 6. Splitting and rejoining the same characters keeps the
- * two halves telling one story. `packages/domain/src/time.ts` states the same rule for the engine.
+ * A due date is stored as a UTC instant, like every time in the app. The editor shows it as a
+ * date box and a time box in the student's zone, and joins them back the same way, so the round
+ * trip -- open the row, touch nothing, save -- writes back exactly the instant that was there.
+ * Everything goes through `lib/clock.ts`: a date read one way and written another is how a
+ * deadline drifts a day for a student far from Greenwich (issue #4).
  */
 
-/** What "due Friday" has always meant here, and what extraction writes when a syllabus is silent. */
+/** What "due Friday" means when no time is given: the end of the student's Friday. */
 export const DEFAULT_DUE_TIME = "23:59";
 
-/** The date half of a stored instant, or "" when the work has no due date. */
+/** The student's date for a deadline, or "" when the work has no due date. */
 export function dueDatePart(dueAt: string | null | undefined): string {
-  return dueAt ? dueAt.slice(0, 10) : "";
+  return dueAt ? localDate(dueAt) : "";
 }
 
 /**
- * The "HH:MM" half of a stored instant.
+ * The student's time of day for a deadline, "HH:MM".
  *
  * Falls back to the end-of-day default rather than to "", because a time input showing nothing
- * reads as "no deadline time known" when in fact the item has always had one -- and an empty
- * input that then saves as 23:59 anyway is worse.
+ * reads as "no deadline time known" when in fact the item has always had one.
  */
 export function dueTimePart(dueAt: string | null | undefined): string {
-  const time = dueAt ? dueAt.slice(11, 16) : "";
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : DEFAULT_DUE_TIME;
+  return dueAt && !Number.isNaN(Date.parse(dueAt)) ? localTime(dueAt) : DEFAULT_DUE_TIME;
 }
 
 /**
- * Joins a calendar day and a time of day back into the instant the API stores.
+ * Joins a local date and time of day into the UTC instant the API stores.
  *
- * No date means no deadline, whatever the time box says: a time alone is not a due date, and
- * writing one would put the assignment on the first of January.
+ * No date means no deadline, whatever the time box says: a time alone is not a due date.
  */
 export function composeDueAt(date: string, time: string): string | null {
   if (!date) return null;
   const clock = /^([01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : DEFAULT_DUE_TIME;
-  return `${date}T${clock}:00.000Z`;
+  return fromLocal(date, clock);
 }
 
-/**
- * A due date as a short day, from the stored calendar day rather than the instant.
- *
- * Review found the views this was missing from. `new Date(dueAt).toLocaleDateString(...)` renders
- * in the browser's zone, so the printed day slides off the ten characters every other view shows:
- * a deadline stored at 01:00 reads as the day before in Los Angeles, and one at 23:59 as the day
- * after in Tokyo -- while the assignments table, formatting from `slice(0, 10)`, shows the day the
- * student typed. One assignment, two dates, on two screens of the same app.
- *
- * Being able to set a time is what exposed it: while every deadline sat at 23:59Z the western
- * half of the world happened to round the right way. Noon anchors the formatting far enough from
- * both midnights that no zone can shift it.
- */
+/** A deadline as a short day, on the student's calendar: "Oct 5". */
 export function formatDueDay(
   dueAt: string,
   options: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" },
 ): string {
-  return new Date(`${dueDatePart(dueAt)}T12:00:00Z`).toLocaleDateString(undefined, {
-    ...options,
-    timeZone: "UTC",
-  });
+  return formatInstant(dueAt, options);
 }

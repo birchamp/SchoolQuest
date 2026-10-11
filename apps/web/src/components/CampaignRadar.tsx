@@ -22,6 +22,7 @@ import {
   type Projection,
 } from "../lib/radar-geometry";
 import type { CampaignRadarView } from "../lib/types";
+import { appNow, localDayOfWeek } from "../lib/clock";
 
 /**
  * The surface the term is planned from.
@@ -189,7 +190,7 @@ export function CampaignRadar({
     (activeId ? inRange.find((e) => e.id === activeId) : undefined) ?? worstEncounter(inRange);
 
   // The student's own weekday: UTC's was already tomorrow for an evening west of Greenwich.
-  const todayDayOfWeek = useMemo(() => new Date().getDay(), []);
+  const todayDayOfWeek = useMemo(() => localDayOfWeek(appNow()), []);
   const rings = useMemo(
     () => ringGeometry(weeks, radar.currentTermWeek),
     [weeks, radar.currentTermWeek],

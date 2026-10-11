@@ -2,6 +2,7 @@ import type { Course, ThemeName } from "@schoolquest/domain";
 import { explainBlockKind, explainDayLoad, plainDayLoad } from "@schoolquest/theme-language";
 import { formatDueDay } from "../lib/due-time";
 import type { DayShapeView, FallbackView, SessionBriefView } from "../lib/types";
+import { dateToEpochMinutes, dayOfWeekFor } from "@schoolquest/domain";
 
 /**
  * The week as prepared session notes (packages/planning-engine/src/session-brief.ts,
@@ -98,7 +99,7 @@ function num(value: number): string {
 
 /** Date-only strings are UTC calendar days; parsing them locally shifts the weekday. */
 function weekdayOf(date: string): string {
-  return DAY_LONG[new Date(`${date}T00:00:00Z`).getUTCDay()] ?? date;
+  return DAY_LONG[dayOfWeekFor(dateToEpochMinutes(date))] ?? date;
 }
 
 /**

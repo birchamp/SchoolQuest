@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { type Course, type ThemeName } from "@schoolquest/domain";
+import {
+  addDays,
+  dateToEpochMinutes,
+  dayOfWeekFor,
+  formatTimeOfDay,
+  fromEpochMinutes,
+  type Course,
+  type ThemeName,
+} from "@schoolquest/domain";
 import { deadlinesByDay, type CalendarDeadline } from "@schoolquest/planning-engine";
 import { explainBlockKind, explainDayLoad, label, plainDayLoad } from "@schoolquest/theme-language";
 import type {
@@ -8,7 +16,7 @@ import type {
   PlanResponse,
   SessionBriefView,
 } from "../lib/types";
-import { wallClockToday } from "../lib/clock";
+import { appToday, formatClock, formatTime, localDate, planTimeZone } from "../lib/clock";
 import { courseLabelInk } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
 import { CalendarLegend } from "./CalendarLegend";
@@ -119,7 +127,7 @@ export function WeekMap({
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   // The student's own date, in the frame every stored time is written in (lib/clock.ts).
-  const today = wallClockToday();
+  const today = appToday();
   const start = plan.horizonStart ?? plan.planVersion?.horizonStart ?? today;
 
   // Falling back to the raw sessions keeps this view working against a plan payload that
@@ -143,6 +151,7 @@ export function WeekMap({
     horizonStart: start,
     horizonDays: days.length,
     sessions: plan.sessions,
+    timeZone: planTimeZone(),
   });
   const mealsByDate = groupMealsByDate(plan.meals ?? []);
   // Time the engine held on the student's behalf has to be visible somewhere, or it is
@@ -351,15 +360,7 @@ export function WeekMap({
                             : ""}
                         </span>
                         <span className="time">
-                          {new Date(meal.start! * 60_000).toLocaleTimeString(undefined, {
-                            hour: "numeric",
-                            minute: "2-digit",
-                            // The engine stores wall-clock times as UTC by convention, and
-                            // every other view reads them back the same way. Omit this and a
-                            // student two zones off sees 8am breakfast rendered as 4am here
-                            // while the hour-by-hour calendar, which pins UTC, still says 8.
-                            timeZone: "UTC",
-                          })}
+                          {formatTime(fromEpochMinutes(meal.start!))}
                           {" · "}
                           {formatMinutes(meal.minutes)} held
                         </span>
@@ -413,11 +414,7 @@ export function WeekMap({
                       )}
                       {beat.title}
                       <span className="time" style={recede ? { color: RECESSED_INK } : undefined}>
-                        {new Date(beat.startAt).toLocaleTimeString(undefined, {
-                          hour: "numeric",
-                          minute: "2-digit",
-                          timeZone: "UTC",
-                        })}
+                        {formatTime(beat.startAt)}
                         {" · "}
                         {formatMinutes(beat.minutes)}
                         {/* The count that replaced three identical tiles. */}
@@ -604,12 +601,10 @@ function groupByDate(encounters: EncounterGroupView[]): Map<string, EncounterGro
 /** Seven clear days, for a plan payload with no brief attached. */
 function fallbackDays(start: string): SessionBriefView["days"] {
   return Array.from({ length: 7 }, (_, i) => {
-    const date = new Date(`${start}T00:00:00Z`);
-    date.setUTCDate(date.getUTCDate() + i);
-    const iso = date.toISOString().slice(0, 10);
+    const date = addDays(start, i);
     return {
-      date: iso,
-      dayOfWeek: date.getUTCDay(),
+      date,
+      dayOfWeek: dayOfWeekFor(dateToEpochMinutes(date)),
       load: "clear" as const,
       minutes: 0,
       weightedHours: 0,
@@ -640,12 +635,10 @@ function DueLine({
   // day", and printing it as a time is how a student plans to finish at 23:30 for a deadline
   // their instructor holds at 9am.
   const clock = deadline.timeStated
-    ? new Date(Date.UTC(2000, 0, 1, Math.floor(deadline.minuteOfDay / 60), deadline.minuteOfDay % 60))
-        .toLocaleTimeString(undefined, {
-          hour: "numeric",
-          minute: deadline.minuteOfDay % 60 === 0 ? undefined : "2-digit",
-          timeZone: "UTC",
-        })
+    ? formatClock(formatTimeOfDay(deadline.minuteOfDay), {
+        hour: "numeric",
+        ...(deadline.minuteOfDay % 60 === 0 ? {} : { minute: "2-digit" as const }),
+      })
     : null;
 
   return (
@@ -674,7 +667,7 @@ function fallbackEncounters(plan: PlanResponse): EncounterGroupView[] {
     workItemId: s.workItemId,
     courseId: s.courseId,
     title: itemsById.get(s.workItemId)?.title ?? "Session",
-    date: s.startAt.slice(0, 10),
+    date: localDate(s.startAt),
     startAt: s.startAt,
     minutes: s.minutes,
     blocks: 1,

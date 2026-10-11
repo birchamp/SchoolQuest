@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useBodyTheme } from "../lib/use-body-theme";
+import { formatInstant } from "../lib/clock";
 
 /**
  * The student's own OpenRouter key, and which model reads their syllabi.
@@ -52,10 +53,7 @@ interface ModelOption {
 /** "Mar 2025" from OpenRouter's release timestamp, or null when it did not give one. */
 function releaseText(releasedAt: number | null): string | null {
   if (!releasedAt) return null;
-  return new Date(releasedAt * 1000).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-  });
+  return formatInstant(new Date(releasedAt * 1000).toISOString(), { year: "numeric", month: "short" });
 }
 
 interface MeResponse {
