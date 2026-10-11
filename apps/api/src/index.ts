@@ -17,6 +17,12 @@ import { plansRoute } from "./routes/plans.js";
 import { reviewRoute } from "./routes/review.js";
 import { sessionsRoute } from "./routes/sessions.js";
 import { termsRoute } from "./routes/terms.js";
+import { questionsRoute } from "./routes/questions.js";
+import { calendarRoute } from "./routes/calendar.js";
+import { coursesRoute } from "./routes/courses.js";
+import { commitmentsRoute } from "./routes/commitments.js";
+import { workItemsRoute } from "./routes/work-items.js";
+import { gradesRoute } from "./routes/grades.js";
 import { isDevMode, type AppBindings } from "./env.js";
 import { isTimeZone } from "@schoolquest/domain";
 
@@ -204,7 +210,16 @@ app.patch("/api/me", async (c) => {
   return c.json({ user: { ...safe, openrouterKeyHint: stored ? keyHint(stored) : null } });
 });
 
+// These seven were one file (routes/terms.ts) and are mounted where it was, in its order. No two
+// of their patterns can match the same request, so the split cannot change which handler answers;
+// http.test.ts and the route-list comparison in #35 hold that.
 app.route("/api", termsRoute);
+app.route("/api", questionsRoute);
+app.route("/api", calendarRoute);
+app.route("/api", coursesRoute);
+app.route("/api", commitmentsRoute);
+app.route("/api", workItemsRoute);
+app.route("/api", gradesRoute);
 app.route("/api", plansRoute);
 app.route("/api", sessionsRoute);
 app.route("/api", reviewRoute);
