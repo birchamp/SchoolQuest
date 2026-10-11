@@ -8,6 +8,7 @@ import {
   newId,
   timeOfDay,
   toEpochMinutes,
+  zoneCalendar,
 } from "@schoolquest/domain";
 import {
   buildWeeklyReview,
@@ -20,7 +21,6 @@ import {
 import { auditEvents, commitments, courses, interruptions, workItems, workSessions } from "../db/schema.js";
 import { assertTermOwner, getDb, serializeDays, type Db } from "../db/repo.js";
 import { loadOwnedSession } from "../db/ownership.js";
-import { studentCalendar, studentZone } from "../student-zone.js";
 import type { AppBindings } from "../env.js";
 
 export const reviewRoute = new Hono<AppBindings>();
@@ -41,7 +41,7 @@ reviewRoute.get("/terms/:termId/review", async (c) => {
     return c.json({ error: "Term not found" }, 404);
   }
 
-  return c.json(await loadReview(db, termId, new Date().toISOString(), await studentZone(db, c.get("userId"))));
+  return c.json(await loadReview(db, termId, new Date().toISOString(), c.get("timeZone")));
 });
 
 /** Shared with the plan route, which folds the review into what it already returns. */
@@ -138,7 +138,7 @@ reviewRoute.post("/work-sessions/:id/interrupted", async (c) => {
   if (!owned) return c.json({ error: "Session not found" }, 404);
 
   // "Thursdays at three" on the student's clock: the same key the weekly review groups by.
-  const calendar = await studentCalendar(db, c.get("userId"));
+  const calendar = zoneCalendar(c.get("timeZone"));
   const start = toEpochMinutes(owned.session.startAt);
   const slotKey = slotKeyFor(calendar.dayOfWeek(start), formatTimeOfDay(calendar.minuteOfDay(start)));
 
@@ -260,5 +260,5 @@ reviewRoute.post("/terms/:termId/review/answer", async (c) => {
     createdAt: row.createdAt,
   });
 
-  return c.json({ ok: true, commitment, review: await loadReview(db, termId, new Date().toISOString(), await studentZone(db, c.get("userId"))) });
+  return c.json({ ok: true, commitment, review: await loadReview(db, termId, new Date().toISOString(), c.get("timeZone")) });
 });

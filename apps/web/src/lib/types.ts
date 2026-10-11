@@ -92,6 +92,8 @@ export interface CourseStandingView {
   estimatedPercent: number | null;
   remainingWeightFraction: number;
   confidence: string;
+  /** Per grading category; only what the views read is typed here. */
+  categories?: { passFailCount: number }[];
 }
 
 /*

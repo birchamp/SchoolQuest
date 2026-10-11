@@ -126,6 +126,8 @@ const statements: string[] = [
       reduced_motion: false,
       detail_mode: "standard",
       created_at: now,
+      // The fixture's times are UTC instants already; there is nothing to convert (issue #4).
+      time_standard: 1,
     },
   ]),
   insert("terms", [

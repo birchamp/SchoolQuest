@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import type { Course } from "@schoolquest/domain";
 import type { MilestoneView, UndatedMilestoneView } from "../lib/types";
 import { courseTincture } from "../lib/course-colour";
-import { formatDueDay } from "../lib/due-time";
+import { localDate } from "../lib/clock";
+import { formatDueDay, LONG_DUE_DAY } from "../lib/due-time";
 import { QUEST_PALETTE as Q } from "../lib/quest-palette";
 import { courseLabel, formatEffort, initialsFor } from "../lib/format";
 import { Themed } from "./Themed";
@@ -137,7 +138,7 @@ function workTypeLabel(workType: string): string {
  * ordinary near-term deadline.
  */
 function formatDue(dueAt: string): string {
-  return formatDueDay(dueAt, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  return formatDueDay(dueAt, LONG_DUE_DAY);
 }
 
 /**
@@ -538,7 +539,10 @@ function DatedRow({
 function byMonth(rows: MilestoneView[]): { key: string; label: string; rows: MilestoneView[] }[] {
   const runs: { key: string; label: string; rows: MilestoneView[] }[] = [];
   for (const row of rows) {
-    const key = row.dueAt.slice(0, 7);
+    // The student's month, as the label is: a deadline at 23:59 on 31 October in Chicago is
+    // November in UTC, and grouped by that it sat under the wrong heading. Found in review.
+    const day = localDate(row.dueAt);
+    const key = day.slice(0, 7);
     const tail = runs[runs.length - 1];
     if (tail && tail.key === key) {
       tail.rows.push(row);

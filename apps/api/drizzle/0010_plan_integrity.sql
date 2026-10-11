@@ -10,7 +10,7 @@
 -- plan written last stays the current one. A term with no duplicates keeps its numbers.
 -- The ranking is computed once, in FROM, rather than in a correlated subquery: SQLite re-runs a
 -- correlated subquery per updated row, so each row was ranked against rows already renumbered and
--- two duplicate pairs in one term came out 1, 2, 3, 3, 5 (src/db/migration-0009.test.ts).
+-- two duplicate pairs in one term came out 1, 2, 3, 3, 5 (src/db/migration-0010.test.ts).
 UPDATE plan_versions
 SET version_number = ranked.n
 FROM (

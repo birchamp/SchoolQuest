@@ -29,7 +29,7 @@ sess = None
 
 def call(method, path, body=None, form=None):
     url = BASE + path
-    headers = {}
+    headers = {"X-SchoolQuest-Client": "2"}
     if sess:
         headers["Authorization"] = f"Bearer {sess}"
     if form is not None:

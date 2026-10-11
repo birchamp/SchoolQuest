@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
-import { z } from "zod";
 import { newId } from "@schoolquest/domain";
 import { gradeResults, workItems } from "../db/schema.js";
 import { getDb } from "../db/repo.js";
 import { loadOwnedWorkItem } from "../db/ownership.js";
+import { gradeBody, resolveGradeEntry } from "../grade-entry.js";
 import type { AppBindings } from "../env.js";
 
 export const gradesRoute = new Hono<AppBindings>();
@@ -22,14 +22,10 @@ export const gradesRoute = new Hono<AppBindings>();
  * A result replaces any earlier one for the same item rather than accumulating. A grade is a
  * fact about a piece of work, not an event log, and a corrected mark should read as the
  * correction it is.
+ *
+ * `passFail` records a Pass/Fail outcome instead of a score. It is stored with no points and the
+ * outcome as the letter, so it marks the work as having a result without moving the percentage.
  */
-const gradeBody = z.object({
-  pointsEarned: z.number().nonnegative().nullable(),
-  pointsPossible: z.number().positive().nullable(),
-  letterGrade: z.string().max(8).nullable().default(null),
-  confirmationStatus: z.enum(["confirmed", "extracted_unreviewed", "estimated"]).default("confirmed"),
-});
-
 gradesRoute.put("/work-items/:id/grade", async (c) => {
   const db = getDb(c.env.DB);
   const id = c.req.param("id");
@@ -40,14 +36,9 @@ gradesRoute.put("/work-items/:id/grade", async (c) => {
   const parsed = gradeBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const { pointsEarned, pointsPossible } = parsed.data;
-  if (pointsEarned !== null && pointsPossible !== null && pointsEarned > pointsPossible) {
-    return c.json({ error: "A score cannot be higher than the total it is out of." }, 400);
-  }
-
-  // Fall back to the item's own points when the student gives only a score — the syllabus
-  // already said what it was out of, and making them retype it invites a mismatch.
-  const outOf = pointsPossible ?? existing.pointsPossible ?? null;
+  const resolved = resolveGradeEntry(parsed.data, existing.pointsPossible);
+  if ("error" in resolved) return c.json({ error: resolved.error }, 400);
+  const { pointsEarned, pointsPossible, letterGrade } = resolved.entry;
 
   await db.delete(gradeResults).where(eq(gradeResults.workItemId, id));
   const [grade] = await db
@@ -56,8 +47,8 @@ gradesRoute.put("/work-items/:id/grade", async (c) => {
       id: newId("gradeResult"),
       workItemId: id,
       pointsEarned,
-      pointsPossible: outOf,
-      letterGrade: parsed.data.letterGrade,
+      pointsPossible,
+      letterGrade,
       postedAt: new Date().toISOString(),
       confirmationStatus: parsed.data.confirmationStatus,
       sourceDocumentId: null,

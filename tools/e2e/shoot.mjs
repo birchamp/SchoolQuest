@@ -13,7 +13,7 @@ mkdirSync(OUT, { recursive: true });
 async function api(path, method = "GET", body, token) {
   const res = await fetch(API + path, {
     method,
-    headers: {
+    headers: { "X-SchoolQuest-Client": "2",
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },

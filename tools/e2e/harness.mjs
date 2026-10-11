@@ -39,6 +39,8 @@ export async function api(path, method = "GET", body, token, extraHeaders = {}) 
     method,
     headers: {
       "Content-Type": "application/json",
+      // The current app's protocol; without it the API answers 426, "reload".
+      "X-SchoolQuest-Client": "2",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...extraHeaders,
     },

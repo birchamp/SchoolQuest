@@ -21,7 +21,7 @@
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { TODAY, api, at, check, dateFrom, journey, openApp as open, runJourney, signUp as freshAccount } from "./harness.mjs";
+import { API, TODAY, api, at, check, dateFrom, journey, openApp as open, runJourney, signUp as freshAccount } from "./harness.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -396,17 +396,20 @@ await runJourney("scheduling checks", async ({ browser }) => {
     await context.close();
   });
 
-  // 5b. An account from before every time was UTC. Its stored times were Chicago wall-clock
-  //     values spelled as UTC; the first requests after the update convert them -- once, even
-  //     when the app fires several at the same moment, and across more rows than one statement.
-  await journey(async () => {
-    const email = `scheduling-legacy-${Date.now()}@example.edu`;
+  // 5b. Accounts from before every time was UTC. Their stored times were wall-clock values in
+  //     the student's zone, spelled as UTC; the first requests after the update convert them --
+  //     once, even when the app fires several at the same moment, across more rows than one
+  //     statement, and in the zone the records were actually written in.
+  /**
+   * Makes an account holding `rows` old-style records, then lets the updated app at it from a
+   * device in `device`. Returns what moved.
+   */
+  async function legacyAccount({ label, stored, mode, device, rows }) {
+    const email = `scheduling-legacy-${label}-${Date.now()}@example.edu`;
     const login = await api("/api/auth/login", "POST", { email });
     const { sessionToken: token } = await api("/api/auth/callback", "POST", {
       token: new URL(login.devLoginUrl).searchParams.get("token"),
     });
-    // The account still says New York, the sign-up default; the student is in Chicago, and their
-    // records were written on Chicago's clock. The conversion must use where the device is.
     const { term } = await api("/api/terms", "POST", { name: "Fall", startDate: "2026-08-24", endDate: "2026-12-15" }, token);
     await api(
       `/api/terms/${term.id}/availability-rules`,
@@ -415,51 +418,84 @@ await runJourney("scheduling checks", async ({ browser }) => {
       token,
     );
     const { course } = await api(`/api/terms/${term.id}/courses`, "POST", { name: "History" }, token);
-    // Written the old way: "midnight on the day", in the student's own clock. Enough rows that
-    // the conversion needs more than one statement.
-    for (let i = 0; i < 35; i += 1) {
+    for (let i = 0; i < rows; i += 1) {
       await addWork(token, course.id, `Reading ${i + 1}`, "reading", `2026-10-${String(13 + (i % 5)).padStart(2, "0")}T23:59:00.000Z`, 30);
     }
     await api(`/api/terms/${term.id}/plans/generate`, "POST", { now: "2026-10-12T15:00:00.000Z", horizonStart: "2026-10-12" }, token);
     const before = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token);
-    localSql(`UPDATE users SET time_standard = 0 WHERE email = '${email}'`);
+    localSql(
+      `UPDATE users SET time_standard = 0, timezone = '${stored}', timezone_mode = '${mode}' WHERE email = '${email}'`,
+    );
 
-    // A tab still running the old app sends no zone: it is told to reload, and nothing moves.
-    let refused = "";
-    try {
-      await api("/api/terms", "GET", undefined, token);
-    } catch (e) {
-      refused = String(e.message);
-    }
-    check("an old app on an unconverted account is told to reload, not served", /409/.test(refused) && /Reload/.test(refused));
+    // A tab still running the old app sends no protocol: it is told to reload, and nothing moves.
+    const oldApp = await fetch(`${API}/api/terms`, { headers: { Authorization: `Bearer ${token}` } });
+    const oldBody = await oldApp.text();
 
     // The updated app's first requests arrive together, each saying where the device is.
-    const chicago = { "X-Device-Time-Zone": "America/Chicago" };
-    await Promise.all([1, 2, 3].map(() => api("/api/terms", "GET", undefined, token, chicago)));
-    const after = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token, chicago);
-    await api("/api/terms", "GET", undefined, token, chicago);
-    const later = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token, chicago);
-    const zoneAfter = (await api("/api/me", "GET", undefined, token, chicago)).user.timezone;
+    const where = { "X-Device-Time-Zone": device };
+    await Promise.all([1, 2, 3].map(() => api("/api/terms", "GET", undefined, token, where)));
+    const after = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token, where);
+    await api("/api/terms", "GET", undefined, token, where);
+    const later = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token, where);
+    const zoneAfter = (await api("/api/me", "GET", undefined, token, where)).user.timezone;
+    // And once converted, the old app is still refused: it would misread every time it was given.
+    const oldAppLater = await fetch(`${API}/api/terms`, { headers: { Authorization: `Bearer ${token}` } });
+    return {
+      before, after, later, zoneAfter,
+      refused: oldApp.status === 426 && /Reload/.test(oldBody) && oldAppLater.status === 426,
+    };
+  }
 
-    // October in Chicago is UTC-5: every value moves exactly five hours later, once.
-    const fiveHours = (iso) => new Date(Date.parse(iso) + 5 * 3_600_000).toISOString();
-    const wrongItems = before.workItems.filter(
-      (w) => after.workItems.find((x) => x.id === w.id)?.dueAt !== fiveHours(w.dueAt),
-    );
+  /** Whether every record moved by exactly `hours`, once. */
+  function movedBy(result, hours) {
+    const shifted = (iso) => new Date(Date.parse(iso) + hours * 3_600_000).toISOString();
+    const { before, after, later } = result;
+    const wrongItems = before.workItems.filter((w) => after.workItems.find((x) => x.id === w.id)?.dueAt !== shifted(w.dueAt));
     const wrongSessions = before.existingSessions.filter(
-      (s) => after.existingSessions.find((x) => x.id === s.id)?.startAt !== fiveHours(s.startAt),
+      (x) => after.existingSessions.find((y) => y.id === x.id)?.startAt !== shifted(x.startAt),
     );
-    check(
-      "an old account's local times become the UTC instants they meant, exactly once",
-      before.workItems.length === 35 &&
+    return {
+      ok:
         before.existingSessions.length > 0 &&
         wrongItems.length === 0 &&
         wrongSessions.length === 0 &&
-        JSON.stringify(later.workItems) === JSON.stringify(after.workItems) &&
-        zoneAfter === "America/Chicago",
-      `${before.workItems.length} items, ${before.existingSessions.length} blocks; ` +
-        `${wrongItems.length} items and ${wrongSessions.length} blocks wrong; zone now ${zoneAfter}; ` +
+        JSON.stringify(later.workItems) === JSON.stringify(after.workItems),
+      detail:
+        `${before.workItems.length} items, ${before.existingSessions.length} blocks; ` +
+        `${wrongItems.length} items and ${wrongSessions.length} blocks wrong; zone now ${result.zoneAfter}; ` +
         `e.g. ${before.workItems[0]?.dueAt} -> ${after.workItems.find((x) => x.id === before.workItems[0]?.id)?.dueAt}`,
+    };
+  }
+
+  await journey(async () => {
+    // Still on the sign-up default, New York, which says nothing: the device is believed, and
+    // the account takes its zone. October in Chicago is UTC-5. Enough rows for several statements.
+    const fresh = await legacyAccount({ label: "default", stored: "America/New_York", mode: "device", device: "America/Chicago", rows: 35 });
+    const moved = movedBy(fresh, 5);
+    check("an old app is told to reload, before and after the conversion", fresh.refused);
+    check(
+      "an old account on the sign-up zone is converted where the device is, exactly once",
+      fresh.before.workItems.length === 35 && moved.ok && fresh.zoneAfter === "America/Chicago",
+      moved.detail,
+    );
+
+    // A real stored zone, opened first on a trip: the records were written at home, in Denver
+    // (UTC-6 in October), and that is the zone they are read in. The trip is the app's to ask about.
+    const trip = await legacyAccount({ label: "trip", stored: "America/Denver", mode: "device", device: "Asia/Tokyo", rows: 3 });
+    const tripMoved = movedBy(trip, 6);
+    check(
+      "an old account with a real zone is converted in that zone, not the device's",
+      tripMoved.ok && trip.zoneAfter === "America/Denver",
+      tripMoved.detail,
+    );
+
+    // Pinned to Los Angeles (UTC-7), opened from Chicago: the pin wins and stays.
+    const pinned = await legacyAccount({ label: "pinned", stored: "America/Los_Angeles", mode: "pinned", device: "America/Chicago", rows: 3 });
+    const pinnedMoved = movedBy(pinned, 7);
+    check(
+      "a pinned old account is converted in its pinned zone",
+      pinnedMoved.ok && pinned.zoneAfter === "America/Los_Angeles",
+      pinnedMoved.detail,
     );
   });
 

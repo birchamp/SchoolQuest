@@ -10,7 +10,6 @@ import { remainingAfterOutcome } from "../db/remaining-effort.js";
 import { isOpenOnDay } from "../db/lost-day.js";
 import { assertTermOwner } from "../db/repo.js";
 import { loadOwnedSession } from "../db/ownership.js";
-import { studentZone } from "../student-zone.js";
 import type { AppBindings } from "../env.js";
 
 export const sessionsRoute = new Hono<AppBindings>();
@@ -194,7 +193,7 @@ sessionsRoute.post("/work-sessions/:id/move", async (c) => {
     commitments: fixed,
     termStartDate: owned.term.startDate,
     termEndDate: owned.term.endDate,
-    timeZone: await studentZone(db, c.get("userId")),
+    timeZone: c.get("timeZone"),
   });
   if (conflict) return c.json({ error: conflict }, 409);
 
@@ -261,7 +260,7 @@ sessionsRoute.post("/terms/:termId/days/:date/lost", async (c) => {
   if (courseIds.length === 0) return c.json({ skipped: 0 });
 
   // The student's day, from their midnight to the next, as UTC instants.
-  const timeZone = await studentZone(db, c.get("userId"));
+  const timeZone = c.get("timeZone");
   const calendar = zoneCalendar(timeZone);
   const dayStart = fromEpochMinutes(calendar.dayStart(date.data));
   const dayEnd = fromEpochMinutes(calendar.dayStart(addDays(date.data, 1)));

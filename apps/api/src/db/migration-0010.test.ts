@@ -11,13 +11,18 @@ const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as {
 type DatabaseSync = DatabaseSyncType;
 
 /**
- * Migration 0009 renumbers duplicate plan versions before it makes (term, version) unique.
+ * Migration 0010 (`0010_plan_integrity.sql`) renumbers duplicate plan versions before it makes
+ * (term, version) unique.
  *
  * `http.test.ts` applies every migration to an empty database, where there is nothing to
  * renumber, so it could not see the first version of this migration leave duplicates behind:
  * its ranking ran inside a correlated subquery, re-ranked after each row was updated, and two
  * duplicate pairs in one term came out as 1, 2, 3, 3, 5 -- and the unique index refused to build.
  * This applies the real files to SQLite with stored duplicates in between.
+ *
+ * The migration is found by name, not number, and everything before it is applied first --
+ * including 0009_plan_time_zone, whose `plan_versions.time_zone` column has to come through the
+ * renumbering untouched.
  */
 
 const migrationsDir = join(import.meta.dirname, "..", "..", "drizzle");
@@ -54,12 +59,19 @@ function insert(db: DatabaseSync, table: string, values: Record<string, string |
   ).run(...names.map((n) => row[n]!));
 }
 
-describe("migration 0009", () => {
+/** Every migration before the plan-integrity one, in the order wrangler applies them, and it. */
+function migrationFiles(): { before: string[]; target: string } {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => /^\d{4}_.*\.sql$/.test(f))
+    .sort();
+  const target = files.find((f) => /^\d{4}_plan_integrity\.sql$/.test(f));
+  if (!target) throw new Error(`No plan-integrity migration in ${migrationsDir}`);
+  return { before: files.filter((f) => f < target), target };
+}
+
+describe("migration 0010 (plan integrity)", () => {
   it("renumbers every duplicate plan version so the unique index can be built", () => {
-    const files = readdirSync(migrationsDir)
-      .filter((f) => /^\d{4}_.*\.sql$/.test(f))
-      .sort();
-    const before = files.filter((f) => f < "0009");
+    const { before, target } = migrationFiles();
     const db = new DatabaseSync(":memory:");
     db.exec("PRAGMA foreign_keys = ON");
     for (const file of before) apply(db, file);
@@ -86,10 +98,9 @@ describe("migration 0009", () => {
       });
     }
 
-    apply(
-      db,
-      files.find((f) => f.startsWith("0009"))!,
-    );
+    db.prepare("UPDATE plan_versions SET time_zone = ? WHERE id = ?").run("America/Chicago", "x2");
+
+    apply(db, target);
 
     const rows = db
       .prepare("SELECT id, version_number AS n FROM plan_versions ORDER BY id")
@@ -103,6 +114,10 @@ describe("migration 0009", () => {
       // A term with no duplicates keeps its numbers, gaps included.
       y1: 1,
       y2: 4,
+    });
+    // The zone a plan was made in (0009) comes through the renumbering and index rebuild.
+    expect(db.prepare("SELECT time_zone FROM plan_versions WHERE id = 'x2'").get()).toEqual({
+      time_zone: "America/Chicago",
     });
   });
 });

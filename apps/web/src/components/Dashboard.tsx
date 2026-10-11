@@ -1,8 +1,10 @@
 import { useState } from "react";
-import type { Course, WorkItem } from "@schoolquest/domain";
+import type { Course, GradeResult, PassFail, WorkItem } from "@schoolquest/domain";
 import { explainHealth, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { courseChipFill, courseInitials } from "../lib/course-colour";
+import { noPercentReading, parseScoreEntry, workAwaitingResult } from "../lib/record-results";
+import { PassFailButtons, recordPassFail } from "./PassFailButtons";
 import type { CourseHealthView, TermHealthView } from "../lib/types";
 import { appNow } from "../lib/clock";
 import { useTheme } from "../lib/theme-context";
@@ -90,16 +92,20 @@ export function Dashboard({
   health,
   courses,
   workItems,
+  grades,
   onChanged,
 }: {
   health: TermHealthView;
   courses: Course[];
   workItems: WorkItem[];
+  /** Results already recorded, so the record-results list never offers to overwrite one. */
+  grades: GradeResult[];
   onChanged: () => void;
 }) {
   const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
+  const gradedIds = new Set(grades.map((g) => g.workItemId));
 
   if (health.courses.length === 0) return null;
 
@@ -135,6 +141,7 @@ export function Dashboard({
           row={row}
           course={coursesById.get(row.courseId)}
           workItems={workItems}
+          gradedIds={gradedIds}
           quest={quest}
           onChanged={onChanged}
         />
@@ -147,12 +154,14 @@ function CourseRow({
   row,
   course,
   workItems,
+  gradedIds,
   quest,
   onChanged,
 }: {
   row: CourseHealthView;
   course: Course | undefined;
   workItems: WorkItem[];
+  gradedIds: ReadonlySet<string>;
   quest: boolean;
   onChanged: () => void;
 }) {
@@ -280,6 +289,7 @@ function CourseRow({
         <RecordResults
           courseId={row.courseId}
           workItems={workItems}
+          gradedIds={gradedIds}
           onChanged={onChanged}
         />
       )}
@@ -296,7 +306,7 @@ function CourseRow({
  */
 function GradeReading({ row }: { row: CourseHealthView }) {
   if (row.gradePercent === null) {
-    return <span>no grades yet</span>;
+    return <span>{noPercentReading(row.passFailCount)}</span>;
   }
   const basis =
     row.gradedWeightFraction > 0
@@ -315,38 +325,48 @@ function GradeReading({ row }: { row: CourseHealthView }) {
 function RecordResults({
   courseId,
   workItems,
+  gradedIds,
   onChanged,
 }: {
   courseId: string;
   workItems: WorkItem[];
+  gradedIds: ReadonlySet<string>;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scores, setScores] = useState<Record<string, { earned: string; outOf: string }>>({});
 
-  const pending = workItems.filter(
-    (w) =>
-      w.courseId === courseId &&
-      (w.status === "completed" || w.status === "submitted") &&
-      w.dueAt !== null &&
-      Date.parse(w.dueAt) <= Date.parse(appNow()),
-  );
+  const pending = workAwaitingResult(workItems, courseId, gradedIds, Date.parse(appNow()));
   if (pending.length === 0) return null;
 
   async function save(item: WorkItem) {
-    const entry = scores[item.id];
-    const earned = Number(entry?.earned);
-    const outOf = Number(entry?.outOf ?? item.pointsPossible ?? NaN);
-    if (!Number.isFinite(earned) || !Number.isFinite(outOf) || outOf <= 0) return;
+    const score = parseScoreEntry(scores[item.id], item.pointsPossible);
+    // Said, not swallowed: this used to return silently, so Save looked broken.
+    if (!score) {
+      setError("A score needs a number, and a total to be out of.");
+      return;
+    }
 
     setBusy(item.id);
     setError(null);
     try {
-      await api.put(`/api/work-items/${item.id}/grade`, {
-        pointsEarned: earned,
-        pointsPossible: outOf,
-      });
+      await api.put(`/api/work-items/${item.id}/grade`, score);
+      setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function savePassFail(item: WorkItem, passFail: PassFail) {
+    setBusy(item.id);
+    setError(null);
+    try {
+      await recordPassFail(item.id, passFail);
+      setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not save.");
@@ -416,6 +436,13 @@ function RecordResults({
           <button className="action" type="submit" disabled={busy === item.id}>
             Save
           </button>
+          <span aria-hidden="true" className="muted">
+            or
+          </span>
+          <PassFailButtons
+            disabled={busy === item.id}
+            onRecord={(passFail) => void savePassFail(item, passFail)}
+          />
         </form>
       ))}
       {error && <p className="error">{error}</p>}

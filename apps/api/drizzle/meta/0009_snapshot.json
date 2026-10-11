@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2bc49971-6a18-41c1-8b13-aa4b2e685760",
+  "id": "3c108a1a-2ba6-450a-bcd9-7eac40b30faf",
   "prevId": "1d4bc51b-2a0d-400e-b1c9-b5f82655d336",
   "tables": {
     "audit_events": {
@@ -578,34 +578,7 @@
           "isUnique": false
         }
       },
-      "foreignKeys": {
-        "dependencies_predecessor_work_item_id_work_items_id_fk": {
-          "name": "dependencies_predecessor_work_item_id_work_items_id_fk",
-          "tableFrom": "dependencies",
-          "tableTo": "work_items",
-          "columnsFrom": [
-            "predecessor_work_item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "dependencies_successor_work_item_id_work_items_id_fk": {
-          "name": "dependencies_successor_work_item_id_work_items_id_fk",
-          "tableFrom": "dependencies",
-          "tableTo": "work_items",
-          "columnsFrom": [
-            "successor_work_item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -1246,6 +1219,13 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "time_zone": {
+          "name": "time_zone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -1255,7 +1235,7 @@
             "term_id",
             "version_number"
           ],
-          "isUnique": true
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1886,19 +1866,6 @@
           "tableTo": "work_items",
           "columnsFrom": [
             "work_item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "work_sessions_plan_version_id_plan_versions_id_fk": {
-          "name": "work_sessions_plan_version_id_plan_versions_id_fk",
-          "tableFrom": "work_sessions",
-          "tableTo": "plan_versions",
-          "columnsFrom": [
-            "plan_version_id"
           ],
           "columnsTo": [
             "id"

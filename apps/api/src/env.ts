@@ -39,6 +39,8 @@ export function isDevMode(env: Pick<Env, "DEV_MODE">): boolean {
 export interface AppVariables {
   userId: string;
   userEmail: string;
+  /** The student's zone, valid, set by `requireAuth`. */
+  timeZone: string;
 }
 
 export type AppBindings = { Bindings: Env; Variables: AppVariables };

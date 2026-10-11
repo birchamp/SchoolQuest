@@ -1,10 +1,12 @@
 import { Fragment, useMemo, useState } from "react";
-import type { Course, WorkItem } from "@schoolquest/domain";
+import { passFailOf, type Course, type PassFail, type WorkItem } from "@schoolquest/domain";
 import { buildWeekCalendar, defaultEffortFor, type SlotKind } from "@schoolquest/planning-engine";
 import { appToday, formatTime, localMinuteOfDay, planTimeZone } from "../lib/clock";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
+import { noPercentReading, onDefaultList, parseScoreEntry } from "../lib/record-results";
+import { PassFailButtons, recordPassFail } from "./PassFailButtons";
 import {
   DEFAULT_DUE_TIME,
   composeDueAt,
@@ -186,6 +188,16 @@ export function AssignmentsTable({
     () => new Set((plan.grades ?? []).map((g) => g.workItemId)),
     [plan.grades],
   );
+  /** Work recorded as a Fail and not dropped -- the same set the course's Fail concern names. */
+  const failedIds = useMemo(
+    () =>
+      new Set(
+        (plan.grades ?? [])
+          .filter((g) => !g.dropped && passFailOf(g) === "fail")
+          .map((g) => g.workItemId),
+      ),
+    [plan.grades],
+  );
   const gradesByItem = useMemo(
     () => new Map((plan.grades ?? []).map((g) => [g.workItemId, g])),
     [plan.grades],
@@ -204,15 +216,9 @@ export function AssignmentsTable({
   const rows = useMemo(() => {
     const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
     const list = plan.workItems
-      // Handed-in work stays on the list by default: it is the one finished state with
-      // something still owed on it -- a result -- and hiding it is how a score never gets
-      // written down. It drops off once the grade is in.
-      .filter(
-        (w) =>
-          showDone ||
-          (w.status === "submitted" && !gradedIds.has(w.id)) ||
-          (w.status !== "completed" && w.status !== "submitted" && w.status !== "canceled"),
-      )
+      // Finished work is hidden by default, except what still needs the student: handed-in
+      // work waiting on a result, and work recorded as a Fail (see onDefaultList).
+      .filter((w) => showDone || onDefaultList(w, gradedIds, failedIds))
       .map((item) => ({
         item,
         title: item.title,
@@ -230,7 +236,7 @@ export function AssignmentsTable({
       return sort.desc ? -r : r;
     });
     return list;
-  }, [plan.workItems, plan.courses, sort, showDone, gradedIds]);
+  }, [plan.workItems, plan.courses, sort, showDone, gradedIds, failedIds]);
 
   async function saveEffort(item: WorkItem, value: string) {
     const trimmed = value.trim();
@@ -304,24 +310,30 @@ export function AssignmentsTable({
   }
 
   async function saveScore(item: WorkItem) {
-    const entry = scores[item.id];
-    const earned = Number(entry?.earned);
-    // An *empty* total falls back to what the syllabus said the thing was out of, which is
-    // usually right and always editable. Only empty: `||` would also swallow a typed "0",
-    // and silently grading 42/100 when the student wrote 42/0 is worse than the error.
-    const outOfTyped = (entry?.outOf ?? "").trim();
-    const outOf = outOfTyped === "" ? (item.pointsPossible ?? NaN) : Number(outOfTyped);
-    if (!Number.isFinite(earned) || !Number.isFinite(outOf) || outOf <= 0) {
+    const score = parseScoreEntry(scores[item.id], item.pointsPossible);
+    if (!score) {
       setError("A score needs a number, and a total to be out of.");
       return;
     }
     setBusy(item.id);
     setError(null);
     try {
-      await api.put(`/api/work-items/${item.id}/grade`, {
-        pointsEarned: earned,
-        pointsPossible: outOf,
-      });
+      await api.put(`/api/work-items/${item.id}/grade`, score);
+      setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
+      setEditingGrade(null);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function savePassFail(item: WorkItem, passFail: PassFail) {
+    setBusy(item.id);
+    setError(null);
+    try {
+      await recordPassFail(item.id, passFail);
       setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
       setEditingGrade(null);
       onChanged();
@@ -637,6 +649,15 @@ export function AssignmentsTable({
                         {gradesByItem.get(item.id)!.pointsPossible}
                       </span>
                     )}
+                    {(() => {
+                      const grade = gradesByItem.get(item.id);
+                      const outcome = grade ? passFailOf(grade) : null;
+                      return outcome ? (
+                        <span className="muted" style={{ display: "block", fontSize: "0.74rem" }}>
+                          {outcome === "pass" ? "passed" : "failed"}
+                        </span>
+                      ) : null;
+                    })()}
                   </td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     {/* Handed in and still waiting on a result -- or a recorded score reopened to
@@ -699,6 +720,10 @@ export function AssignmentsTable({
                         <button className="action" type="submit" disabled={busy === item.id}>
                           Save
                         </button>
+                        <PassFailButtons
+                          disabled={busy === item.id}
+                          onRecord={(passFail) => void savePassFail(item, passFail)}
+                        />
                         {editingGrade === item.id ? (
                           <button
                             className="action"
@@ -726,7 +751,7 @@ export function AssignmentsTable({
                           className="action"
                           disabled={busy === item.id}
                           onClick={() => startEditGrade(item)}
-                          title="Correct the recorded score"
+                          title="Correct the recorded result"
                         >
                           Edit grade
                         </button>{" "}
@@ -734,7 +759,7 @@ export function AssignmentsTable({
                           className="action"
                           disabled={busy === item.id}
                           onClick={() => void clearGrade(item)}
-                          title="Remove the recorded score; the row waits on a result again"
+                          title="Remove the recorded result; the row waits on a result again"
                         >
                           Clear grade
                         </button>
@@ -1140,6 +1165,7 @@ export function CoursesTable({ plan }: { plan: PlanResponse }) {
       dueTitle: row.nextDueTitle,
       grade: row.gradePercent,
       gradedCount: row.gradedCount,
+      passFailCount: row.passFailCount,
       gradedWeightFraction: row.gradedWeightFraction,
       concerns: row.concerns,
     }));
@@ -1217,7 +1243,7 @@ export function CoursesTable({ plan }: { plan: PlanResponse }) {
                 </td>
                 <td style={{ textAlign: "right" }}>
                   {row.grade === null ? (
-                    <span className="muted">no grades yet</span>
+                    <span className="muted">{noPercentReading(row.passFailCount)}</span>
                   ) : (
                     <>
                       {Math.round(row.grade)}%

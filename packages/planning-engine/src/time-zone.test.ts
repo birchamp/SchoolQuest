@@ -139,7 +139,7 @@ describe("a student in Chicago", () => {
     const now = toEpochMinutes("2026-10-13T01:30:00.000Z");
     const tonight = { workItemId: "a", startAt: "2026-10-13T02:00:00.000Z" }; // 21:00 local
     const tomorrow = { workItemId: "b", startAt: "2026-10-13T23:00:00.000Z" }; // 18:00 next day
-    expect(selectRecommendedSessions([tonight, tomorrow], now, undefined, 3, "America/Chicago")).toEqual([tonight]);
+    expect(selectRecommendedSessions([tonight, tomorrow], now, { timeZone: "America/Chicago" })).toEqual([tonight]);
   });
 
   it("puts a deadline at midnight their time on their day, as a default time", () => {
@@ -214,5 +214,40 @@ describe("found in review", () => {
     });
     expect(calendar.days[0]!.firstMinute).toBe(9 * 60);
     expect(calendar.windowStartMinute).toBeLessThanOrEqual(9 * 60);
+  });
+
+  it("sizes a band by the clock on the night the clocks go back", () => {
+    // 00:30 to 03:00 in New York on 1 November 2026 is three and a half hours of real time,
+    // the repeated hour included, but two and a half on the clock the calendar is drawn
+    // against. Sized by elapsed minutes, it ran an hour past 3am and pushed the window to 4.
+    const calendar = buildWeekCalendar({
+      horizonStart: "2026-11-01",
+      horizonDays: 1,
+      timeZone: "America/New_York",
+      meetingPatterns: [],
+      commitments: [],
+      availability: [],
+      meals: [],
+      sessions: [{ workItemId: "a", courseId: "c", startAt: "2026-11-01T04:30:00.000Z", endAt: "2026-11-01T08:00:00.000Z" }],
+    });
+    const band = calendar.days[0]!.slots.find((x) => x.kind === "study")!;
+    expect([band.startMinute, band.endMinute]).toEqual([30, 3 * 60]);
+    expect(calendar.days[0]!.lastMinute).toBe(3 * 60);
+    expect(calendar.windowEndMinute).toBe(3 * 60);
+  });
+
+  it("ends a band that runs to midnight at 1440, not at minute zero", () => {
+    const calendar = buildWeekCalendar({
+      horizonStart: "2026-10-12",
+      horizonDays: 1,
+      timeZone: "America/Chicago",
+      meetingPatterns: [],
+      commitments: [],
+      availability: [],
+      meals: [],
+      sessions: [{ workItemId: "a", courseId: "c", startAt: "2026-10-13T04:00:00.000Z", endAt: "2026-10-13T05:00:00.000Z" }],
+    });
+    const band = calendar.days[0]!.slots.find((x) => x.kind === "study")!;
+    expect([band.startMinute, band.endMinute]).toEqual([23 * 60, 24 * 60]);
   });
 });

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "69b6b8b0-fd76-4236-92d3-cbc8e352cf24",
-  "prevId": "2bc49971-6a18-41c1-8b13-aa4b2e685760",
+  "id": "2bc49971-6a18-41c1-8b13-aa4b2e685760",
+  "prevId": "3c108a1a-2ba6-450a-bcd9-7eac40b30faf",
   "tables": {
     "audit_events": {
       "name": "audit_events",
@@ -1246,6 +1246,13 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "time_zone": {
+          "name": "time_zone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -1274,46 +1281,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "rate_limits": {
-      "name": "rate_limits",
-      "columns": {
-        "bucket_key": {
-          "name": "bucket_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "window_start": {
-          "name": "window_start",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "count": {
-          "name": "count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "rate_limits_bucket_key_window_start_pk": {
-          "columns": [
-            "bucket_key",
-            "window_start"
-          ],
-          "name": "rate_limits_bucket_key_window_start_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

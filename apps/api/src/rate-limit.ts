@@ -126,7 +126,7 @@ export interface RateDecision {
  * still ends on schedule. A rule with `countRefused: false` counts only what it allows.
  *
  * If the counter table does not exist the request is allowed. That is a Worker deployed ahead of
- * migration 0010, and refusing there would take sign-in down for everyone over a missing ceiling.
+ * migration 0011, and refusing there would take sign-in down for everyone over a missing ceiling.
  */
 export async function consume(
   store: CounterStore,
@@ -148,7 +148,7 @@ export async function consume(
   } catch (error) {
     if (!isMissingTable(error)) throw error;
     console.warn(
-      "[rate-limit] rate_limits table is missing; allowing the request. Apply migration 0010.",
+      "[rate-limit] rate_limits table is missing; allowing the request. Apply migration 0011.",
       bucketKey.split(":")[0],
     );
     return { allowed: true, retryAfterSeconds };

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness, type TestHarness } from "wrangler";
+import { CLIENT_PROTOCOL, CLIENT_PROTOCOL_HEADER } from "./client-protocol.js";
 
 /**
  * The real Worker, over HTTP, against a real local D1.
@@ -41,7 +42,11 @@ async function signIn(email: string) {
   const login = (await (await post("/api/auth/login", { email })).json()) as Json;
   const token = new URL(String(login["devLoginUrl"])).searchParams.get("token");
   const session = (await (await post("/api/auth/callback", { token })).json()) as Json;
-  const auth = { Authorization: `Bearer ${String(session["sessionToken"])}` };
+  // The app's protocol header too: without it every signed-in request is refused as an old app.
+  const auth = {
+    Authorization: `Bearer ${String(session["sessionToken"])}`,
+    [CLIENT_PROTOCOL_HEADER]: String(CLIENT_PROTOCOL),
+  };
 
   return {
     get: (path: string) => server.fetch(path, { headers: auth }),
@@ -591,7 +596,7 @@ describe("sign-in limit per address", () => {
   }, 60_000);
 });
 
-describe("sign-in before migration 0010", () => {
+describe("sign-in before migration 0011", () => {
   it("still signs people in when the rate_limits table does not exist yet", async () => {
     // A Worker deployed ahead of its migration. The limiter must step aside, not take sign-in
     // down with it.

@@ -35,7 +35,6 @@ import { aiErrorResponse } from "../lib/ai-errors.js";
 import { jsonObject, parseJsonColumn, requireJsonColumn } from "../lib/json-column.js";
 import { openRouterFor } from "../lib/openrouter.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
-import { studentZone } from "../student-zone.js";
 import { rateLimitPerUser } from "../rate-limit.js";
 import type { AppBindings } from "../env.js";
 
@@ -802,7 +801,7 @@ extractionRoute.post("/documents/:id/extraction/confirm", async (c) => {
   }
 
   // --- Assignments. The syllabus's dates are the student's local ones; stored as UTC.
-  const timeZone = await studentZone(db, c.get("userId"));
+  const timeZone = c.get("timeZone");
   for (const claim of claims.filter((c) => c.claimType === "assignment")) {
     const payload = requireJsonColumn(assignmentClaimPayload, claim.payloadJson, PAYLOAD);
     const id = newId("workItem");

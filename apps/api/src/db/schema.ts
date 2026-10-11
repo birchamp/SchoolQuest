@@ -273,6 +273,8 @@ export const planVersions = sqliteTable(
     status: text("status").notNull().default("proposed"),
     summaryJson: text("summary_json").notNull().default("{}"),
     createdAt: text("created_at").notNull(),
+    /** The student's zone when the plan was made; null before migration 0009. */
+    timeZone: text("time_zone"),
   },
   // Unique: two replans racing for one term both read the same latest number, and the second to
   // commit must fail rather than leave two "version 7"s (issue #19). The generate route retries.
