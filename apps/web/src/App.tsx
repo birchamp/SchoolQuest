@@ -11,7 +11,6 @@ import { CourseManager } from "./components/CourseManager";
 import { Today } from "./components/Today";
 import { Coach } from "./components/Coach";
 import { WeekMap } from "./components/WeekMap";
-import { Questline } from "./components/Questline";
 import { CampaignArc } from "./components/CampaignArc";
 import { SessionBrief } from "./components/SessionBrief";
 import { WeeklyReview } from "./components/WeeklyReview";
@@ -38,7 +37,6 @@ import { SyllabusUpload } from "./components/SyllabusUpload";
 import { SetupStatus } from "./components/SetupStatus";
 import { StopButton } from "./components/StopButton";
 import { DiagnosticsButton } from "./components/DiagnosticsButton";
-import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 import { CampaignRadar } from "./components/CampaignRadar";
 import { PlanChanges } from "./components/PlanChanges";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -967,11 +965,6 @@ export function App() {
                     </ErrorBoundary>
                     </Seen>
                   )}
-                  {plan.progress && (
-                    <ErrorBoundary area={label("progress", theme)}>
-                      <Questline progress={plan.progress} courses={plan.courses} />
-                    </ErrorBoundary>
-                  )}
                 </>
               )}
             </>
@@ -992,27 +985,19 @@ export function App() {
           )}
           {tab === "stats" && viewMode === "visual" && plan.health && (
             <Seen event="card_seen.class_board">
-            <ErrorBoundary area="How each class is doing">
-              <CourseGaugeBoard
-                termId={term.id}
-                health={plan.health}
-                courses={plan.courses}
-                onNavigate={goToGaugeTarget}
-                refreshKey={setupSaves}
-              />
-            </ErrorBoundary>
-            </Seen>
-          )}
-          {tab === "stats" && viewMode === "visual" && plan.health && (
             <ErrorBoundary area={label("dashboard", theme)}>
               <Dashboard
+                termId={term.id}
                 health={plan.health}
                 courses={plan.courses}
                 workItems={plan.workItems}
                 grades={plan.grades ?? []}
                 onChanged={refreshPlan}
+                onNavigate={goToGaugeTarget}
+                refreshKey={setupSaves}
               />
             </ErrorBoundary>
+            </Seen>
           )}
           {tab === "stats" && viewMode === "visual" && plan.projects && (
             <Seen event="card_seen.stats">

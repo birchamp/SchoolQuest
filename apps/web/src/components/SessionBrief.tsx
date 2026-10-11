@@ -35,7 +35,7 @@ import { useTheme } from "../lib/theme-context";
  *   it at all; if the card is not useful in plain clothes then the metaphor was carrying
  *   meaning, which is the failure this design exists to avoid.
  * - Every themed word ships its plain equivalent in `.sr-only` (the `Themed` helper, same
- *   pattern as Questline.tsx), and every date, count and load reads identically with the
+ *   pattern as Stats.tsx), and every date, count and load reads identically with the
  *   flavour stripped out.
  * - Nothing is invented. `spine.dueAt` is often null and then no date is printed; a title
  *   that cannot be resolved becomes a course name or is left out of the sentence, never

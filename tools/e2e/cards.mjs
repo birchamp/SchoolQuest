@@ -77,8 +77,8 @@ async function shoot(headingPattern, name) {
   console.log(`  ${THEME}-${name}.png`);
 }
 
-// Week tab.
-await openTab(1);
+// Week tab. Order: radar, today, week, assignments, stats, coach, setup (App.tsx `tabs`).
+await openTab(2);
 await shoot(/session brief|this week in brief|situation/i, "brief");
 await shoot(/the table|your courses|theaters/i, "campaign-table");
 await shoot(/region map|week plan|operations board/i, "week-map");
@@ -92,12 +92,14 @@ if ((await hours.count()) > 0) {
   await shoot(/the hours|hour by hour/i, "calendar");
 }
 
-// Term tab.
-await openTab(2);
+// Stats tab.
+await openTab(4);
 await shoot(/war table|what needs you|status board/i, "dashboard");
+// Per-course term progress lives on the course rows here, not on the week (issue #37).
+await shoot(/where each course stands|standing on each questline|standing by theater/i, "course-progress");
 
 // Setup.
-await openTab(4);
+await openTab(6);
 await shoot(/study hours/i, "study-hours");
 await shoot(/meals/i, "meals");
 await shoot(/commitment|immovable/i, "commitments");
