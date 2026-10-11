@@ -232,13 +232,17 @@ sessionsRoute.post("/work-sessions/:id/move", async (c) => {
   return c.json({ session: updated[0] });
 });
 
+const lockBody = z.object({ locked: z.boolean().optional() });
+
 sessionsRoute.post("/work-sessions/:id/lock", async (c) => {
   const db = getDb(c.env.DB);
   if (!(await loadOwnedSession(db, c.req.param("id"), c.get("userId")))) {
     return c.json({ error: "Session not found" }, 404);
   }
-  const body = (await c.req.json().catch(() => ({}))) as { locked?: boolean };
-  const locked = body.locked !== false;
+  // An empty body still means "lock it"; anything sent has to be the right shape.
+  const parsed = lockBody.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  const locked = parsed.data.locked !== false;
 
   const updated = await db
     .update(workSessions)
