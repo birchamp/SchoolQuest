@@ -1131,10 +1131,12 @@ function GradingForm({
     categories.length > 0
       ? categories.map((cat, i) => ({
           key: `${cat.id ?? i}`,
+          // Sent back so a renamed category stays the same category, links and all.
+          id: cat.id as string | undefined,
           name: cat.name,
           weight: cat.weightPercent === null ? "" : String(cat.weightPercent),
         }))
-      : [{ key: "new", name: "", weight: "" }],
+      : [{ key: "new", id: undefined, name: "", weight: "" }],
   );
   const [busy, setBusy] = useState(false);
 
@@ -1156,6 +1158,7 @@ function GradingForm({
     try {
       await api.put(`/api/courses/${courseId}/grading`, {
         categories: named.map((r) => ({
+          ...(r.id ? { id: r.id } : {}),
           name: r.name.trim(),
           weightPercent: r.weight.trim() === "" ? null : Number(r.weight),
         })),
@@ -1230,7 +1233,7 @@ function GradingForm({
         <button
           type="button"
           className="action"
-          onClick={() => setRows((rs) => [...rs, { key: `new-${rs.length}`, name: "", weight: "" }])}
+          onClick={() => setRows((rs) => [...rs, { key: `new-${rs.length}`, id: undefined, name: "", weight: "" }])}
         >
           Add a category
         </button>

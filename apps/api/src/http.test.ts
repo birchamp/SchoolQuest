@@ -696,6 +696,37 @@ describe("saving a grading scheme", () => {
     expect(await categoryOf(second)).toBeNull();
   });
 
+  it("keeps a renamed category's id when the editor sends it back", async () => {
+    const client = await signIn("grading-rename@example.com");
+    const { courseId, workItemId } = await buildTerm(client);
+    const put = (body: unknown) => client.send("PUT", `/api/courses/${courseId}/grading`, body);
+
+    await put({ categories: [{ name: "Quizzes", weightPercent: 20 }] });
+    const [quizzes] = await categories(courseId);
+    await client.send("PATCH", `/api/work-items/${workItemId}`, { gradingCategoryId: quizzes!.id });
+
+    const res = await put({
+      categories: [{ id: quizzes!.id, name: "Weekly Quizzes", weightPercent: 25 }],
+    });
+    expect(res.status).toBe(200);
+    expect(await categories(courseId)).toEqual([
+      { id: quizzes!.id, name: "Weekly Quizzes", weight: 25 },
+    ]);
+    expect(await categoryOf(workItemId)).toBe(quizzes!.id);
+  });
+
+  it("ignores an id that is not one of this course's categories", async () => {
+    const client = await signIn("grading-foreign-id@example.com");
+    const { courseId } = await buildTerm(client);
+    const res = await client.send("PUT", `/api/courses/${courseId}/grading`, {
+      categories: [{ id: "gradingCategory_someone_else", name: "Labs", weightPercent: 30 }],
+    });
+    expect(res.status).toBe(200);
+    const [labs] = await categories(courseId);
+    expect(labs).toMatchObject({ name: "Labs", weight: 30 });
+    expect(labs!.id).not.toBe("gradingCategory_someone_else");
+  });
+
   it("saves a full scheme of 24 categories in one go", async () => {
     const client = await signIn("grading-scheme-full@example.com");
     const { courseId } = await buildTerm(client);

@@ -266,6 +266,8 @@ const gradingBody = z.object({
   categories: z
     .array(
       z.object({
+        /** The stored category this row edits, so a rename keeps its id and its links. */
+        id: z.string().min(1).max(64).optional(),
         name: z.string().min(1).max(80),
         /** Null is a real answer: "this category exists but I do not know its weight yet." */
         weightPercent: z.number().min(0).max(100).nullable(),
@@ -305,27 +307,45 @@ coursesRoute.put("/courses/:courseId/grading", async (c) => {
   }
 
   /**
-   * Categories are matched to the stored ones by name and keep their ids. This used to delete
-   * every category and insert fresh rows, so after any edit -- one weight changed -- every work
-   * item still pointed at an id that no longer existed: its results counted as uncategorized in
-   * the standing and its category weight dropped out of prioritising (found in review on #39).
-   * A category that is gone takes its items' link with it rather than leaving them dangling.
-   * One batch, so a failure leaves the old scheme whole.
+   * Categories keep their ids. This used to delete every category and insert fresh rows, so after
+   * any edit -- one weight changed -- every work item still pointed at an id that no longer
+   * existed: its results counted as uncategorized in the standing and its category weight dropped
+   * out of prioritising (found in review on #39). A row is matched by the id the editor sends
+   * back, so a rename is still the same category; one without an id (an older client, or a row
+   * the student added) is matched by name, then inserted. A category that is gone takes its
+   * items' link with it rather than leaving them dangling. One batch, so a failure leaves the old
+   * scheme whole.
    */
   const stored = await db
     .select({ id: gradingCategories.id, name: gradingCategories.name })
     .from(gradingCategories)
     .where(eq(gradingCategories.courseId, courseId));
-  const unmatched = new Map<string, string[]>();
-  for (const row of stored) {
-    const key = row.name.trim().toLowerCase();
-    unmatched.set(key, [...(unmatched.get(key) ?? []), row.id]);
-  }
+  const unclaimed = new Map(stored.map((row) => [row.id, row.name.trim().toLowerCase()]));
+  const claim = (cat: { id?: string | undefined; name: string }): string | undefined => {
+    if (cat.id && unclaimed.has(cat.id)) {
+      unclaimed.delete(cat.id);
+      return cat.id;
+    }
+    return undefined;
+  };
+  const claimByName = (name: string): string | undefined => {
+    const key = name.toLowerCase();
+    for (const [id, storedName] of unclaimed) {
+      if (storedName === key) {
+        unclaimed.delete(id);
+        return id;
+      }
+    }
+    return undefined;
+  };
+  // Ids first, across the whole list, so a row matched by name cannot take a category that a
+  // later row names by id.
+  const byId = parsed.data.categories.map((cat) => claim(cat));
   const updates: BatchItem<"sqlite">[] = [];
   const inserts: (typeof gradingCategories.$inferInsert)[] = [];
-  for (const cat of parsed.data.categories) {
+  parsed.data.categories.forEach((cat, i) => {
     const name = cat.name.trim();
-    const keep = unmatched.get(name.toLowerCase())?.shift();
+    const keep = byId[i] ?? claimByName(name);
     if (keep) {
       updates.push(
         db
@@ -343,8 +363,8 @@ coursesRoute.put("/courses/:courseId/grading", async (c) => {
         confidenceStatus: "confirmed",
       });
     }
-  }
-  const removed = [...unmatched.values()].flat();
+  });
+  const removed = [...unclaimed.keys()];
 
   await db.batch([
     db
