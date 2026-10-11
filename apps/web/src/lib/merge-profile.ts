@@ -12,8 +12,10 @@ export function mergeProfile<T extends object, K extends keyof T>(
   current: T | null,
   reply: T,
   fields: readonly K[],
-): T {
-  if (!current) return reply;
+): T | null {
+  // No profile means signed out: a save that answers after sign-out must not sign the student
+  // back in on screen, or switch counting back on (found in review on #41).
+  if (!current) return null;
   const next = { ...current };
   for (const field of fields) next[field] = reply[field];
   return next;

@@ -472,8 +472,12 @@ function CourseRow({
     : row.courseId;
   const shortName = course?.code ?? course?.name ?? "Class";
 
-  const top = row.concerns[0];
-  const rest = row.concerns.slice(1);
+  // When a dial raised the verdict above the engine's, the dial's sentence leads, so the words
+  // agree with the colour and with the one next step offered (both of which follow the dial);
+  // the engine's own concerns then all sit behind the disclosure (found in review on #41).
+  const raisedByDials = HEALTH_RANK[level] > HEALTH_RANK[row.level];
+  const top = raisedByDials ? undefined : row.concerns[0];
+  const rest = raisedByDials ? row.concerns : row.concerns.slice(1);
   const due = whenDue(row.nextDueInDays);
   const overall = gauges?.gauges.overall;
   // The sentence is the instruction. The engine's worst concern says it best; when the

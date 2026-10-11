@@ -154,6 +154,28 @@ describe("Dashboard (which class needs me)", () => {
     expect(first.textContent).toContain("No syllabus");
   });
 
+  it("leads with the dial's sentence when the dial is what raised the verdict", async () => {
+    // The engine sees only slipped upkeep; the missing syllabus is what makes the class at risk.
+    get.mockResolvedValue(ready(["a"], { a: { syllabusCount: 0 } }));
+    await render(
+      term([
+        health({
+          courseId: "a",
+          level: "needs_attention",
+          concerns: [{ code: "UPKEEP_BEHIND", level: "needs_attention", detail: "Upkeep slipped." }],
+        }),
+      ]),
+      [course("a", "ART")],
+    );
+    const row = host.querySelector(".gauge-row")!;
+    expect(row.querySelector("[data-verdict]")?.getAttribute("data-verdict")).toBe("at_risk");
+    const headline = row.querySelector("p")!.textContent ?? "";
+    expect(headline).toContain("No syllabus");
+    expect(headline).not.toContain("Upkeep slipped.");
+    // The engine's concern is still there, behind the disclosure.
+    expect(row.textContent).toContain("Upkeep slipped.");
+  });
+
   it("never shows the grade without the basis it rests on", async () => {
     get.mockResolvedValue(ready(["a", "b"]));
     await render(

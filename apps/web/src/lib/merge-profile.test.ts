@@ -15,8 +15,8 @@ describe("mergeProfile", () => {
     });
   });
 
-  it("takes the whole reply when there is no profile yet", () => {
+  it("never brings a signed-out profile back from a late reply", () => {
     const reply: Profile = { theme: "plain", shareUsage: true, timezone: "UTC" };
-    expect(mergeProfile(null, reply, ["theme"])).toBe(reply);
+    expect(mergeProfile(null, reply, ["theme"])).toBeNull();
   });
 });
