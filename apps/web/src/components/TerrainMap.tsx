@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Course, ThemeName } from "@schoolquest/domain";
+import type { Course } from "@schoolquest/domain";
 import {
   buildTerrain,
   type BeaconState,
@@ -10,6 +10,7 @@ import { formatDueDay } from "../lib/due-time";
 import { courseChipFill } from "../lib/course-colour";
 import type { PlanResponse } from "../lib/types";
 import { appNow, planTimeZone } from "../lib/clock";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * The next four weeks as a raised-relief model of the term.
@@ -258,16 +259,15 @@ function formatDue(iso: string | null, daysAway: number | null): string {
 
 export function TerrainMap({
   plan,
-  theme,
   reducedMotion,
   hiddenCourseIds,
 }: {
   plan: PlanResponse;
-  theme: ThemeName;
   reducedMotion: boolean;
   /** Classes switched off at the tab level. See `LayerBar.tsx` for why off means gone *here*. */
   hiddenCourseIds?: ReadonlySet<string>;
 }) {
+  const theme = useTheme();
   const [focused, setFocused] = useState<TerrainMarker | null>(null);
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
 

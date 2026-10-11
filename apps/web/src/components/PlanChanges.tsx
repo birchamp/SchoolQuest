@@ -1,7 +1,7 @@
-import type { ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import type { PlanDiff, PlanDiffBlock, PlanResponse } from "../lib/types";
 import { formatInstant, formatTime } from "../lib/clock";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * What the last replan changed, said once and dismissable.
@@ -18,17 +18,16 @@ import { formatInstant, formatTime } from "../lib/clock";
 export function PlanChanges({
   diff,
   plan,
-  theme,
   risksNow,
   onDismiss,
 }: {
   diff: PlanDiff;
   plan: PlanResponse;
-  theme: ThemeName;
   /** Items the new plan flags as at risk or needing a decision, by count. */
   risksNow: number;
   onDismiss: () => void;
 }) {
+  const theme = useTheme();
   const titles = new Map(plan.workItems.map((w) => [w.id, w.title]));
   const name = (b: PlanDiffBlock) => titles.get(b.workItemId) ?? label("workSession", theme);
   const quest = theme === "quest";

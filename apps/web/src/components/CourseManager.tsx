@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { type ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { CoursePaste } from "./CoursePaste";
 import { DayPicker, TimeRange } from "./DayPicker";
 import { courseTincture } from "../lib/course-colour";
-import { useBodyTheme } from "../lib/use-body-theme";
 import { initialsFor } from "../lib/format";
 import { Themed } from "./Themed";
+import { useTheme } from "../lib/theme-context";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -188,14 +187,11 @@ function CardHeading({ quest, visible, plain }: { quest: boolean; visible: strin
 export function CourseManager({
   termId,
   onChanged,
-  theme: themeProp,
 }: {
   termId: string;
   onChanged: () => void;
-  /** Optional. Omitted by the current call site, which is why the theme is read off body. */
-  theme?: ThemeName;
 }) {
-  const theme = useBodyTheme(themeProp);
+  const theme = useTheme();
   const quest = theme === "quest";
   // "Questline" / "Course" / "Theater" — the wording lives in @schoolquest/theme-language
   // rather than in a synonym hard-coded here.

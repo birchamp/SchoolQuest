@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Course, ThemeName } from "@schoolquest/domain";
+import type { Course } from "@schoolquest/domain";
 import { addDays, formatTimeOfDay, fromEpochMinutes, toEpochMinutes } from "@schoolquest/domain";
 import {
   buildWeekCalendar,
@@ -23,6 +23,7 @@ import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
 import type { PlanResponse, PlannedSession } from "../lib/types";
 import { CalendarLegend } from "./CalendarLegend";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * Where the hours actually go.
@@ -133,12 +134,10 @@ const NUDGE_MINUTES = 15;
 
 export function WeekCalendar({
   plan,
-  theme,
   hiddenCourseIds,
   onChanged,
 }: {
   plan: PlanResponse;
-  theme: ThemeName;
   /**
    * Called after a block is moved or locked, so the plan is read back. When absent the grid is
    * read-only, which is how the screenshot tools use it.
@@ -155,6 +154,7 @@ export function WeekCalendar({
    */
   hiddenCourseIds?: ReadonlySet<string>;
 }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));

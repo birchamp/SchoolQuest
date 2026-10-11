@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
-import { type Course, type ThemeName } from "@schoolquest/domain";
+import type { Course } from "@schoolquest/domain";
 import type { MilestoneView, UndatedMilestoneView } from "../lib/types";
 import { courseTincture } from "../lib/course-colour";
 import { formatDueDay } from "../lib/due-time";
 import { QUEST_PALETTE as Q } from "../lib/quest-palette";
 import { courseLabel, formatEffort, initialsFor } from "../lib/format";
 import { Themed } from "./Themed";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * The term's major work as a timeline (docs/07-session-prep-design.md §3).
@@ -557,13 +558,11 @@ export function CampaignArc({
   milestones,
   undatedMilestones,
   courses,
-  theme,
   hiddenCourseIds,
 }: {
   milestones: MilestoneView[];
   undatedMilestones: UndatedMilestoneView[];
   courses: Course[];
-  theme: ThemeName;
   /**
    * Classes switched off at the tab level. They **recede here and are never removed** — see the
    * note at the top of the file, and `LayerBar.tsx` for why the road ahead is the only card that
@@ -571,6 +570,7 @@ export function CampaignArc({
    */
   hiddenCourseIds?: ReadonlySet<string>;
 }): JSX.Element {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
 

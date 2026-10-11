@@ -6,6 +6,7 @@ import { dateToEpochMinutes, dayOfWeekFor } from "@schoolquest/domain";
 import { QUEST_PALETTE as Q } from "../lib/quest-palette";
 import { courseNameWithCode, formatEffort } from "../lib/format";
 import { Themed } from "./Themed";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * The week as prepared session notes (packages/planning-engine/src/session-brief.ts,
@@ -288,15 +289,14 @@ function DayTile({
   fillPercent,
   highestWeighted,
   quest,
-  theme,
 }: {
   day: DayShapeView;
   isCrux: boolean;
   fillPercent: number;
   highestWeighted: number;
   quest: boolean;
-  theme: ThemeName;
 }) {
+  const theme = useTheme();
   const dayNumber = Number(day.date.slice(8, 10));
   const weekdayShort = DAY_SHORT[day.dayOfWeek] ?? "";
   const assessment = day.carriesAssessment;
@@ -461,12 +461,10 @@ function DayTile({
 export function SessionBrief({
   brief,
   courses,
-  theme,
   workItemTitles,
 }: {
   brief: SessionBriefView;
   courses: Course[];
-  theme: ThemeName;
   /**
    * Optional work-item titles by id, for the contingency sentences. Without it those
    * sentences use the titles the brief's own encounter groups carry, which covers every id a
@@ -474,6 +472,7 @@ export function SessionBrief({
    */
   workItemTitles?: Map<string, string>;
 }): JSX.Element {
+  const theme = useTheme();
   const quest = theme === "quest";
   const naming = buildNaming(brief, courses, workItemTitles);
 
@@ -679,7 +678,6 @@ export function SessionBrief({
             <DayTile
               key={day.date}
               day={day}
-              theme={theme}
               quest={quest}
               isCrux={crux?.date === day.date}
               highestWeighted={highestWeighted}

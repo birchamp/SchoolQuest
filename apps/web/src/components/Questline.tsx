@@ -1,9 +1,10 @@
-import { type Course, type ThemeName } from "@schoolquest/domain";
+import type { Course } from "@schoolquest/domain";
 import type { CourseProgressView, TermProgressView } from "../lib/types";
 import { courseTincture } from "../lib/course-colour";
 import { QUEST_PALETTE } from "../lib/quest-palette";
 import { courseLabel, initialsFor } from "../lib/format";
 import { Themed } from "./Themed";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * Per-course progress readout (packages/planning-engine/src/progress.ts).
@@ -142,12 +143,11 @@ function Stat({ caption, value, quest }: { caption: string; value: string; quest
 export function Questline({
   progress,
   courses,
-  theme,
 }: {
   progress: TermProgressView;
   courses: Course[];
-  theme: ThemeName;
 }): JSX.Element {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
 

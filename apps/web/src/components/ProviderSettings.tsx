@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { useBodyTheme } from "../lib/use-body-theme";
+import { useTheme } from "../lib/theme-context";
 import { formatInstant } from "../lib/clock";
 
 /**
@@ -71,7 +71,7 @@ interface MeResponse {
 }
 
 export function ProviderSettings({ onChanged }: { onChanged: () => void }) {
-  const theme = useBodyTheme();
+  const theme = useTheme();
   const quest = theme === "quest";
 
   const [me, setMe] = useState<MeResponse | null>(null);

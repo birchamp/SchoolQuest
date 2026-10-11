@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { useBodyTheme } from "../lib/use-body-theme";
+import { useTheme } from "../lib/theme-context";
 import { Themed } from "./Themed";
 
 /**
@@ -121,7 +121,7 @@ export function OpenQuestions({
    */
   refreshKey?: number;
 }) {
-  const theme = useBodyTheme();
+  const theme = useTheme();
   const quest = theme === "quest";
 
   const [result, setResult] = useState<OpenQuestionsResult | null>(null);

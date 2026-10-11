@@ -2,7 +2,7 @@ import { useState } from "react";
 import { label } from "@schoolquest/theme-language";
 
 import { api } from "../lib/api";
-import { useBodyTheme } from "../lib/use-body-theme";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * Adding classes by pasting the list, instead of typing each one in.
@@ -43,7 +43,7 @@ export function CoursePaste({
   onChanged: () => void;
   primary?: boolean;
 }) {
-  const theme = useBodyTheme();
+  const theme = useTheme();
   const courseNoun = label("course", theme).toLowerCase();
 
   const [open, setOpen] = useState(false);

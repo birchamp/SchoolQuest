@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { type Course, type ThemeName } from "@schoolquest/domain";
+import type { Course } from "@schoolquest/domain";
 import { courseTincture } from "../lib/course-colour";
 import type {
   CourseProgressView,
@@ -12,6 +12,7 @@ import { formatDueDay } from "../lib/due-time";
 import { QUEST_PALETTE as Q } from "../lib/quest-palette";
 import { courseLabel, formatEffort, initialsFor } from "../lib/format";
 import { Themed } from "./Themed";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * Where the term stands, and whether the long work is going to land.
@@ -746,14 +747,13 @@ export function Stats({
   progress,
   courses,
   standings,
-  theme,
 }: {
   projects: { rows: ProjectProgressView[]; summary: ProjectsSummaryView };
   progress: TermProgressView | undefined;
   courses: Course[];
   standings: Record<string, CourseStandingView>;
-  theme: ThemeName;
 }): JSX.Element {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
   const rows = projects.rows;

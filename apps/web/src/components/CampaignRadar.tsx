@@ -23,6 +23,7 @@ import {
 } from "../lib/radar-geometry";
 import type { CampaignRadarView } from "../lib/types";
 import { appNow, localDayOfWeek } from "../lib/clock";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * The surface the term is planned from.
@@ -63,7 +64,6 @@ import { appNow, localDayOfWeek } from "../lib/clock";
 interface Props {
   radar: CampaignRadarView;
   courses: Course[];
-  theme: ThemeName;
   termName: string;
   /** Jump to this work item in the assignments table. */
   onOpenWork: (workItemId: string) => void;
@@ -114,12 +114,12 @@ function dueWord(encounter: RadarEncounter): string {
 export function CampaignRadar({
   radar,
   courses,
-  theme,
   termName,
   onOpenWork,
   onPrioritize,
   onHandIn,
 }: Props) {
+  const theme = useTheme();
   const [weeks, setWeeks] = useState(4);
   const [activeId, setActiveId] = useState<string | null>(null);
   /**

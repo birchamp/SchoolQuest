@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../lib/api";
-import { useBodyTheme } from "../lib/use-body-theme";
+import { useTheme } from "../lib/theme-context";
 import type { Term } from "../lib/types";
 
 /**
@@ -27,7 +27,7 @@ export function TermSettings({
   term: Term;
   onChanged: () => void | Promise<void>;
 }) {
-  const quest = useBodyTheme() === "quest";
+  const quest = useTheme() === "quest";
   const [name, setName] = useState(term.name);
   const [start, setStart] = useState(term.startDate.slice(0, 10));
   const [end, setEnd] = useState(term.endDate.slice(0, 10));

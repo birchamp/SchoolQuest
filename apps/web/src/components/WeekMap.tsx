@@ -21,6 +21,7 @@ import { courseLabelInk } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
 import { CalendarLegend } from "./CalendarLegend";
 import { courseNameWithCode } from "../lib/format";
+import { useTheme } from "../lib/theme-context";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -100,7 +101,6 @@ function formatMinutes(minutes: number): string {
 
 export function WeekMap({
   plan,
-  theme,
   brief,
   hiddenCourseIds,
   onPrioritize,
@@ -108,7 +108,6 @@ export function WeekMap({
   onAddHours,
 }: {
   plan: PlanResponse;
-  theme: ThemeName;
   brief?: SessionBriefView;
   /** Puts work at the front of the queue and replans: the radar's own action. */
   onPrioritize?: (workItemIds: string[]) => Promise<void>;
@@ -123,6 +122,7 @@ export function WeekMap({
    */
   hiddenCourseIds?: ReadonlySet<string>;
 }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   /** The "not fitted" row whose replan is in flight, so its button can say so. */
   const [busyItem, setBusyItem] = useState<string | null>(null);
