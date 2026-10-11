@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { WorkItem } from "@schoolquest/domain";
-import { noPercentReading, onDefaultList, parseScoreEntry, workAwaitingResult } from "./record-results";
+import {
+  noPercentReading,
+  onDefaultList,
+  parseScoreEntry,
+  standingPassFailCount,
+  workAwaitingResult,
+} from "./record-results";
 
 function item(overrides: Partial<WorkItem> & Pick<WorkItem, "id">): WorkItem {
   return {
@@ -93,5 +99,13 @@ describe("noPercentReading", () => {
   it("says a Pass/Fail-only course has been graded, just not in points", () => {
     expect(noPercentReading(0)).toBe("no grades yet");
     expect(noPercentReading(2)).toBe("no scored grades yet · 2 Pass/Fail");
+  });
+});
+
+describe("standingPassFailCount", () => {
+  it("adds up Pass/Fail results across a standing's categories", () => {
+    expect(standingPassFailCount(undefined)).toBe(0);
+    expect(standingPassFailCount({})).toBe(0);
+    expect(standingPassFailCount({ categories: [{ passFailCount: 1 }, { passFailCount: 2 }] })).toBe(3);
   });
 });

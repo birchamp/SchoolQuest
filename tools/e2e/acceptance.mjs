@@ -237,6 +237,8 @@ await runJourney("acceptance steps", async ({ browser }) => {
     afterPass.standings[course.id]?.estimatedPercent === standing?.estimatedPercent,
     `estimated ${afterPass.standings[course.id]?.estimatedPercent}`,
   );
+  const passFailInStanding = (afterPass.standings[course.id]?.categories ?? []).reduce((n, c) => n + (c.passFailCount ?? 0), 0);
+  check("the course standing counts the Pass as a Pass/Fail result", passFailInStanding === 1, `passFailCount ${passFailInStanding}`);
   const empty = await fetch(`${API}/api/work-items/${labSafety.id}/grade`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },

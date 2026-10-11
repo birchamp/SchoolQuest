@@ -76,3 +76,8 @@ export function noPercentReading(passFailCount: number): string {
     ? `no scored grades yet · ${passFailCount} Pass/Fail`
     : "no grades yet";
 }
+
+/** Pass/Fail results a course standing holds, across its grading categories. */
+export function standingPassFailCount(standing: { categories?: { passFailCount: number }[] } | undefined): number {
+  return (standing?.categories ?? []).reduce((sum, c) => sum + (c.passFailCount ?? 0), 0);
+}
