@@ -65,3 +65,14 @@ export function onDefaultList(
   if (failedIds.has(w.id) && w.status !== "canceled") return true;
   return w.status !== "completed" && w.status !== "submitted" && w.status !== "canceled";
 }
+
+/**
+ * What a course with no percentage says about its grades. A course whose only results are
+ * Pass/Fail has been graded -- just not in points -- and reading "no grades yet" straight after
+ * recording a Pass looks like the save was lost.
+ */
+export function noPercentReading(passFailCount: number): string {
+  return passFailCount > 0
+    ? `no scored grades yet · ${passFailCount} Pass/Fail`
+    : "no grades yet";
+}

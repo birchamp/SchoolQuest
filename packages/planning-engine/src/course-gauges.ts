@@ -248,7 +248,9 @@ function gradeGaugeFromPercent(health: CourseHealthLike): Gauge {
       detail:
         health.ungradedResults > 0
           ? `${health.ungradedResults} finished ${health.ungradedResults === 1 ? "item has" : "items have"} no result recorded yet.`
-          : "Nothing has been graded yet.",
+          : health.passFailCount > 0
+            ? `No scored grades yet; ${health.passFailCount} Pass/Fail ${health.passFailCount === 1 ? "result" : "results"} recorded.`
+            : "Nothing has been graded yet.",
       // Results are written down on the assignments table, beside the work they belong to.
       action:
         health.ungradedResults > 0 ? { label: "Record the results", target: "work" } : null,

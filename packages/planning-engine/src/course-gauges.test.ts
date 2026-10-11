@@ -16,6 +16,7 @@ const health = (over: Partial<CourseHealth> = {}): CourseHealth => ({
   gradePercent: 88,
   gradedWeightFraction: 0.5,
   gradedCount: 6,
+  passFailCount: 0,
   targetPercent: 80,
   targetIsOwn: false,
   ungradedResults: 0,
@@ -109,6 +110,12 @@ describe("courseGauges", () => {
     it("names results that came back and were never recorded", () => {
       const g = run(health({ gradePercent: null, ungradedResults: 3 }));
       expect(g.gauges.grade.detail).toContain("3 finished items have no result");
+    });
+
+    it("does not call a course with only a Pass ungraded", () => {
+      const g = run(health({ gradePercent: null, passFailCount: 1 }));
+      expect(g.gauges.grade.detail).toBe("No scored grades yet; 1 Pass/Fail result recorded.");
+      expect(run(health({ gradePercent: null })).gauges.grade.detail).toBe("Nothing has been graded yet.");
     });
 
     it("shows a recorded Fail, which no percentage would", () => {

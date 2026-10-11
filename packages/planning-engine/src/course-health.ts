@@ -122,6 +122,11 @@ export interface CourseHealth {
    * standing when no weights are declared.
    */
   gradedCount: number;
+  /**
+   * Pass/Fail results recorded (not dropped, not on canceled or optional work). They add nothing
+   * to the percentage, so without this a course with only a Pass reads "nothing graded yet".
+   */
+  passFailCount: number;
   /** The target this is judged against — the student's own, or the default floor. */
   targetPercent: number;
   targetIsOwn: boolean;
@@ -200,6 +205,9 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
   const now = toEpochMinutes(input.now);
   const loadById = new Map(input.load.map((l) => [l.courseId, l]));
   const gradedItemIds = new Set(input.grades.map((g) => g.workItemId));
+  const passFailItemIds = new Set(
+    input.grades.filter((g) => !g.dropped && passFailOf(g) !== null).map((g) => g.workItemId),
+  );
   // A Fail moves no percentage, so without this it would read exactly like a Pass. A dropped
   // result is excluded from the grade, so its Fail is too.
   const failedItemIds = new Set(
@@ -221,6 +229,9 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
     // canceled or optional work, and without Pass/Fail outcomes, bare letters or totals with no
     // score -- all of which say "recorded" but add nothing to the average.
     const gradedCount = (standing?.categories ?? []).reduce((sum, c) => sum + c.gradedCount, 0);
+    const passFailCount = items.filter(
+      (w) => passFailItemIds.has(w.id) && w.status !== "canceled" && w.status !== "optional",
+    ).length;
     // Optional and canceled work cannot sink a course, so a Fail on it is not a concern.
     const failedTitles = items
       .filter((w) => failedItemIds.has(w.id) && w.status !== "canceled" && w.status !== "optional")
@@ -262,6 +273,7 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
       gradePercent,
       gradedWeightFraction,
       gradedCount,
+      passFailCount,
       targetPercent,
       targetIsOwn: course.targetGrade !== null,
       ungradedResults,

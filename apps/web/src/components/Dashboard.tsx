@@ -3,7 +3,7 @@ import type { Course, GradeResult, PassFail, ThemeName, WorkItem } from "@school
 import { explainHealth, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { courseChipFill, courseInitials } from "../lib/course-colour";
-import { parseScoreEntry, workAwaitingResult } from "../lib/record-results";
+import { noPercentReading, parseScoreEntry, workAwaitingResult } from "../lib/record-results";
 import { PassFailButtons, recordPassFail } from "./PassFailButtons";
 import type { CourseHealthView, TermHealthView } from "../lib/types";
 import { appNow } from "../lib/clock";
@@ -308,7 +308,7 @@ function CourseRow({
  */
 function GradeReading({ row }: { row: CourseHealthView }) {
   if (row.gradePercent === null) {
-    return <span>no grades yet</span>;
+    return <span>{noPercentReading(row.passFailCount)}</span>;
   }
   const basis =
     row.gradedWeightFraction > 0

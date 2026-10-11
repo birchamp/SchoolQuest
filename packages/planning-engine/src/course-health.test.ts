@@ -276,6 +276,7 @@ describe("grades", () => {
     });
     expect(c.ungradedResults).toBe(0);
     expect(c.gradedCount).toBe(0);
+    expect(c.passFailCount).toBe(1);
   });
 
   it("raises a recorded Fail, which no percentage would show", () => {

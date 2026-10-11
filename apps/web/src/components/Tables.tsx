@@ -5,7 +5,7 @@ import { appToday, formatTime, localMinuteOfDay, planTimeZone } from "../lib/clo
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
-import { onDefaultList, parseScoreEntry } from "../lib/record-results";
+import { noPercentReading, onDefaultList, parseScoreEntry } from "../lib/record-results";
 import { PassFailButtons, recordPassFail } from "./PassFailButtons";
 import {
   DEFAULT_DUE_TIME,
@@ -1155,6 +1155,7 @@ export function CoursesTable({ plan, theme }: { plan: PlanResponse; theme: Theme
       dueTitle: row.nextDueTitle,
       grade: row.gradePercent,
       gradedCount: row.gradedCount,
+      passFailCount: row.passFailCount,
       gradedWeightFraction: row.gradedWeightFraction,
       concerns: row.concerns,
     }));
@@ -1232,7 +1233,7 @@ export function CoursesTable({ plan, theme }: { plan: PlanResponse; theme: Theme
                 </td>
                 <td style={{ textAlign: "right" }}>
                   {row.grade === null ? (
-                    <span className="muted">no grades yet</span>
+                    <span className="muted">{noPercentReading(row.passFailCount)}</span>
                   ) : (
                     <>
                       {Math.round(row.grade)}%

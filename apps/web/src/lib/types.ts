@@ -339,6 +339,8 @@ export interface CourseHealthView {
   /** Zero whenever the graded work is not mapped to weighted categories — the common case. */
   gradedWeightFraction: number;
   gradedCount: number;
+  /** Pass/Fail results recorded; they carry no percentage. */
+  passFailCount: number;
   targetPercent: number;
   targetIsOwn: boolean;
   ungradedResults: number;
