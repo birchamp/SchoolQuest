@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../lib/api";
-import { useBodyTheme } from "../lib/use-body-theme";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * What is set up, and what is still missing, per class.
@@ -50,7 +50,7 @@ function Mark({ state, label }: { state: "yes" | "no" | "none"; label: string })
 }
 
 export function SetupStatus({ termId, refreshKey }: { termId: string; refreshKey?: number }) {
-  const quest = useBodyTheme() === "quest";
+  const quest = useTheme() === "quest";
   const [data, setData] = useState<Readiness | null>(null);
 
   const load = useCallback(async () => {

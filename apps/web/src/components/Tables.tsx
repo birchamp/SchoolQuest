@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
+import type { Course, WorkItem } from "@schoolquest/domain";
 import { buildWeekCalendar, DEFAULT_EFFORT_MINUTES, type SlotKind } from "@schoolquest/planning-engine";
 import { appToday, formatTime, localMinuteOfDay, planTimeZone } from "../lib/clock";
 import { api } from "../lib/api";
@@ -15,6 +15,7 @@ import {
 } from "../lib/due-time";
 import type { PlanResponse } from "../lib/types";
 import { courseNameWithCode } from "../lib/format";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * The same data, as rows.
@@ -153,13 +154,12 @@ function assumedEffortLabel(workType: string): string {
 
 export function AssignmentsTable({
   plan,
-  theme,
   onChanged,
 }: {
   plan: PlanResponse;
-  theme: ThemeName;
   onChanged: () => void;
 }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const { sort, onSort } = useSort<AssignmentKey>("due");
   const [busy, setBusy] = useState<string | null>(null);
@@ -837,7 +837,8 @@ export function AssignmentsTable({
 type BlockKey = "day" | "start" | "title" | "course" | "minutes" | "kind";
 
 /** Every block of the week as rows, including the hours that are not study. */
-export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeName }) {
+export function WeekTable({ plan }: { plan: PlanResponse }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const { sort, onSort } = useSort<BlockKey>("start");
   // The student's own date, in the frame every stored time is written in (lib/clock.ts).
@@ -989,7 +990,8 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
 type AheadKey = "due" | "title" | "course" | "days" | "prep";
 
 /** The term's landmarks as rows — the arc's data, sortable and complete. */
-export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: ThemeName }) {
+export function LookaheadTable({ plan }: { plan: PlanResponse }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const { sort, onSort } = useSort<AheadKey>("due");
@@ -1104,7 +1106,8 @@ export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: The
 type CourseKey = "course" | "level" | "booked" | "open" | "due" | "grade";
 
 /** The dashboard's board as rows. */
-export function CoursesTable({ plan, theme }: { plan: PlanResponse; theme: ThemeName }) {
+export function CoursesTable({ plan }: { plan: PlanResponse }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const { sort, onSort } = useSort<CourseKey>("level");

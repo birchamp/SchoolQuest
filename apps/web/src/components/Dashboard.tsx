@@ -1,10 +1,11 @@
 import { useState } from "react";
-import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
+import type { Course, WorkItem } from "@schoolquest/domain";
 import { explainHealth, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { courseChipFill, courseInitials } from "../lib/course-colour";
 import type { CourseHealthView, TermHealthView } from "../lib/types";
 import { appNow } from "../lib/clock";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * Which class needs me?
@@ -89,15 +90,14 @@ export function Dashboard({
   health,
   courses,
   workItems,
-  theme,
   onChanged,
 }: {
   health: TermHealthView;
   courses: Course[];
   workItems: WorkItem[];
-  theme: ThemeName;
   onChanged: () => void;
 }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
 
@@ -136,7 +136,6 @@ export function Dashboard({
           course={coursesById.get(row.courseId)}
           workItems={workItems}
           quest={quest}
-          theme={theme}
           onChanged={onChanged}
         />
       ))}
@@ -149,16 +148,15 @@ function CourseRow({
   course,
   workItems,
   quest,
-  theme,
   onChanged,
 }: {
   row: CourseHealthView;
   course: Course | undefined;
   workItems: WorkItem[];
   quest: boolean;
-  theme: ThemeName;
   onChanged: () => void;
 }) {
+  const theme = useTheme();
   const [open, setOpen] = useState(false);
   const verdict = explainHealth(row.level, theme);
   // A filled chip with white letters on it, so it needs the fill that is safe for them.

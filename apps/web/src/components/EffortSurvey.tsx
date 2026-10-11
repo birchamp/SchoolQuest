@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { useBodyTheme } from "../lib/use-body-theme";
+import { useTheme } from "../lib/theme-context";
 import { localDate } from "../lib/clock";
 import { Themed } from "./Themed";
 
@@ -66,7 +66,7 @@ interface Survey {
 
 
 export function EffortSurvey({ termId, onChanged }: { termId: string; onChanged: () => void }) {
-  const theme = useBodyTheme();
+  const theme = useTheme();
   const quest = theme === "quest";
 
   const [survey, setSurvey] = useState<Survey | null>(null);

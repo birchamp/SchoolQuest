@@ -1,6 +1,7 @@
-import type { Course, ThemeName } from "@schoolquest/domain";
+import type { Course } from "@schoolquest/domain";
 import { courseChipFill } from "../lib/course-colour";
 import type { CourseHealthView, PlanResponse } from "../lib/types";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * One switch per class, governing every card on the week.
@@ -98,15 +99,14 @@ export function buildLayers(plan: PlanResponse, hidden: ReadonlySet<string>): La
 
 export function LayerBar({
   layers,
-  theme,
   onToggle,
   onAll,
 }: {
   layers: Layer[];
-  theme: ThemeName;
   onToggle: (courseId: string) => void;
   onAll: () => void;
 }) {
+  const theme = useTheme();
   const quest = theme === "quest";
   const off = layers.filter((l) => !l.on);
 

@@ -7,6 +7,7 @@ import { formatDueDay } from "../lib/due-time";
 import { QUEST_PALETTE as Q } from "../lib/quest-palette";
 import { courseLabel, formatEffort, initialsFor } from "../lib/format";
 import { Themed } from "./Themed";
+import { useTheme } from "../lib/theme-context";
 
 /**
  * One pool of time, divided across every course
@@ -267,16 +268,15 @@ function Note({ children, quest }: { children: ReactNode; quest: boolean }) {
 export function CampaignTable({
   load,
   courses,
-  theme,
   selectedCourseId,
   onSelectCourse,
 }: {
   load: TermLoadView;
   courses: Course[];
-  theme: ThemeName;
   selectedCourseId: string | null;
   onSelectCourse: (courseId: string | null) => void;
 }): JSX.Element {
+  const theme = useTheme();
   const quest = theme === "quest";
   const coursesById = new Map(courses.map((c) => [c.id, c]));
 

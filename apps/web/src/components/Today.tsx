@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import type { ThemeName } from "@schoolquest/domain";
 import { explainRisk, label } from "@schoolquest/theme-language";
 import { appToday, formatInstant, formatTime, localDate } from "../lib/clock";
 import { api } from "../lib/api";
@@ -7,6 +6,7 @@ import { addDays } from "@schoolquest/domain";
 import { clearSessionStarted, minutesSinceStarted, noteSessionStarted } from "../lib/session-clock";
 import type { PlanResponse } from "../lib/types";
 import { formatEffort } from "../lib/format";
+import { useTheme } from "../lib/theme-context";
 
 /** What the server reports back when a session outcome is recorded. */
 interface CompleteResult {
@@ -27,7 +27,6 @@ interface CompleteResult {
 export function Today({
   plan,
   termId,
-  theme,
   onChanged,
   onReplan,
   onGoToSetup,
@@ -35,7 +34,6 @@ export function Today({
 }: {
   plan: PlanResponse;
   termId: string;
-  theme: ThemeName;
   onChanged: () => void;
   /**
    * Rebuilds the week and shows what moved. Used after a whole day is given up, and then
@@ -52,6 +50,7 @@ export function Today({
    */
   onOpenWork: (workItemId: string) => void;
 }) {
+  const theme = useTheme();
   const progress = plan.progress;
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -29,6 +29,8 @@ import { WeekCalendar } from "./components/WeekCalendar";
 import { TerrainMap } from "./components/TerrainMap";
 import { AssignmentsTable, CoursesTable, LookaheadTable, WeekTable } from "./components/Tables";
 import { useViewMode } from "./lib/view-mode";
+import { ThemeContext } from "./lib/theme-context";
+import { useHashTab, type Tab } from "./lib/tab-route";
 import { CampaignTable } from "./components/CampaignTable";
 import { buildLayers, LayerBar } from "./components/LayerBar";
 import type { GaugeTarget } from "@schoolquest/planning-engine";
@@ -61,17 +63,6 @@ import {
  * cases: a fresh account on a phone, and development in a plain browser where the Tauri
  * check is false. Emphasis, not enforcement.
  */
-
-/**
- * `work` is its own tab rather than a view toggle.
- *
- * The assignments table is where a syllabus gets corrected -- a date moved, a task set in class,
- * a chapter dropped -- which is a weekly errand for the whole term. It was reachable only by
- * switching the view mode to Tables while on the week, which is two deductions a student has to
- * make before they can fix a date their instructor just changed. A thing done every week gets a
- * door of its own, and correcting a date is not a "table view" preference.
- */
-type Tab = "radar" | "today" | "week" | "work" | "stats" | "coach" | "setup";
 
 /** How the week is drawn. A peer of the map, not a fallback for it — the map answers what
  *  the student is working on, the calendar answers where the hours go. */
@@ -146,15 +137,8 @@ export function App() {
   const [lastDiff, setLastDiff] = useState<PlanDiff | null>(null);
   /** The zone the plan just followed the device into, until the student says what they want. */
   const [zoneMoved, setZoneMoved] = useState<{ from: string; to: string } | null>(null);
-  /**
-   * The radar opens the app.
-   *
-   * Today answers "what do I do in the next hour", which is the right question once you have
-   * already decided the week is under control. Deciding that is the harder problem and the
-   * one nothing else here answered: the radar is where a student sees what is coming before
-   * choosing what to do about it, so it comes first and it comes up first.
-   */
-  const [tab, setTab] = useState<Tab>("radar");
+  /** The open tab, mirrored in the URL hash so refresh and Back both behave. */
+  const [tab, setTab] = useHashTab();
   /**
    * Bumped by anything on Setup that saves, so the status panel re-reads.
    *
@@ -165,14 +149,6 @@ export function App() {
   const [setupSaves, setSetupSaves] = useState(0);
   const noteSetupChange = useCallback(() => setSetupSaves((n) => n + 1), []);
 
-  /**
-   * Setup, landing on the effort survey rather than at the top of the tab.
-   *
-   * The survey is the fourth card down. Switching tabs and leaving the reader to scroll past
-   * three others reintroduces exactly the step the nudge on Today exists to remove — and this
-   * app's reader is the one who does not scroll. `requestAnimationFrame` waits for the tab to
-   * render before the element exists to scroll to.
-   */
   /**
    * Switches tab and scrolls to a card, waiting for it to exist.
    *
@@ -195,7 +171,7 @@ export function App() {
       else if (Date.now() < deadline) requestAnimationFrame(tryScroll);
     };
     requestAnimationFrame(tryScroll);
-  }, []);
+  }, [setTab]);
 
   /** Where each gauge's "what to do next" lands. The board chooses; this routes. */
   const goToGaugeTarget = useCallback(
@@ -219,25 +195,6 @@ export function App() {
     [goTo],
   );
 
-  const goToEffortSurvey = () => {
-    setTab("setup");
-    /**
-     * Waits for the card to exist rather than for a frame.
-     *
-     * The survey fetches its questions after mount, so on the first two animation frames the
-     * element is not there yet and the scroll silently did nothing — the reader landed at the
-     * top of Setup, three cards above the thing they asked for, which is the step this was
-     * built to remove. Polls briefly and gives up rather than waiting forever, because a page
-     * that never settles must not leave a timer running.
-     */
-    const deadline = Date.now() + 2000;
-    const tryScroll = () => {
-      const target = document.getElementById("effort-survey");
-      if (target) target.scrollIntoView({ block: "start" });
-      else if (Date.now() < deadline) requestAnimationFrame(tryScroll);
-    };
-    requestAnimationFrame(tryScroll);
-  };
   // The course lens. Lives here rather than in any one card because it is a lens on the
   // shared surface — the week, the arc and the table all read from it, which is the whole
   // difference between "one map with layers" and "a map per course".
@@ -632,12 +589,13 @@ export function App() {
   // deserves a way in.
   if (!term)
     return (
-      <Onboarding
-        onDone={bootstrap}
-        onSignOut={signOut}
-        theme={theme}
-        onThemeChange={(t) => setMe((m) => (m ? { ...m, theme: t } : m))}
-      />
+      <ThemeContext.Provider value={theme}>
+        <Onboarding
+          onDone={bootstrap}
+          onSignOut={signOut}
+          onThemeChange={(t) => setMe((m) => (m ? { ...m, theme: t } : m))}
+        />
+      </ThemeContext.Provider>
     );
 
   const tabs: { id: Tab; labelText: string }[] = [
@@ -651,6 +609,7 @@ export function App() {
   ];
 
   return (
+    <ThemeContext.Provider value={theme}>
     <div className="app">
       <header className="app-header">
         <h1>SchoolQuest</h1>
@@ -730,7 +689,6 @@ export function App() {
               <CampaignRadar
                 radar={plan.radar}
                 courses={plan.courses}
-                theme={theme}
                 termName={term.name}
                 onOpenWork={openWorkItem}
                 onPrioritize={prioritize}
@@ -748,7 +706,6 @@ export function App() {
             <PlanChanges
               diff={lastDiff}
               plan={plan}
-              theme={theme}
               risksNow={countAtRisk(plan)}
               onDismiss={() => setLastDiff(null)}
             />
@@ -757,10 +714,9 @@ export function App() {
             <Today
               plan={plan}
               termId={term.id}
-              theme={theme}
               onChanged={refreshPlan}
               onReplan={regenerate}
-              onGoToSetup={goToEffortSurvey}
+              onGoToSetup={() => goTo("setup", "effort-survey")}
               onOpenWork={openWorkItem}
             />
           )}
@@ -772,7 +728,6 @@ export function App() {
                 <PlanChanges
                   diff={lastDiff}
                   plan={plan}
-                  theme={theme}
                   risksNow={countAtRisk(plan)}
                   onDismiss={() => setLastDiff(null)}
                 />
@@ -785,27 +740,25 @@ export function App() {
                 <WeeklyReview
                   review={plan.review}
                   termId={term.id}
-                  theme={theme}
                   onAnswered={replan}
                 />
               )}
               {viewMode === "table" ? (
                 <>
-                  <WeekTable plan={plan} theme={theme} />
-                  <LookaheadTable plan={plan} theme={theme} />
-                  <AssignmentsTable plan={plan} theme={theme} onChanged={replan} />
+                  <WeekTable plan={plan} />
+                  <LookaheadTable plan={plan} />
+                  <AssignmentsTable plan={plan} onChanged={replan} />
                 </>
               ) : (
                 <>
                   {plan.brief && (
-                    <SessionBrief brief={plan.brief} courses={plan.courses} theme={theme} />
+                    <SessionBrief brief={plan.brief} courses={plan.courses} />
                   )}
                   {plan.courseLoad && (
                     <ErrorBoundary area={label("courseTable", theme)}>
                     <CampaignTable
                       load={plan.courseLoad}
                       courses={plan.courses}
-                      theme={theme}
                       // The roster highlights a class when it is the only one left switched on,
                       // so clicking a row and using the switches say the same thing rather than
                       // being two controls arguing over one picture.
@@ -823,7 +776,6 @@ export function App() {
 
                   <LayerBar
                     layers={buildLayers(plan, hiddenCourseIds)}
-                    theme={theme}
                     onToggle={(courseId) =>
                       setHiddenCourseIds((prev) => {
                         const next = new Set(prev);
@@ -876,21 +828,18 @@ export function App() {
                   {weekView === "terrain" ? (
                     <TerrainMap
                       plan={plan}
-                      theme={theme}
                       reducedMotion={me?.reducedMotion ?? false}
                       hiddenCourseIds={hiddenCourseIds}
                     />
                   ) : weekView === "calendar" ? (
                     <WeekCalendar
                       plan={plan}
-                      theme={theme}
                       hiddenCourseIds={hiddenCourseIds}
                       onChanged={refreshPlan}
                     />
                   ) : (
                     <WeekMap
                       plan={plan}
-                      theme={theme}
                       brief={plan.brief}
                       hiddenCourseIds={hiddenCourseIds}
                       onPrioritize={prioritize}
@@ -906,14 +855,13 @@ export function App() {
                         milestones={plan.brief.milestones}
                         undatedMilestones={plan.brief.undatedMilestones}
                         courses={plan.courses}
-                        theme={theme}
                         hiddenCourseIds={hiddenCourseIds}
                       />
                     </ErrorBoundary>
                   )}
                   {plan.progress && (
                     <ErrorBoundary area={label("progress", theme)}>
-                      <Questline progress={plan.progress} courses={plan.courses} theme={theme} />
+                      <Questline progress={plan.progress} courses={plan.courses} />
                     </ErrorBoundary>
                   )}
                 </>
@@ -921,7 +869,7 @@ export function App() {
             </>
           )}
           {tab === "work" && (
-            <AssignmentsTable plan={plan} theme={theme} onChanged={replan} />
+            <AssignmentsTable plan={plan} onChanged={replan} />
           )}
 
           {/* Where the big things stand. Its own screen rather than another card on the
@@ -929,7 +877,7 @@ export function App() {
               underneath a seven-day grid buries it. */}
           {/* The term page opens with the one question no other screen answers — which
               course needs me — and only then goes into the detail behind it. */}
-          {tab === "stats" && viewMode === "table" && <CoursesTable plan={plan} theme={theme} />}
+          {tab === "stats" && viewMode === "table" && <CoursesTable plan={plan} />}
           {tab === "stats" && viewMode === "visual" && plan.health && (
             <ErrorBoundary area="How each class is doing">
               <CourseGaugeBoard
@@ -947,7 +895,6 @@ export function App() {
                 health={plan.health}
                 courses={plan.courses}
                 workItems={plan.workItems}
-                theme={theme}
                 onChanged={refreshPlan}
               />
             </ErrorBoundary>
@@ -959,12 +906,11 @@ export function App() {
                 progress={plan.progress}
                 courses={plan.courses}
                 standings={plan.standings}
-                theme={theme}
               />
             </ErrorBoundary>
           )}
           {tab === "coach" && (
-            <Coach termId={term.id} theme={theme} onPlanChanged={refreshPlan} />
+            <Coach termId={term.id} onPlanChanged={refreshPlan} />
           )}
           {tab === "setup" && (
             <>
@@ -1133,5 +1079,6 @@ export function App() {
       )}
       </ErrorBoundary>
     </div>
+    </ThemeContext.Provider>
   );
 }
