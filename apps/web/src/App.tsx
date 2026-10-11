@@ -573,13 +573,19 @@ export function App() {
     }, "Your theme did not save.");
   }
 
+  const [savingShareUsage, setSavingShareUsage] = useState(false);
   async function changeShareUsage(next: boolean) {
-    await saveShareUsage(next, () =>
-      run(async () => {
-        const { user } = await api.patch<{ user: Me }>("/api/me", { shareUsage: next });
-        setMe(user);
-      }, "That setting did not save."),
-    );
+    setSavingShareUsage(true);
+    try {
+      await saveShareUsage(next, () =>
+        run(async () => {
+          const { user } = await api.patch<{ user: Me }>("/api/me", { shareUsage: next });
+          setMe(user);
+        }, "That setting did not save."),
+      );
+    } finally {
+      setSavingShareUsage(false);
+    }
   }
 
   async function signOut() {
@@ -1122,6 +1128,7 @@ export function App() {
                     type="checkbox"
                     role="switch"
                     checked={me.shareUsage !== false}
+                    disabled={savingShareUsage}
                     onChange={(e) => void changeShareUsage(e.target.checked)}
                     data-testid="share-usage"
                   />

@@ -185,4 +185,32 @@ describe("saveShareUsage", () => {
     tracker.track("tab.week");
     expect(tracker.pending()).toEqual({});
   });
+
+  it("refuses a second save while one is in flight, so an older answer cannot land last", async () => {
+    const tracker = createUsageTracker(async () => undefined);
+    let finish!: (ok: boolean) => void;
+    const saves: boolean[] = [];
+    const first = saveShareUsage(
+      true,
+      () => {
+        saves.push(true);
+        return new Promise<boolean>((resolve) => (finish = resolve));
+      },
+      tracker,
+    );
+    const second = await saveShareUsage(
+      false,
+      async () => {
+        saves.push(false);
+        return true;
+      },
+      tracker,
+    );
+    expect(second).toBe(false);
+    expect(saves).toEqual([true]);
+    finish(true);
+    expect(await first).toBe(true);
+    // Free again once the first has landed.
+    expect(await saveShareUsage(false, async () => true, tracker)).toBe(true);
+  });
 });

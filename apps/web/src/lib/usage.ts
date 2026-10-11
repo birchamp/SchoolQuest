@@ -112,13 +112,24 @@ export function track(event: UsageEvent): void {
  * counting one that has asked not to be counted is the thing this switch exists to prevent.
  * Turning it on is left to the caller's state, which enables the tracker once the save has landed.
  */
+let shareSaveInFlight = false;
+
 export async function saveShareUsage(
   next: boolean,
   save: () => Promise<boolean>,
   usage: Pick<UsageTracker, "setEnabled"> = tracker,
 ): Promise<boolean> {
-  if (!next) usage.setEnabled(false);
-  return save();
+  // One save at a time, refused rather than queued while one is in flight (the switch is disabled
+  // meanwhile too). Overlapping saves could land in any order, so an older On answering after a
+  // newer Off restored sharing the student had just turned off (found in review on #41).
+  if (shareSaveInFlight) return false;
+  shareSaveInFlight = true;
+  try {
+    if (!next) usage.setEnabled(false);
+    return await save();
+  } finally {
+    shareSaveInFlight = false;
+  }
 }
 
 export const flushUsage = (): Promise<void> => tracker.flush();
