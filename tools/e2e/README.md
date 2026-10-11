@@ -1,5 +1,17 @@
 # End-to-end checks
 
+## Writing a journey
+
+Every journey builds on `harness.mjs`, which owns the parts that are the same everywhere: `api()`,
+`signUp(label)` for a fresh account through the dev sign-in link, the pinned clock (`TODAY`, `at`,
+`dateFrom`), `openApp(browser, token, { now, viewMode, landOn, shell, context })`, `check()`, and
+`runJourney(noun, body)`, which starts the servers (or attaches with `--attach`), launches
+Chromium, and exits non-zero on any failed check, a journey that throws, or a run that recorded no
+checks at all. `journey()` wraps one of several independent stories so one that throws does not
+stop the rest. A new journey is only its story; see the example at the top of `harness.mjs`.
+
+Before trusting a new journey, break the behaviour it guards and watch it fail.
+
 ## The acceptance journey (runs on every push)
 
 `pnpm test:acceptance` starts both halves, drives the release acceptance list from
