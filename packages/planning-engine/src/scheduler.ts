@@ -399,7 +399,9 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
       lastEnd = Math.max(lastEnd, end);
     }
 
-    // Successors cannot begin until this item's last session ends.
+    // Successors cannot begin until this item's last session ends. When none was placed the
+    // floor is this item's own earliest start, deliberately: a successor must not run ahead of
+    // a predecessor the week could not hold.
     for (const dep of input.dependencies) {
       if (dep.predecessorWorkItemId !== work.item.id) continue;
       if (dep.dependencyType === "same_session") continue;
@@ -559,6 +561,10 @@ export function generatePlan(input: PlanningInput, planVersionId: string): Plann
   if (sessions.length === carried.length && orderedPending.length > 0) {
     // Nothing was ripe. Lift the runway floor and try again — nothing has been consumed, so the
     // second pass starts from the same empty week the first one did.
+    // The first pass wrote each predecessor's runway-bound floor into its successors. Those
+    // floors are exactly what is being lifted, so they go too; the second pass rebuilds them
+    // from where the predecessors actually land (issue #27).
+    earliestStartByItem.clear();
     for (const work of orderedPending) {
       work.earliestStart = Math.max(
         now,
