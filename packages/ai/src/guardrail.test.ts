@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { guardMessage, prefilter, type ClassifierLabel } from "./guardrail.js";
+import { guardMessage, parseClassifierLabel, prefilter, type ClassifierLabel } from "./guardrail.js";
 import { AiProviderError, type AiProvider, type CompletionRequest } from "./provider.js";
 
 /** A provider that always returns the label it was constructed with, and remembers what it was asked. */
@@ -265,6 +265,23 @@ describe("classifier robustness: a real verdict is not lost to formatting or a b
   it("records a truncated reply as unparseable, distinct from an outage", async () => {
     const decision = await guardMessage(ambiguous, scriptedProvider('{"label": "AL'));
     expect(decision.failure?.reason).toBe("unparseable");
+  });
+});
+
+describe("parseClassifierLabel: conflicting verdicts are not guessed at", () => {
+  it("takes a single verdict, however it is wrapped", () => {
+    expect(parseClassifierLabel('```json\n{"label":"OFF_TOPIC"}\n```')).toBe("OFF_TOPIC");
+    expect(parseClassifierLabel('{"label":"ALLOW"} {"label":"ALLOW"}')).toBe("ALLOW");
+  });
+
+  it("fails closed when two JSON objects disagree, whichever comes first", () => {
+    // An echoed example followed by the real verdict must not let the echo through.
+    expect(parseClassifierLabel('{"label":"ALLOW"} {"label":"DO_MY_WORK"}')).toBeNull();
+    expect(parseClassifierLabel('{"label":"DO_MY_WORK"}\n{"label":"ALLOW"}')).toBeNull();
+  });
+
+  it("fails closed when the JSON verdict contradicts a label named in the prose", () => {
+    expect(parseClassifierLabel('Not ALLOW. {"label":"OFF_TOPIC"}')).toBeNull();
   });
 });
 

@@ -244,22 +244,27 @@ const CLASSIFIER_MAX_TOKENS = 512;
  * Reads a label out of whatever the classifier sent back.
  *
  * The strict schema is a request, not a guarantee: a model chosen from the live catalogue may
- * ignore it, wrap the JSON in a code fence, or say a word before it. Any JSON object with a valid
- * label counts. Failing that, a reply that names exactly one label word (`ALLOW`, `OFF_TOPIC.`)
- * counts. A reply naming two labels, or none, is not guessed at -- that stays a failure, and the
- * gate fails closed.
+ * ignore it, wrap the JSON in a code fence, or say a word before it. So every JSON object with a
+ * valid label counts, and so does every label word named anywhere in the reply (`ALLOW`,
+ * `OFF_TOPIC.`). The reply is read whole and must come to exactly one verdict. Taking the first
+ * JSON object let an echoed `{"label":"ALLOW"}` ahead of the real `{"label":"DO_MY_WORK"}` through
+ * to the coach (found in review on #39). Two different labels, or none, are not guessed at -- that
+ * stays a failure, and the gate fails closed.
  */
 export function parseClassifierLabel(text: string): ClassifierLabel | null {
+  const labels = new Set<ClassifierLabel>();
   for (const candidate of text.match(/\{[^{}]*\}/g) ?? []) {
     try {
       const parsed = classifierOutput.safeParse(JSON.parse(candidate));
-      if (parsed.success) return parsed.data.label;
+      if (parsed.success) labels.add(parsed.data.label);
     } catch {
-      // Not JSON; try the next candidate.
+      // Not JSON; the label words below still count.
     }
   }
-  const named = new Set(text.match(new RegExp(`\\b(${GUARD_VERDICTS.join("|")})\\b`, "g")));
-  return named.size === 1 ? ([...named][0] as ClassifierLabel) : null;
+  for (const word of text.match(new RegExp(`\\b(${GUARD_VERDICTS.join("|")})\\b`, "g")) ?? []) {
+    labels.add(word as ClassifierLabel);
+  }
+  return labels.size === 1 ? ([...labels][0] as ClassifierLabel) : null;
 }
 
 type RetryPlan = "same" | "without_schema" | "none";
