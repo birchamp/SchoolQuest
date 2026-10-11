@@ -15,65 +15,25 @@
  *
  * Needs DEV_MODE on the Worker (the dev scripts set it) for the on-screen sign-in link.
  */
-import { chromium } from "playwright";
-import { chromiumLaunchOptions } from "./browser.mjs";
-import { ATTACH, startServers, stopServers, waitForServers } from "./servers.mjs";
-
-const APP = "http://127.0.0.1:5173";
-const API = "http://127.0.0.1:8787";
-
-// --- Helpers -----------------------------------------------------------------------------
-
-async function api(path, method = "GET", body, token) {
-  const res = await fetch(API + path, {
-    method,
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`${method} ${path} -> ${res.status} ${text.slice(0, 200)}`);
-  return text ? JSON.parse(text) : null;
-}
-
-const results = [];
-function check(step, passed, detail = "") {
-  results.push({ step, passed, detail });
-  console.log(`${passed ? "ok  " : "FAIL"} ${step}${detail ? ` -- ${detail}` : ""}`);
-}
+import { TODAY, api, at, check, dateFrom, openApp, runJourney, signUp } from "./harness.mjs";
 
 /**
- * The moment the journey plans from: nine in the morning, today, UTC.
- *
- * Pinned rather than read from the wall clock, because the journey needs blocks *today* -- to
- * start one, and to give the day up -- and a run at 23:50 UTC has no today left to book. The
- * app reads `sq_dev_now` and the Worker honours `now` in dev mode, which is what the
- * screenshot tools use to look at a term from week nine. The date is still the real date, so
- * "today" agrees everywhere; only the hour is fixed.
+ * The moment the journey plans from: nine in the morning, today. Pinned rather than read from
+ * the wall clock, because the journey needs blocks *today* -- to start one, and to give the day
+ * up -- and a run at 23:50 has no today left to book.
  */
-const TODAY = new Date().toISOString().slice(0, 10);
-const NOW = `${TODAY}T09:00:00.000Z`;
+const NOW = at(TODAY, "09:00");
 
-/** ISO date `days` from today, in the app's UTC wall clock. */
-function dateFromToday(days) {
-  return new Date(Date.parse(NOW) + days * 86_400_000).toISOString().slice(0, 10);
-}
+/** ISO date `days` from today, in the app's wall clock. */
+const dateFromToday = (days) => dateFrom(TODAY, days);
 
 // --- The journey -------------------------------------------------------------------------
 
-const serverLog = ATTACH ? [] : startServers();
-let browser;
-try {
-  await waitForServers();
-
+await runJourney("acceptance steps", async ({ browser }) => {
   // 1. Sign in. The dev link comes back on screen, which is what a local run relies on.
-  const email = `acceptance-${Date.now()}@example.edu`;
-  const login = await api("/api/auth/login", "POST", { email });
-  check("sign-in link is returned on screen in dev mode", typeof login.devLoginUrl === "string");
-  const { sessionToken } = await api("/api/auth/callback", "POST", {
-    token: new URL(login.devLoginUrl).searchParams.get("token"),
-  });
+  const { token: sessionToken, email } = await signUp("acceptance");
   const me = await api("/api/me", "GET", undefined, sessionToken);
-  check("the account exists and answers /api/me", me.user.email === email);
+  check("a fresh account signs in through the on-screen dev link and answers /api/me", me.user.email === email);
 
   // Setup the journey needs, through the API: a term with hours today, so Today has something
   // to show whatever hour CI runs at.
@@ -97,24 +57,7 @@ try {
   );
   check("a term, hours and a fixed commitment were created", true);
 
-  browser = await chromium.launch(chromiumLaunchOptions());
-  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
-  const pageErrors = [];
-  page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 300)));
-  await page.addInitScript(
-    ({ token, now }) => {
-      localStorage.setItem("sq_session_token", token);
-      localStorage.setItem("sq_dev_now", now);
-    },
-    { token: sessionToken, now: NOW },
-  );
-  await page.goto(APP);
-  const nav = page.getByRole("navigation", { name: "Main" });
-  await nav.waitFor({ timeout: 30_000 });
-  const go = async (name) => {
-    await nav.getByRole("button", { name }).click();
-    await page.waitForTimeout(800);
-  };
+  const { page, nav, go, errors: pageErrors } = await openApp(browser, sessionToken, { now: NOW });
 
   // 2. Create a course in Setup, and see it appear without a reload (issue #6).
   await go("Setup");
@@ -277,16 +220,4 @@ try {
   check("the coach without a key explains itself in its own terms", /503/.test(coachMessage) && /coach/.test(coachMessage));
 
   check("no page errors were thrown anywhere on the journey", pageErrors.length === 0, pageErrors.join(" | "));
-} catch (error) {
-  check("the journey ran to the end", false, String(error?.stack ?? error).slice(0, 600));
-} finally {
-  await browser?.close().catch(() => {});
-  if (!ATTACH) stopServers();
-}
-
-const failed = results.filter((r) => !r.passed);
-console.log(`\n${results.length - failed.length} of ${results.length} acceptance steps passed.`);
-if (failed.length > 0) {
-  if (serverLog.length > 0) console.log("\n--- last server output ---\n" + serverLog.slice(-60).join("\n"));
-  process.exitCode = 1;
-}
+});
