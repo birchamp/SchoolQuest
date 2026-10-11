@@ -38,7 +38,6 @@ import { SyllabusUpload } from "./components/SyllabusUpload";
 import { SetupStatus } from "./components/SetupStatus";
 import { StopButton } from "./components/StopButton";
 import { DiagnosticsButton } from "./components/DiagnosticsButton";
-import { CourseGaugeBoard } from "./components/CourseGaugeBoard";
 import { CampaignRadar } from "./components/CampaignRadar";
 import { PlanChanges } from "./components/PlanChanges";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -922,24 +921,16 @@ export function App() {
               course needs me — and only then goes into the detail behind it. */}
           {tab === "stats" && viewMode === "table" && <CoursesTable plan={plan} />}
           {tab === "stats" && viewMode === "visual" && plan.health && (
-            <ErrorBoundary area="How each class is doing">
-              <CourseGaugeBoard
-                termId={term.id}
-                health={plan.health}
-                courses={plan.courses}
-                onNavigate={goToGaugeTarget}
-                refreshKey={setupSaves}
-              />
-            </ErrorBoundary>
-          )}
-          {tab === "stats" && viewMode === "visual" && plan.health && (
             <ErrorBoundary area={label("dashboard", theme)}>
               <Dashboard
+                termId={term.id}
                 health={plan.health}
                 courses={plan.courses}
                 workItems={plan.workItems}
                 grades={plan.grades ?? []}
                 onChanged={refreshPlan}
+                onNavigate={goToGaugeTarget}
+                refreshKey={setupSaves}
               />
             </ErrorBoundary>
           )}
