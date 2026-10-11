@@ -141,6 +141,8 @@ export async function redeemLoginToken(
       openrouterKeyEncrypted: null,
       extractionModel: null,
       coachModel: null,
+      // On by default, and switchable on Setup (see usage.ts).
+      shareUsage: true,
       createdAt: new Date().toISOString(),
     };
     await db.insert(users).values(created);

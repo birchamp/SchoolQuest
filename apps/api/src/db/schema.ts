@@ -39,6 +39,11 @@ export const users = sqliteTable("users", {
   /** A live OpenRouter model id. Null falls back to the strongest reader in the catalogue. */
   extractionModel: text("extraction_model"),
   coachModel: text("coach_model"),
+  /**
+   * Whether this account's screen and button counts go into `usage_daily`. On by default; when
+   * off the client sends nothing and the server discards anything that arrives anyway.
+   */
+  shareUsage: integer("share_usage", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull(),
 });
 
@@ -85,6 +90,26 @@ export const rateLimits = sqliteTable(
     count: integer("count").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.bucketKey, t.windowStart] })],
+);
+
+/**
+ * The usage log (`apps/api/src/usage.ts`): how many times each allowlisted event happened, per
+ * UTC day, per person.
+ *
+ * `subject` is an HMAC of the user id under a key derived from AUTH_SECRET, never the id itself,
+ * so the table can count distinct people without saying who any of them are. `event` is always a
+ * name from `USAGE_EVENTS`. There is deliberately nowhere to put anything else.
+ */
+export const usageDaily = sqliteTable(
+  "usage_daily",
+  {
+    /** UTC date, YYYY-MM-DD. */
+    day: text("day").notNull(),
+    event: text("event").notNull(),
+    subject: text("subject").notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.event, t.subject] })],
 );
 
 export const terms = sqliteTable(

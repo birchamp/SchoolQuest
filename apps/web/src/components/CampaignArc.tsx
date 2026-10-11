@@ -484,7 +484,7 @@ function DatedRow({
       </div>
 
       {/* Course, type and date hang under the title, clear of the sigil gutter — the same
-          indent Questline uses for its bars. */}
+          indent the Stats course rows use for their bars. */}
       <div style={{ marginLeft: 38 }}>
         <p
           className="muted"

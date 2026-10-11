@@ -3,14 +3,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ThemeName } from "@schoolquest/domain";
-import { Questline } from "./Questline";
+import { Stats } from "./Stats";
 import { ThemeContext } from "../lib/theme-context";
 import { useHashTab, type Tab } from "../lib/tab-route";
-import type { TermProgressView } from "../lib/types";
+import type { ProjectsSummaryView, TermProgressView } from "../lib/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** No courses yet: the one state of the card whose every word depends on the theme. */
+/** No work yet: the one state of the term card whose every word depends on the theme. */
 const EMPTY: TermProgressView = {
   courses: [],
   itemsTotal: 0,
@@ -24,7 +24,28 @@ const EMPTY: TermProgressView = {
   sessionsCompleted: 0,
 };
 
-const PLAIN_LINE = "No courses yet. Add a course and its work will appear here.";
+const NO_PROJECTS: { rows: []; summary: ProjectsSummaryView } = {
+  rows: [],
+  summary: {
+    investedMinutes: 0,
+    sessionsCompleted: 0,
+    bookedMinutes: 0,
+    projectsTotal: 0,
+    projectsFinished: 0,
+    projectsWillNotFit: 0,
+    projectsCrowding: 0,
+    projectsNotStarted: 0,
+    projectsStalled: 0,
+    projectsPastDue: 0,
+  },
+};
+
+const PLAIN_LINE =
+  "No work items have been added to your courses yet, so there is no term completion to report.";
+
+/** The term card's heading and its sentence: the first card the Stats screen renders. */
+const heading = () => host.querySelector("h2");
+const sentence = () => host.querySelector("section p:not([aria-hidden])");
 
 let host: HTMLDivElement;
 let root: Root;
@@ -43,7 +64,7 @@ afterEach(() => {
 
 describe("ThemeContext", () => {
   function renderIn(theme: ThemeName | null) {
-    const card = <Questline progress={EMPTY} courses={[]} />;
+    const card = <Stats projects={NO_PROJECTS} progress={EMPTY} courses={[]} standings={{}} />;
     act(() =>
       root.render(
         theme === null ? card : <ThemeContext.Provider value={theme}>{card}</ThemeContext.Provider>,
@@ -53,10 +74,12 @@ describe("ThemeContext", () => {
 
   it("reaches a component and the Themed wording inside it", () => {
     renderIn("quest");
-    expect(host.querySelector("h2")?.textContent).toContain("Questlines");
-    const visible = host.querySelector("p [aria-hidden='true']");
-    const spoken = host.querySelector("p .sr-only");
-    expect(visible?.textContent).toMatch(/^No questlines yet\./);
+    expect(heading()?.querySelector("[aria-hidden='true']:not(:first-child)")?.textContent).toBe(
+      "The campaign so far",
+    );
+    const visible = sentence()?.querySelector("[aria-hidden='true']");
+    const spoken = sentence()?.querySelector(".sr-only");
+    expect(visible?.textContent).toMatch(/^Nothing charted for the term yet/);
     // What a screen reader hears never depends on the theme.
     expect(spoken?.textContent).toBe(PLAIN_LINE);
   });
@@ -64,7 +87,8 @@ describe("ThemeContext", () => {
   it("follows a change of theme without remounting", () => {
     renderIn("quest");
     renderIn("mission");
-    expect(host.querySelector("h2")?.textContent).toBe("Theaters");
+    expect(heading()?.querySelector("[aria-hidden='true']")?.textContent).toBe("Semester status");
+    expect(heading()?.querySelector(".sr-only")?.textContent).toBe("Semester at a glance");
   });
 
   it("falls back to Plain outside the provider", () => {
@@ -72,10 +96,10 @@ describe("ThemeContext", () => {
     document.body.dataset["theme"] = "quest";
     renderIn(null);
     delete document.body.dataset["theme"];
-    expect(host.querySelector("h2")?.textContent).toBe("Course progress");
+    expect(heading()?.textContent).toBe("Semester at a glance");
     // Plain wording equals the spoken wording, so Themed renders it once, unsplit.
-    expect(host.querySelector("p")?.textContent).toBe(PLAIN_LINE);
-    expect(host.querySelector("p [aria-hidden='true']")).toBeNull();
+    expect(sentence()?.textContent).toBe(PLAIN_LINE);
+    expect(sentence()?.querySelector("[aria-hidden='true']")).toBeNull();
   });
 });
 

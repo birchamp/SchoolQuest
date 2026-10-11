@@ -23,7 +23,9 @@ import { coursesRoute } from "./routes/courses.js";
 import { commitmentsRoute } from "./routes/commitments.js";
 import { workItemsRoute } from "./routes/work-items.js";
 import { gradesRoute } from "./routes/grades.js";
-import { isDevMode, type AppBindings } from "./env.js";
+import { usageRoute } from "./routes/usage.js";
+import { isDevMode, type AppBindings, type Env } from "./env.js";
+import { pruneUsage } from "./usage.js";
 import { isTimeZone } from "@schoolquest/domain";
 
 const app = new Hono<AppBindings>();
@@ -151,6 +153,8 @@ const profileBody = z.object({
   theme: themeName.optional(),
   reducedMotion: z.boolean().optional(),
   detailMode: detailMode.optional(),
+  /** Whether screen and button counts go into the usage log (see usage.ts). */
+  shareUsage: z.boolean().optional(),
   /**
    * The student's OpenRouter key. Empty string clears it, which is the only way back to the
    * deployment's own key once one has been set.
@@ -226,6 +230,7 @@ app.route("/api", reviewRoute);
 app.route("/api", coachRoute);
 app.route("/api", documentsRoute);
 app.route("/api", extractionRoute);
+app.route("/api", usageRoute);
 
 app.onError((error, c) => {
   console.error("[api]", error);
@@ -252,4 +257,17 @@ app.onError((error, c) => {
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 
-export default app;
+/**
+ * The fetch handler is the app; the daily cron (wrangler.toml `[triggers]`) deletes usage counts
+ * past the retention window, so the 180 days hold even when nobody writes.
+ */
+export default {
+  fetch: app.fetch,
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(
+      pruneUsage(env.DB, Date.now()).catch((error: unknown) => {
+        console.warn("[usage] prune failed:", error instanceof Error ? error.message : String(error));
+      }),
+    );
+  },
+} satisfies ExportedHandler<Env>;

@@ -207,7 +207,10 @@ npx wrangler deploy
 Apply migrations **before** `wrangler deploy`, as above: a new Worker can depend on a table its
 migration creates. (The rate limiter steps aside and logs a warning if `rate_limits` is
 missing, so a Worker deployed first still signs people in, but neither sign-in nor the AI routes
-are limited until the migration runs.)
+are limited until the migration runs.) Migration `0012_usage_daily` matters most here: it adds
+`users.share_usage`, which every signed-in request reads, so a Worker deployed ahead of it
+answers every signed-in request with an error until the migration is applied. (The usage
+table itself is fail-open: if `usage_daily` is missing, `POST /api/usage` logs and answers 204.)
 
 Then set `APP_URL` in `wrangler.toml` to your deployed web origin, and build the web app
 with `VITE_API_URL` pointing at the Worker.
@@ -357,6 +360,25 @@ Behaviors the test suite pins down:
 Run them with `pnpm test`. The wall-clock CPU ceilings on the planner and the radar run
 separately, one file at a time, with `pnpm test:bench`. `pnpm test:acceptance` walks the release list in a real browser
 against the real Worker (`tools/e2e/README.md`), and CI runs both on every push.
+
+## Usage log
+
+So the owner can see which screens and controls students actually use, the app counts them.
+
+- **What is recorded:** one row per UTC day, per event, per person, holding a count:
+  `usage_daily(day, event, subject, count)`. Events come only from the allowlist `USAGE_EVENTS`
+  in `packages/domain/src/usage.ts` (tabs, the week views, Visual/Tables, cards scrolled into
+  view, and a few actions such as starting a session or sending a coach message). The API drops
+  any other name. `subject` is an HMAC-SHA256 of the user id under a key derived from
+  `AUTH_SECRET`, never the id itself. Nothing typed, no course or assignment details, no free text.
+- **How it is sent:** counted in memory and sent at most once a minute, plus once when the page is
+  hidden or closed, to `POST /api/usage`. Failures are dropped, never retried.
+- **Opt-out:** Setup -> Preferences -> "Share anonymous usage counts". Off means the app sends
+  nothing, and the server discards anything that arrives for that account anyway. On by default.
+- **Reading it:** `pnpm usage:report` (local database) or `pnpm usage:report --remote`, with
+  `--days N` for the window (default 30). It prints distinct people and total count per event,
+  most-used first, then every allowlisted event nobody used.
+- **Retention:** rows older than 180 days are deleted on every write and by a daily cron trigger (`[triggers]` in `apps/api/wrangler.toml`), so the window holds even when nobody writes.
 
 ## Status
 

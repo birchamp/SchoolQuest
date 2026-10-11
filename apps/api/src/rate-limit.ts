@@ -85,6 +85,15 @@ export const RATE_LIMITS = {
     windowSeconds: HOUR,
     message: "That is a lot of course-list readings for one hour",
   },
+  /**
+   * Usage reports (`routes/usage.ts`). The app sends at most one a minute plus one each time it
+   * is hidden, so an hour with a few tabs open stays well under this.
+   */
+  usage: {
+    limit: 300,
+    windowSeconds: HOUR,
+    message: "Too many usage reports",
+  },
 } satisfies Record<string, RateRule>;
 
 export type RateRuleName = keyof typeof RATE_LIMITS;

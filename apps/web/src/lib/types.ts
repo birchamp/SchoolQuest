@@ -300,4 +300,6 @@ export interface Me {
   theme: ThemeName;
   reducedMotion: boolean;
   detailMode: "reduced" | "standard" | "expanded";
+  /** Whether screen and button counts go into the usage log. Absent on an older server: on. */
+  shareUsage?: boolean;
 }
