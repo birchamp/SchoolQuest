@@ -14,6 +14,7 @@ import {
   formatDueDay,
 } from "../lib/due-time";
 import type { PlanResponse } from "../lib/types";
+import { courseNameWithCode } from "../lib/format";
 
 /**
  * The same data, as rows.
@@ -53,10 +54,7 @@ function formatMinutes(minutes: number): string {
 }
 
 function courseLabel(course: Course | undefined): string {
-  if (!course) return "—";
-  return course.code && !course.name.includes(course.code)
-    ? `${course.name} (${course.code})`
-    : course.name;
+  return course ? courseNameWithCode(course) : "—";
 }
 
 /**

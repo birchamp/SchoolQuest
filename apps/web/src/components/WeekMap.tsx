@@ -20,6 +20,7 @@ import { appToday, formatClock, formatTime, localDate, planTimeZone } from "../l
 import { courseLabelInk } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
 import { CalendarLegend } from "./CalendarLegend";
+import { courseNameWithCode } from "../lib/format";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -166,7 +167,7 @@ export function WeekMap({
   const stepped = beats.some((b) => hidden.has(b.courseId)) && beats.some((b) => !hidden.has(b.courseId));
   const steppedNames = plan.courses
     .filter((c) => hidden.has(c.id))
-    .map((c) => courseLabel(c))
+    .map((c) => courseNameWithCode(c))
     .join(", ");
 
   return (
@@ -546,17 +547,6 @@ export function WeekMap({
   );
 }
 
-/**
- * Course names sometimes already carry the code ("General Biology I (BIO 240)"); appending
- * it again produced "(BIO 240) (BIO 240)" in group headers, and would do the same in the
- * lens line.
- */
-function courseLabel(course: Course): string {
-  return course.code && !course.name.includes(course.code)
-    ? `${course.name} (${course.code})`
-    : course.name;
-}
-
 function groupMealsByDate(meals: MealBreakView[]): Map<string, MealBreakView[]> {
   const byDate = new Map<string, MealBreakView[]>();
   for (const meal of meals) {
@@ -645,7 +635,7 @@ function DueLine({
     <p className="due-line">
       <span className="sr-only">
         Due{clock ? ` at ${clock}` : ""}: {deadline.title}
-        {course ? `, ${courseLabel(course)}` : ""}
+        {course ? `, ${courseNameWithCode(course)}` : ""}
         {deadline.nothingBooked ? ", with no study time booked this week" : ""}
       </span>
       <span aria-hidden="true">
@@ -709,7 +699,7 @@ function groupUnscheduledByCourse(plan: PlanResponse): {
     const item = itemsById.get(id);
     const course = item ? coursesById.get(item.courseId) : undefined;
     const key = course?.id ?? "other";
-    const name = course ? courseLabel(course) : "Other";
+    const name = course ? courseNameWithCode(course) : "Other";
     const group = groups.get(key) ?? { key, name, items: [] };
     group.items.push({ id, title: item?.title ?? id, reason: reasonById.get(id) ?? null });
     groups.set(key, group);

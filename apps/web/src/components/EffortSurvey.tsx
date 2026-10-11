@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useBodyTheme } from "../lib/use-body-theme";
 import { localDate } from "../lib/clock";
+import { Themed } from "./Themed";
 
 /**
  * Asking the student how long their work actually takes.
@@ -61,17 +62,6 @@ interface Survey {
   groundedFraction: number;
   assumedItemCount: number;
   itemCount: number;
-}
-
-/** Themed wording on screen, plain wording for assistive technology (docs/02-prd.md §5). */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
 }
 
 

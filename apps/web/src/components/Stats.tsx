@@ -9,6 +9,9 @@ import type {
   TermProgressView,
 } from "../lib/types";
 import { formatDueDay } from "../lib/due-time";
+import { QUEST_PALETTE as Q } from "../lib/quest-palette";
+import { courseLabel, formatEffort, initialsFor } from "../lib/format";
+import { Themed } from "./Themed";
 
 /**
  * Where the term stands, and whether the long work is going to land.
@@ -49,35 +52,6 @@ import { formatDueDay } from "../lib/due-time";
  * Quest chrome is presentation only. Every count, minute and date reads identically once the
  * flavour is stripped, and the plain shell is a calm readout carrying no metaphor at all.
  */
-
-/**
- * Quest palette, duplicated from the `--q-*` custom properties in styles.css as literals.
- * Only ever applied when `theme === "quest"`; hard-coding keeps the file readable in
- * isolation, the way Today.tsx, Questline.tsx and CampaignArc.tsx already do.
- */
-const Q = {
-  ink: "#2a1f14",
-  parchment: "#efe3c8",
-  leather: "#16100b",
-  gold: "#c9a227",
-  goldBright: "#e8c95a",
-  goldDim: "#8a6f1f",
-  wax: "#8c2f28",
-  /** Dim ink for text over a *tinted* patch of parchment; see the note in CampaignArc.tsx. */
-  inkDim: "#5b4930",
-  /** Cream that clears 4.5:1 on a filled wax chip. */
-  chipCream: "#f2ead6",
-  /** Dark ink for text on gold leaf; the shipped chip pairing. */
-  onGold: "#3a2b00",
-} as const;
-
-/** "95" -> "1h 35m". Matches Today.tsx and CampaignArc.tsx, so minutes read the same everywhere. */
-function formatEffort(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
-}
 
 /** The same figure spelled out, for screen readers: "1h 35m" is not speech. */
 function spellEffort(minutes: number): string {
@@ -128,43 +102,6 @@ function workTypeLabel(workType: string): string {
  */
 function formatDue(dueAt: string): string {
   return formatDueDay(dueAt, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
-}
-
-/** Course code appended only when the name does not already carry it (see WeekMap). */
-function courseLabel(course: Course | undefined, courseId: string): string {
-  if (!course) return `Course ${courseId.slice(0, 6)}`;
-  return course.code && !course.name.includes(course.code)
-    ? `${course.name} (${course.code})`
-    : course.name;
-}
-
-/**
- * Sigil lettering, matched to Questline.tsx / CampaignArc.tsx so the screens agree. Digits
- * are skipped on purpose: "BIO 240" as a two-character mark reads as "B2", which looks like
- * a typo rather than a course.
- */
-function initialsFor(course: Course | undefined, courseId: string): string {
-  const source = course?.code ?? course?.name ?? courseId;
-  const words = source.match(/[A-Za-z]+/g) ?? [];
-  const first = words[0];
-  if (!first) return "?";
-  const second = words[1];
-  return (second ? first.slice(0, 1) + second.slice(0, 1) : first.slice(0, 3)).toUpperCase();
-}
-
-/**
- * Themed wording on screen, plain wording for assistive tech. Copied from Questline.tsx:
- * screen-reader output must never depend on the visual theme (docs/02-prd.md §5), and the
- * metaphor therefore never carries meaning.
- */
-function Themed({ visible, plain }: { visible: string; plain: string }) {
-  if (visible === plain) return <>{visible}</>;
-  return (
-    <>
-      <span aria-hidden="true">{visible}</span>
-      <span className="sr-only">{plain}</span>
-    </>
-  );
 }
 
 /** The course mark. Tincture in quest, a neutral chip carrying the code in plain. */

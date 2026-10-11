@@ -6,14 +6,7 @@ import { api } from "../lib/api";
 import { addDays } from "@schoolquest/domain";
 import { clearSessionStarted, minutesSinceStarted, noteSessionStarted } from "../lib/session-clock";
 import type { PlanResponse } from "../lib/types";
-
-/** "95" -> "1h 35m". Minutes alone stop being legible somewhere past a couple of hours. */
-function formatEffort(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
-}
+import { formatEffort } from "../lib/format";
 
 /** What the server reports back when a session outcome is recorded. */
 interface CompleteResult {
