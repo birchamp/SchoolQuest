@@ -53,6 +53,7 @@ import { collectSubtreeIds, deleteWorkItems } from "../db/delete-work.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
 import { isoInstant } from "../iso-instant.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
+import { rateLimitPerUser } from "../rate-limit.js";
 import type { AppBindings } from "../env.js";
 
 export const termsRoute = new Hono<AppBindings>();
@@ -512,7 +513,7 @@ const calendarPasteBody = z.object({
  * Nothing is written until the reading validates. A term whose calendar cannot be read keeps
  * the one it had.
  */
-termsRoute.post("/terms/:id/calendar/paste", async (c) => {
+termsRoute.post("/terms/:id/calendar/paste", rateLimitPerUser("calendarPaste"), async (c) => {
   const db = getDb(c.env.DB);
   const id = c.req.param("id");
   if (!(await assertTermOwner(db, id, c.get("userId")))) return c.json({ error: "Term not found" }, 404);
@@ -698,7 +699,7 @@ const coursePasteBody = z.object({
  * editable on the same screen a moment later, and a confirm step for data the student can see
  * and fix is a step for its own sake. What was dropped is reported, never hidden.
  */
-termsRoute.post("/terms/:termId/courses/paste", async (c) => {
+termsRoute.post("/terms/:termId/courses/paste", rateLimitPerUser("coursePaste"), async (c) => {
   const db = getDb(c.env.DB);
   const termId = c.req.param("termId");
   if (!(await assertTermOwner(db, termId, c.get("userId")))) {

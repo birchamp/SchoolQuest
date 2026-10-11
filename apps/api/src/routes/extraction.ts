@@ -28,6 +28,7 @@ import {
 import { getDb, insertInChunks, serializeDays, type Db } from "../db/repo.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import { studentZone } from "../student-zone.js";
+import { rateLimitPerUser } from "../rate-limit.js";
 import type { AppBindings } from "../env.js";
 
 export const extractionRoute = new Hono<AppBindings>();
@@ -66,7 +67,7 @@ const extractBody = z.object({
  * Nothing here writes to confirmed academic records. Every claim lands in
  * `extraction_claims` with review_status "pending" and waits for a human.
  */
-extractionRoute.post("/documents/:id/extract", async (c) => {
+extractionRoute.post("/documents/:id/extract", rateLimitPerUser("syllabusExtract"), async (c) => {
   const db = getDb(c.env.DB);
   const documentId = c.req.param("id");
 

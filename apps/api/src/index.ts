@@ -8,6 +8,7 @@ import { getReaderCatalog, readerListFor } from "./model-catalog.js";
 import { decryptSecret, encryptSecret, keyHint } from "./secrets.js";
 import { redeemLoginToken, requestLoginLink, requireAuth, SESSION_COOKIE, setSessionCookie, signOut } from "./auth.js";
 import { getDb } from "./db/repo.js";
+import { clientIp, limitOrRefuse } from "./rate-limit.js";
 import { users } from "./db/schema.js";
 import { coachRoute } from "./routes/coach.js";
 import { documentsRoute } from "./routes/documents.js";
@@ -54,6 +55,14 @@ app.post("/api/auth/login", async (c) => {
     .object({ email: z.string().email() })
     .safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: "A valid email address is required." }, 400);
+
+  // Network first, so one source cycling through addresses is stopped without spending each
+  // address's own allowance. Applies to unknown addresses exactly as to known ones, so the limit
+  // reveals nothing about which emails have accounts.
+  const refused =
+    (await limitOrRefuse(c, "loginIp", clientIp(c))) ??
+    (await limitOrRefuse(c, "loginEmail", body.data.email.trim().toLowerCase()));
+  if (refused) return refused;
 
   const { url, emailed } = await requestLoginLink(c.env, body.data.email);
   // The link is echoed back only in development mode (see `isDevMode`). A deployment with no
