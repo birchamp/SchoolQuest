@@ -246,6 +246,9 @@ export function App() {
       // The zone the server read the plan in is the one it is shown in. Another device may have
       // pinned or moved the zone since this one loaded, and a plan drawn in a different zone
       // from the one it was made in puts every block at the wrong hour. Found in review.
+      // Only the newest load may set it, like the plan itself: an older load answering late
+      // would otherwise leave the newer plan drawn at the old zone's hours.
+      if (!isCurrent()) return;
       if (current.timeZone) setPlanTimeZone(current.timeZone);
       // No plan yet, or one from an earlier day: build today's. The comment here used to say
       // "or the horizon has rolled over" while the code checked only for no plan at all, so a
@@ -261,8 +264,10 @@ export function App() {
           reason: current.planVersion ? "daily_refresh" : "initial",
           ...(when ? { now: when, horizonStart: localDate(when) } : {}),
         });
-        const rebuilt = normalizePlan(await read());
+        const reread = await read();
         if (!isCurrent()) return;
+        if (reread.timeZone) setPlanTimeZone(reread.timeZone);
+        const rebuilt = normalizePlan(reread);
         // Said once, like any replan: the student opened the app and the week moved.
         if (current.planVersion) setLastDiff(generated.diff ?? null);
         setPlan(rebuilt);
