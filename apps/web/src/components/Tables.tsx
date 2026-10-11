@@ -1004,6 +1004,7 @@ export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: The
       courseId: m.courseId,
       due: m.dueAt,
       days: m.daysAway,
+      pastDue: m.pastDue,
       prep: m.prepMinutes,
       confirmed: m.dueConfirmed,
     }));
@@ -1014,6 +1015,7 @@ export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: The
       courseId: m.courseId,
       due: null,
       days: null,
+      pastDue: false,
       prep: m.prepMinutes,
       confirmed: false,
     }));
@@ -1086,7 +1088,14 @@ export function LookaheadTable({ plan, theme }: { plan: PlanResponse; theme: The
                   )}
                 </td>
                 <td style={{ textAlign: "right" }}>
-                  {row.days === null ? <span className="muted">—</span> : row.days}
+                  {row.days === null ? (
+                    <span className="muted">—</span>
+                  ) : row.pastDue && row.days === 0 ? (
+                    // Due earlier today and already gone: "0" would read as still ahead.
+                    "passed"
+                  ) : (
+                    row.days
+                  )}
                 </td>
                 <td style={{ textAlign: "right" }}>{formatMinutes(row.prep)}</td>
               </tr>

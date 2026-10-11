@@ -1,5 +1,6 @@
 import {
   calendarDaysBetween,
+  MINUTES_PER_DAY,
   toEpochMinutes,
   type WorkItem,
   type ZoneCalendar,
@@ -113,10 +114,35 @@ export function isOpenOrFinished(item: HasStatus): boolean {
 
 /**
  * Whole calendar days, in the student's zone, from `now` to the date `dueAt` falls on. 0 is
- * today, negative is past due. A date earlier than today is the one meaning of "overdue" every
- * view shares. The calendar is required on purpose: the UTC date is the student's date only at
- * UTC+0, and a default would let a module forget to ask.
+ * today, negative is an earlier date. For labels and distances ("today", "in 3 days"), never
+ * for deciding whether something is overdue -- that is `isPastDue`. The calendar is required on
+ * purpose: the UTC date is the student's date only at UTC+0, and a default would let a module
+ * forget to ask.
  */
 export function daysUntil(dueAt: string, nowMinutes: number, calendar: ZoneCalendar): number {
   return calendarDaysBetween(calendar, nowMinutes, toEpochMinutes(dueAt));
+}
+
+/**
+ * Whether the deadline has passed: an instant comparison, the one meaning of "overdue" every
+ * view shares. A quiz that closed at 09:00 is past due at 15:00 the same day, even though
+ * `daysUntil` still calls it today; waiting for midnight would offer the rest of the day as time
+ * to work on something that can no longer be handed in.
+ */
+export function isPastDue(dueAt: string, nowMinutes: number): boolean {
+  return toEpochMinutes(dueAt) < nowMinutes;
+}
+
+/** Never pace across less than an hour: past that, the honest answer is "all of it, now". */
+const MIN_PACING_DAYS = 1 / 24;
+
+/**
+ * Fractional days left before the deadline, for pacing arithmetic (minutes per week and the
+ * like). Elapsed time rather than calendar days: 23:00 to 09:00 tomorrow is ten hours, not a
+ * day, and a midnight deadline is not a day further off than 23:59. Floored at an hour so a
+ * deadline minutes away does not divide by nearly nothing. Past due is the caller's to handle
+ * with `isPastDue`.
+ */
+export function daysLeftForPacing(dueAt: string, nowMinutes: number): number {
+  return Math.max(MIN_PACING_DAYS, (toEpochMinutes(dueAt) - nowMinutes) / MINUTES_PER_DAY);
 }

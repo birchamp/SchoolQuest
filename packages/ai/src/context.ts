@@ -6,7 +6,7 @@ import {
   type CourseStanding,
   type WorkItem,
 } from "@schoolquest/domain";
-import type { PlanningResult, WeeklyReview } from "@schoolquest/planning-engine";
+import { isOpen, type PlanningResult, type WeeklyReview } from "@schoolquest/planning-engine";
 import { explainReason, explainRisk } from "@schoolquest/theme-language";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -95,7 +95,8 @@ export function buildCoachContext(input: CoachContextInput): CoachContext {
 
   // --- Deadlines the student may be about to trade against.
   const upcoming = input.workItems
-    .filter((w) => w.dueAt && w.status !== "completed" && w.status !== "submitted")
+    // Owed work only: a cancelled or optional item is not a deadline anything trades against.
+    .filter((w) => w.dueAt && isOpen(w))
     .sort((a, b) => a.dueAt!.localeCompare(b.dueAt!))
     .slice(0, 8);
   lines.push("UPCOMING DEADLINES:");

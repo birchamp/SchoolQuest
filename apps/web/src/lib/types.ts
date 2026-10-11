@@ -152,8 +152,10 @@ export interface MilestoneView {
   title: string;
   workType: string;
   dueAt: string;
-  /** Negative means it is past due and still open. */
+  /** Calendar days away, for the label. 0 is today. */
   daysAway: number;
+  /** The deadline has passed and it is still open -- even when `daysAway` is 0. */
+  pastDue: boolean;
   /** Whether preparation has started. The number this feature exists for. */
   prepBlocks: number;
   prepMinutes: number;

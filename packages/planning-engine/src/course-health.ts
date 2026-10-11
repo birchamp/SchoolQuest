@@ -1,5 +1,4 @@
 import {
-  MINUTES_PER_DAY,
   toEpochMinutes,
   zoneCalendar,
   type Course,
@@ -7,10 +6,11 @@ import {
   type GradeResult,
   type GradingCategory,
   type WorkItem,
+  type ZoneCalendar,
 } from "@schoolquest/domain";
 import type { CourseLoad } from "./course-load.js";
 import type { ProjectProgress } from "./project-progress.js";
-import { daysUntil, isFinished, isOpen, remainingEffortMinutes } from "./work-item.js";
+import { daysUntil, isFinished, isOpen, isPastDue, remainingEffortMinutes } from "./work-item.js";
 
 /**
  * How each course is actually doing, in one verdict a student can read at a glance.
@@ -190,8 +190,8 @@ export interface CourseHealthInput {
   projects: readonly ProjectProgress[];
   /** ISO instant. */
   now: string;
-  /** The student's zone: what "today" is when counting days until due. Absent is UTC. */
-  timeZone?: string;
+  /** The student's zone: what "today" is when counting days until due. */
+  timeZone: string;
 }
 
 export function computeCourseHealth(input: CourseHealthInput): TermHealth {
@@ -213,7 +213,7 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
     const gradedCount = items.filter((w) => gradedItemIds.has(w.id)).length;
 
     const concerns: CourseConcern[] = [
-      ...planningConcerns(load, items, now),
+      ...planningConcerns(load, items, now, calendar),
       ...projectConcerns(projects),
       ...gradeConcerns({
         course,
@@ -284,6 +284,7 @@ function planningConcerns(
   load: CourseLoad | undefined,
   items: readonly WorkItem[],
   now: number,
+  calendar: ZoneCalendar,
 ): CourseConcern[] {
   const concerns: CourseConcern[] = [];
   const open = load?.openItems ?? 0;
@@ -303,9 +304,9 @@ function planningConcerns(
   // booked minutes for the course as a whole rather than per item, because the student's
   // question is "have I left myself time", not "is the allocation optimal".
   const imminent = items.filter((item) => {
-    if (!item.dueAt || !isOpen(item)) return false;
-    const days = (toEpochMinutes(item.dueAt) - now) / MINUTES_PER_DAY;
-    return days >= 0 && days <= IMMINENT_DAYS;
+    if (!item.dueAt || !isOpen(item) || isPastDue(item.dueAt, now)) return false;
+    // The same calendar days `nextDueInDays` reports, so "due in 3 days" means one thing.
+    return daysUntil(item.dueAt, now, calendar) <= IMMINENT_DAYS;
   });
 
   if (imminent.length > 0 && (load?.bookedMinutes ?? 0) > 0) {
@@ -474,7 +475,7 @@ function countUngradedResults(
   for (const item of items) {
     if (!isFinished(item)) continue;
     if (gradedItemIds.has(item.id)) continue;
-    if (!item.dueAt || toEpochMinutes(item.dueAt) > now) continue;
+    if (!item.dueAt || !isPastDue(item.dueAt, now)) continue;
     count += 1;
   }
   return count;
