@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { newId } from "@schoolquest/domain";
 import { courses, sourceDocuments, terms } from "../db/schema.js";
 import { getDb } from "../db/repo.js";
+import { downloadHeaders } from "../download-headers.js";
 import type { AppBindings } from "../env.js";
 
 export const documentsRoute = new Hono<AppBindings>();
@@ -142,11 +143,7 @@ documentsRoute.get("/documents/:id/file", async (c) => {
   }
 
   return new Response(object.body, {
-    headers: {
-      "Content-Type": row.document.mimeType,
-      "Content-Disposition": `inline; filename="${row.document.filename}"`,
-      "Cache-Control": "private, no-store",
-    },
+    headers: downloadHeaders(row.document.mimeType, row.document.filename),
   });
 });
 

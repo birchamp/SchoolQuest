@@ -971,6 +971,24 @@ async function parentIsInCourse(
   return Boolean(parent);
 }
 
+/**
+ * A grading category has to belong to the item's course, or be absent. Without this an item could
+ * point at any category in the database, another account's included, and grade projections would
+ * read a stranger's weights. Same shape, and both doors, as `parentIsInCourse`.
+ */
+async function categoryIsInCourse(
+  db: ReturnType<typeof getDb>,
+  gradingCategoryId: string | null | undefined,
+  courseId: string,
+): Promise<boolean> {
+  if (!gradingCategoryId) return true;
+  const [category] = await db
+    .select({ id: gradingCategories.id })
+    .from(gradingCategories)
+    .where(and(eq(gradingCategories.id, gradingCategoryId), eq(gradingCategories.courseId, courseId)));
+  return Boolean(category);
+}
+
 termsRoute.post("/work-items", async (c) => {
   const parsed = workItemBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
@@ -982,6 +1000,10 @@ termsRoute.post("/work-items", async (c) => {
 
   if (!(await parentIsInCourse(db, parsed.data.parentWorkItemId, parsed.data.courseId))) {
     return c.json({ error: "Parent work item not found in this course" }, 404);
+  }
+
+  if (!(await categoryIsInCourse(db, parsed.data.gradingCategoryId, parsed.data.courseId))) {
+    return c.json({ error: "Grading category not found in this course" }, 404);
   }
 
   const item = {
@@ -1036,6 +1058,9 @@ termsRoute.patch("/work-items/:id", async (c) => {
     if (!(await parentIsInCourse(db, parsed.data.parentWorkItemId, existing.item.courseId))) {
       return c.json({ error: "Parent work item not found in this course" }, 404);
     }
+  }
+  if (!(await categoryIsInCourse(db, parsed.data.gradingCategoryId, existing.item.courseId))) {
+    return c.json({ error: "Grading category not found in this course" }, 404);
   }
 
   const patch: Record<string, unknown> = { ...parsed.data };
