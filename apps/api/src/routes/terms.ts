@@ -53,7 +53,6 @@ import { collectSubtreeIds, deleteWorkItems } from "../db/delete-work.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
 import { isoInstant } from "../iso-instant.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
-import { studentNow } from "../wall-clock.js";
 import type { AppBindings } from "../env.js";
 
 export const termsRoute = new Hono<AppBindings>();
@@ -1088,7 +1087,7 @@ termsRoute.patch("/work-items/:id", async (c) => {
   let releasedSessions = 0;
   if (finished && existing.item.status !== parsed.data.status) {
     patch["remainingMinutes"] = 0;
-    releasedSessions = await releaseFutureSessions(db, id, await studentNow(db, c.get("userId")));
+    releasedSessions = await releaseFutureSessions(db, id);
   }
 
   // Drizzle throws on an empty SET, so a body of only unrecognised keys — which Zod strips
@@ -1103,7 +1102,7 @@ termsRoute.patch("/work-items/:id", async (c) => {
   // through the session door. Only one of the two did this, so a paper handed in stage by
   // stage from the table sat at "5 of 5 stages cleared" and still called itself unfinished.
   if (finished) {
-    await completeParentIfDone(db, existing.item, await studentNow(db, c.get("userId")));
+    await completeParentIfDone(db, existing.item);
   }
   return c.json({ workItem: updated, releasedSessions });
 });
@@ -1146,7 +1145,7 @@ termsRoute.delete("/work-items/:id", async (c) => {
   // never to have been assigned is done, and the same rule closes it here as when a stage is
   // handed in. A project whose every stage was deleted has no stages left to judge it by, and
   // `completeParentIfDone` leaves it open rather than banking credit for nothing.
-  await completeParentIfDone(db, existing.item, await studentNow(db, c.get("userId")));
+  await completeParentIfDone(db, existing.item);
 
   return c.json({ ok: true, deleted: ids.length });
 });
@@ -1234,7 +1233,7 @@ termsRoute.get("/work-items/:id/stage-proposal", async (c) => {
     // True when the effort came from a per-type default rather than anyone's estimate, so
     // the review screen can say the stage sizes rest on an assumption.
     effortIsAssumed: item.estimatedMinutes === null && !(item.remainingMinutes ?? 0),
-    stages: proposeStages(item, effortMinutes, await studentNow(db, c.get("userId"))),
+    stages: proposeStages(item, effortMinutes, new Date().toISOString()),
   });
 });
 

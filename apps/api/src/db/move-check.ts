@@ -1,4 +1,4 @@
-import { dayOfWeekFor, overlaps, parseTimeOfDay, toEpochMinutes } from "@schoolquest/domain";
+import { overlaps, parseTimeOfDay, toEpochMinutes, zoneCalendar } from "@schoolquest/domain";
 
 /**
  * Whether a block can be put where the student is putting it.
@@ -35,6 +35,8 @@ export interface MoveSurroundings {
   /** The term's dates, inclusive, as "YYYY-MM-DD". */
   termStartDate: string;
   termEndDate: string;
+  /** The student's zone, which their class times and term dates are in. Absent is UTC. */
+  timeZone?: string;
 }
 
 /** The reason the move is refused, or null when it is fine. */
@@ -42,7 +44,10 @@ export function findMoveConflict(target: MoveTarget, around: MoveSurroundings): 
   const start = toEpochMinutes(target.startAt);
   const end = toEpochMinutes(target.endAt);
   const block = { start, end };
-  const date = target.startAt.slice(0, 10);
+  // The block is UTC; the classes, shifts and term dates it is checked against are the
+  // student's, so it is read on their calendar.
+  const calendar = zoneCalendar(around.timeZone);
+  const date = calendar.dateOf(start);
 
   if (date < around.termStartDate || date > around.termEndDate) {
     return "That is outside the term. A block has to land between the term's start and end dates.";
@@ -54,8 +59,8 @@ export function findMoveConflict(target: MoveTarget, around: MoveSurroundings): 
     }
   }
 
-  const weekday = dayOfWeekFor(start);
-  const minuteOfDay = start - toEpochMinutes(`${date}T00:00:00Z`);
+  const weekday = calendar.dayOfWeek(start);
+  const minuteOfDay = calendar.minuteOfDay(start);
   const minutesOnDay = { start: minuteOfDay, end: minuteOfDay + (end - start) };
   const onDay = (days: string) => days.split(",").map((d) => d.trim()).includes(String(weekday));
 

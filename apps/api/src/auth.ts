@@ -5,6 +5,7 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { newId } from "@schoolquest/domain";
 import { authSessions, loginTokens, users } from "./db/schema.js";
 import type { AppBindings, Env } from "./env.js";
+import { ensureUtcStandard } from "./db/utc-conversion.js";
 
 /**
  * Passwordless email sign-in.
@@ -119,7 +120,12 @@ export async function redeemLoginToken(
       id: newId("user"),
       email: record.email,
       displayName: null,
+      // A placeholder until the app's first load reports the device's zone (timezoneMode
+      // "device"), which happens before the first plan is made.
       timezone: "America/New_York",
+      timezoneMode: "device",
+      // Born on the UTC standard: nothing of theirs was ever stored the old way.
+      timeStandard: 1,
       theme: "plain",
       reducedMotion: false,
       detailMode: "standard",
@@ -183,6 +189,17 @@ export const requireAuth: MiddlewareHandler<AppBindings> = async (c, next) => {
 
   const [user] = await db.select().from(users).where(eq(users.id, session.userId));
   if (!user) return c.json({ error: "Not signed in" }, 401);
+
+  // An account from before every stored time was UTC is converted on its first request. Not on
+  // `/api/me`: that is where the app reports which zone the student is in, and the conversion
+  // has to read their times in that zone, not in the sign-up default.
+  if (user.timeStandard < 1 && !c.req.path.startsWith("/api/me")) {
+    // Never at the cost of the request: unconverted times are wrong by a few hours, a failed
+    // request is a broken app. The next request tries again.
+    await ensureUtcStandard(db, c.env.DB, user.id).catch((error: unknown) => {
+      console.error("utc conversion failed", user.id, error);
+    });
+  }
 
   c.set("userId", user.id);
   c.set("userEmail", user.email);
