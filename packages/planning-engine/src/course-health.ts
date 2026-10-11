@@ -1,6 +1,7 @@
 import {
   isGraded,
   MINUTES_PER_DAY,
+  passFailOf,
   toEpochMinutes,
   type Course,
   type CourseStanding,
@@ -84,7 +85,9 @@ export type ConcernCode =
   /** Nothing has been finished in this course for a while, and it still has work open. */
   | "GONE_QUIET"
   /** The grading scheme does not add up, so no standing drawn from it can be trusted. */
-  | "GRADE_STRUCTURE_INCOMPLETE";
+  | "GRADE_STRUCTURE_INCOMPLETE"
+  /** A Pass/Fail piece of work was recorded as a Fail. */
+  | "PASS_FAIL_FAILED";
 
 export interface CourseConcern {
   code: ConcernCode;
@@ -202,6 +205,10 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
   // judged on. A Pass/Fail outcome, a bare letter or a total with no score answers "was it
   // recorded" but adds nothing to the average -- the same test computeCourseStanding uses.
   const scoredItemIds = new Set(input.grades.filter(isGraded).map((g) => g.workItemId));
+  // A Fail moves no percentage, so without this it would read exactly like a Pass.
+  const failedItemIds = new Set(
+    input.grades.filter((g) => passFailOf(g) === "fail").map((g) => g.workItemId),
+  );
 
   const courses = input.courses.map((course) => {
     const load = loadById.get(course.id);
@@ -214,6 +221,9 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
     const gradePercent = standing?.estimatedPercent ?? null;
     const ungradedResults = countUngradedResults(items, gradedItemIds, now);
     const gradedCount = items.filter((w) => scoredItemIds.has(w.id)).length;
+    const failedTitles = items
+      .filter((w) => failedItemIds.has(w.id) && w.status !== "canceled")
+      .map((w) => w.title);
 
     const concerns: CourseConcern[] = [
       ...planningConcerns(load, items, now),
@@ -225,6 +235,7 @@ export function computeCourseHealth(input: CourseHealthInput): TermHealth {
         gradedCount,
         targetPercent,
         ungradedResults,
+        failedTitles,
         categories: input.gradingCategories.filter((c) => c.courseId === course.id),
       }),
       ...rhythmConcerns(load),
@@ -380,9 +391,25 @@ function gradeConcerns(input: {
   gradedCount: number;
   targetPercent: number;
   ungradedResults: number;
+  /** Titles of Pass/Fail work recorded as a Fail. */
+  failedTitles: string[];
   categories: GradingCategory[];
 }): CourseConcern[] {
   const concerns: CourseConcern[] = [];
+
+  // A failed Pass/Fail component can sink a course on its own -- many are required to pass --
+  // and it never shows in the percentage, so it has to be said here or nowhere.
+  if (input.failedTitles.length > 0) {
+    const [first] = input.failedTitles;
+    concerns.push({
+      code: "PASS_FAIL_FAILED",
+      level: "needs_attention",
+      detail:
+        input.failedTitles.length === 1
+          ? `${quote(first!)} was recorded as a Fail. Check whether it can be redone or must be passed.`
+          : `${input.failedTitles.length} Pass/Fail items were recorded as a Fail, starting with ${quote(first!)}. Check whether they can be redone or must be passed.`,
+    });
+  }
 
   // Work that came back and was never written down. This is what "grades are not entered"
   // actually means — not the absence of grades in week two, which is simply how a term

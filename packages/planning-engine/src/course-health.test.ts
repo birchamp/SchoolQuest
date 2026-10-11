@@ -263,6 +263,33 @@ describe("grades", () => {
     expect(c.gradedCount).toBe(0);
   });
 
+  it("raises a recorded Fail, which no percentage would show", () => {
+    const passFail = (workItemId: string, letterGrade: string) => ({
+      id: `grd_${workItemId}`,
+      workItemId,
+      pointsEarned: null,
+      pointsPossible: null,
+      letterGrade,
+      postedAt: null,
+      confirmationStatus: "confirmed" as const,
+      sourceDocumentId: null,
+      dropped: false,
+    });
+    const failed = build({
+      items: [item({ id: "wi_a", title: "Lab safety", status: "completed" })],
+      grades: [passFail("wi_a", "Fail")],
+    });
+    const concern = failed.concerns.find((x) => x.code === "PASS_FAIL_FAILED")!;
+    expect(concern.detail).toContain('"Lab safety" was recorded as a Fail');
+    expect(failed.level).not.toBe("steady");
+
+    const passed = build({
+      items: [item({ id: "wi_a", title: "Lab safety", status: "completed" })],
+      grades: [passFail("wi_a", "Pass")],
+    });
+    expect(codes(passed)).not.toContain("PASS_FAIL_FAILED");
+  });
+
   it("says so when the grading scheme does not add up", () => {
     // The real BIO 240 in the test semester: four categories summing to 90.
     const c = build({ categories: [category(50, "a"), category(40, "b")] });
