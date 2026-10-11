@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { newId, themeName } from "@schoolquest/domain";
+import { fromEpochMinutes, newId, themeName, toEpochMinutes, zoneCalendar } from "@schoolquest/domain";
 import {
   AiProviderError,
   buildCoachContext,
@@ -12,7 +12,7 @@ import { generatePlan } from "@schoolquest/planning-engine";
 import { coachMessages, users } from "../db/schema.js";
 import { assertTermOwner, getDb, loadTermSnapshot, toPlanningInput } from "../db/repo.js";
 import { loadReview } from "./review.js";
-import { wallClockNow } from "../wall-clock.js";
+import { studentZone } from "../student-zone.js";
 import { NO_COACH_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import type { AppBindings } from "../env.js";
 
@@ -47,26 +47,28 @@ coachRoute.post("/coach/messages", async (c) => {
   const [user] = await db.select().from(users).where(eq(users.id, userId));
   const theme = parsed.data.theme ?? (user?.theme as "quest" | "mission" | "plain") ?? "plain";
 
-  const now = wallClockNow(user?.timezone);
-  const horizonStart = now.slice(0, 10);
+  const now = new Date().toISOString();
+  const timeZone = await studentZone(db, userId);
+  const calendar = zoneCalendar(timeZone);
+  const horizonStart = calendar.dateOf(toEpochMinutes(now));
   const snapshot = await loadTermSnapshot(db, parsed.data.termId, {
-    sessionsFrom: `${horizonStart}T00:00:00Z`,
+    sessionsFrom: fromEpochMinutes(calendar.dayStart(horizonStart)),
   });
   const plan = generatePlan(
-    toPlanningInput(parsed.data.termId, snapshot, { horizonStart, horizonDays: 7, now }),
+    toPlanningInput(parsed.data.termId, snapshot, { horizonStart, horizonDays: 7, now, timeZone }),
     "plan_preview",
   );
 
   const context = buildCoachContext({
     now,
-    timezone: user?.timezone ?? "UTC",
+    timezone: timeZone,
     plan,
     workItems: snapshot.workItems,
     courses: snapshot.courses,
     standings: snapshot.standings,
     // The coach is the natural place to ask "why does Thursday never work?", and it cannot
     // answer that from a plan alone — the evidence is entirely in the weeks behind it.
-    review: await loadReview(db, parsed.data.termId, now),
+    review: await loadReview(db, parsed.data.termId, now, timeZone),
   });
 
   // Recent turns give continuity; the plan context carries the actual state.

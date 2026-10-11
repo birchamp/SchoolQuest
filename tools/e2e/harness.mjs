@@ -30,11 +30,18 @@ export const API = "http://127.0.0.1:8787";
 
 // --- The API ------------------------------------------------------------------------------
 
-/** Calls the Worker and returns its JSON; any non-2xx throws with the status and the body. */
-export async function api(path, method = "GET", body, token) {
+/**
+ * Calls the Worker and returns its JSON; any non-2xx throws with the status and the body.
+ * `extraHeaders` is for what a particular client sends, such as the student's time zone.
+ */
+export async function api(path, method = "GET", body, token, extraHeaders = {}) {
   const res = await fetch(API + path, {
     method,
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...extraHeaders,
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();

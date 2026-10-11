@@ -1,13 +1,14 @@
 import { Fragment, useMemo, useState } from "react";
 import type { Course, ThemeName, WorkItem } from "@schoolquest/domain";
 import { buildWeekCalendar, DEFAULT_EFFORT_MINUTES, type SlotKind } from "@schoolquest/planning-engine";
-import { wallClockToday } from "../lib/clock";
+import { appToday, formatTime, localMinuteOfDay, planTimeZone } from "../lib/clock";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
 import {
-  composeDueAt,
   DEFAULT_DUE_TIME,
+  composeDueAt,
+  dueAfterEdit,
   dueDatePart,
   dueTimePart,
   formatDueDay,
@@ -342,8 +343,8 @@ export function AssignmentsTable({
    * and what extraction writes when the syllabus is silent.
    */
   async function saveDue(item: WorkItem, date: string, time: string) {
-    const next = composeDueAt(date, time);
-    if (next === (item.dueAt ?? null)) return;
+    const next = dueAfterEdit(item.dueAt, date, time);
+    if (next === undefined) return;
     setBusy(item.id);
     setError(null);
     try {
@@ -842,7 +843,7 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
   const quest = theme === "quest";
   const { sort, onSort } = useSort<BlockKey>("start");
   // The student's own date, in the frame every stored time is written in (lib/clock.ts).
-  const today = wallClockToday();
+  const today = appToday();
 
   const rows = useMemo(() => {
     const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
@@ -850,6 +851,7 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
     const calendar = buildWeekCalendar({
       horizonStart: plan.horizonStart ?? plan.planVersion?.horizonStart ?? today,
       horizonDays: 7,
+      timeZone: planTimeZone(),
       meetingPatterns: plan.meetingPatterns ?? [],
       commitments: plan.commitments ?? [],
       availability: plan.availabilityRules ?? [],
@@ -877,12 +879,7 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
       off: "Off",
     };
 
-    const clock = (epochMinutes: number) =>
-      new Date(epochMinutes * 60_000).toLocaleTimeString(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-        timeZone: "UTC",
-      });
+    const clock = (epochMinutes: number) => formatTime(new Date(epochMinutes * 60_000).toISOString());
 
     const blocks = calendar.days.flatMap((day) =>
       day.slots
@@ -890,14 +887,13 @@ export function WeekTable({ plan, theme }: { plan: PlanResponse; theme: ThemeNam
         // saying nothing. The totals line carries it instead.
         .filter((slot) => slot.kind !== "free")
         .map((slot) => {
-          const base = Date.parse(`${day.date}T00:00:00Z`) / 60_000;
           return {
             id: `${day.date}-${slot.kind}-${slot.start}`,
             day: day.date,
             dayOfWeek: day.dayOfWeek,
             start: slot.start,
             startLabel: clock(slot.start),
-            minuteOfDay: slot.start - base,
+            minuteOfDay: localMinuteOfDay(new Date(slot.start * 60_000).toISOString()),
             title: slot.title ?? KIND_WORD[slot.kind],
             course: slot.courseId ? courseLabel(coursesById.get(slot.courseId)) : "—",
             minutes: slot.minutes as number | null,

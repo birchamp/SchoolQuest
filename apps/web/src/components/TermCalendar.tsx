@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useBodyTheme } from "../lib/use-body-theme";
+import { formatCalendarDate } from "../lib/clock";
 
 /**
  * The semester's calendar: breaks, holidays, finals.
@@ -63,11 +64,11 @@ const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frid
 
 /** "12 October" / "12–13 October" / "25 November – 2 December". */
 function span(startDate: string, endDate: string): string {
-  const a = new Date(`${startDate}T00:00:00Z`);
-  const b = new Date(`${endDate}T00:00:00Z`);
-  const day = (d: Date) => d.getUTCDate();
-  const month = (d: Date) =>
-    d.toLocaleDateString("en-GB", { month: "long", timeZone: "UTC" });
+  // Calendar dates, which have no zone: the day is the one written.
+  const a = startDate;
+  const b = endDate;
+  const day = (d: string) => Number(d.slice(8, 10));
+  const month = (d: string) => formatCalendarDate(d, { month: "long" });
   if (startDate === endDate) return `${day(a)} ${month(a)}`;
   if (month(a) === month(b)) return `${day(a)}–${day(b)} ${month(a)}`;
   return `${day(a)} ${month(a)} – ${day(b)} ${month(b)}`;

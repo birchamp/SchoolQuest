@@ -35,7 +35,9 @@ local one, and those accounts are harmless but do accumulate.
 `pnpm test:scheduling` asks the question the app is built to answer: does every assignment
 coming due get time on the calendar? It walks a real browser and the real Worker through an
 ordinary week, the week after it, a skipped block, the morning after a missed block, "needs more
-time", a student whose browser is in Honolulu, and a week with more work than hours. Each ends in
+time", a student whose browser is in Chicago on the real clock, an account from before every
+stored time was UTC, every weekday morning and evening, blocks the student committed to, the "not
+fitted" list, and a week with more work than hours. Each ends in
 the same audit. Every piece of work due before the plan's horizon closes either has its minutes
 booked ahead of its deadline or is named in a risk saying it does not. In a week with room to
 spare, a warning does not count.
@@ -50,13 +52,17 @@ assignments that are coming due", and its first run found seven separate reasons
   replanning. Now it replans, and the declined hour counts as taken.
 - **"Needs more time" finished the assignment.** Estimate minus minutes worked hit zero, and
   zero read as done.
-- **"Now" was Greenwich time** while every stored time is the student's wall clock, so in
-  Chicago the afternoon was over by mid-morning. The server now reads the student's zone, and
-  the app reports it.
+- **"Now" was Greenwich time** while scheduled times were stored as the student's wall clock, so
+  in Chicago the afternoon was over by mid-morning. Every stored time is now a UTC instant, the
+  student's zone is applied only at the screen and to their weekly rules, and the app reports
+  the zone (issue #4).
 - **A deadline buffer before any free time** made work due the next morning unplaceable.
 - **Work shorter than the minimum session** could never be placed at all.
 - **Greedy placement** spent the only day an urgent item could use on work due later in the
   week. Now work short of its deadline may displace work due later.
+
+The legacy-account check changes a row in the local D1 directly (`wrangler d1 execute --local`),
+so the journey only runs against a local Worker -- which is all it is for.
 
 `--attach` uses servers that are already running; `--verbose` prints each audit as a table.
 Remember that `wrangler dev` does not reload when only `packages/` changes, so restart the

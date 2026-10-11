@@ -1,5 +1,5 @@
 import type { CognitiveDemand, WorkItem, WorkType } from "@schoolquest/domain";
-import { toEpochMinutes } from "@schoolquest/domain";
+import { toEpochMinutes, zoneCalendar } from "@schoolquest/domain";
 
 /**
  * The week as prepared session notes rather than a grid of blocks.
@@ -157,23 +157,30 @@ export interface SessionBriefInput {
   horizonDays: number;
   /** Unscheduled capacity left in the horizon, when the caller knows it. */
   slackMinutes?: number;
+  /** The student's zone: which day a block or a deadline falls on. Absent is UTC. */
+  timeZone?: string;
 }
+
+/** The student's date for a stored instant. */
+type DayOf = (iso: string) => string;
 
 export function buildSessionBrief(input: SessionBriefInput): SessionBrief {
   const itemsById = new Map(input.workItems.map((w) => [w.id, w]));
+  const calendar = zoneCalendar(input.timeZone);
+  const dayOf: DayOf = (iso) => calendar.dateOf(toEpochMinutes(iso));
   const recurringTitles = findRecurringTitles(input.workItems);
-  const dueCountByDate = countItemsDueByDate(input.workItems);
+  const dueCountByDate = countItemsDueByDate(input.workItems, dayOf);
 
-  const encounters = groupEncounters(input.sessions, itemsById);
+  const encounters = groupEncounters(input.sessions, itemsById, dayOf);
   const withKinds = encounters.map((group) => ({
     ...group,
-    kind: classify(group, itemsById.get(group.workItemId), recurringTitles, dueCountByDate),
+    kind: classify(group, itemsById.get(group.workItemId), recurringTitles, dueCountByDate, dayOf),
   }));
 
   const milestoneDueDates = new Set(
     input.workItems
       .filter((i) => MILESTONE_TYPES.has(i.workType) && i.dueAt && isOpen(i.status))
-      .map((i) => i.dueAt!.slice(0, 10)),
+      .map((i) => dayOf(i.dueAt!)),
   );
 
   const days = shapeDays(
@@ -230,11 +237,11 @@ function normalizeTitle(title: string): string {
     .trim();
 }
 
-function countItemsDueByDate(items: readonly WorkItem[]): Map<string, number> {
+function countItemsDueByDate(items: readonly WorkItem[], dayOf: DayOf): Map<string, number> {
   const counts = new Map<string, number>();
   for (const item of items) {
     if (!item.dueAt) continue;
-    const date = item.dueAt.slice(0, 10);
+    const date = dayOf(item.dueAt);
     counts.set(date, (counts.get(date) ?? 0) + 1);
   }
   return counts;
@@ -243,11 +250,12 @@ function countItemsDueByDate(items: readonly WorkItem[]): Map<string, number> {
 function groupEncounters(
   sessions: readonly BriefableSession[],
   itemsById: Map<string, WorkItem>,
+  dayOf: DayOf,
 ): Omit<EncounterGroup, "kind">[] {
   const groups = new Map<string, Omit<EncounterGroup, "kind">>();
 
   for (const session of [...sessions].sort((a, b) => a.startAt.localeCompare(b.startAt))) {
-    const date = session.startAt.slice(0, 10);
+    const date = dayOf(session.startAt);
     const key = `${session.workItemId}:${date}`;
     const existing = groups.get(key);
     if (existing) {
@@ -282,6 +290,7 @@ function classify(
   item: WorkItem | undefined,
   recurringTitles: Set<string>,
   dueCountByDate: Map<string, number>,
+  dayOf: DayOf,
 ): BlockKind {
   // The set piece is the day the thing is actually due, not every block of preparation
   // leading up to it. Classifying on work type alone made 12 of 23 beats in the test
@@ -291,7 +300,7 @@ function classify(
     item &&
     MILESTONE_TYPES.has(item.workType) &&
     item.dueAt &&
-    group.date === item.dueAt.slice(0, 10)
+    group.date === dayOf(item.dueAt)
   ) {
     return "major_assessment";
   }
@@ -461,7 +470,8 @@ function buildFallbacks(
   // scheduled time is on that day or later and it is due within two days after it — there
   // is then nowhere left to put the work.
   if (crux) {
-    const cruxEnd = toEpochMinutes(`${crux.date}T23:59:00Z`);
+    // The end of the crux day, on the student's clock.
+    const cruxEnd = zoneCalendar(input.timeZone).at(crux.date, 23 * 60 + 59);
     const atRisk = new Set<string>();
     for (const [workItemId, groups] of groupByItem(encounters)) {
       const item = itemsById.get(workItemId);

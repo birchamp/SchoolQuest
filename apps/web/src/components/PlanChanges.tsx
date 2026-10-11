@@ -1,6 +1,7 @@
 import type { ThemeName } from "@schoolquest/domain";
 import { label } from "@schoolquest/theme-language";
 import type { PlanDiff, PlanDiffBlock, PlanResponse } from "../lib/types";
+import { formatInstant, formatTime } from "../lib/clock";
 
 /**
  * What the last replan changed, said once and dismissable.
@@ -90,11 +91,7 @@ export function PlanChanges({
   );
 }
 
-/** "Mon 9:00 AM", in the app's UTC wall clock. */
+/** "Mon 9:00 AM", on the student's clock. */
 function when(b: PlanDiffBlock): string {
-  const d = new Date(b.startAt);
-  return `${d.toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" })} ${d.toLocaleTimeString(
-    undefined,
-    { hour: "numeric", minute: "2-digit", timeZone: "UTC" },
-  )}`;
+  return `${formatInstant(b.startAt, { weekday: "short" })} ${formatTime(b.startAt)}`;
 }

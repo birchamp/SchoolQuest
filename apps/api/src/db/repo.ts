@@ -339,13 +339,14 @@ export async function loadTermSnapshot(
 export function toPlanningInput(
   termId: string,
   snapshot: TermSnapshot,
-  options: { horizonStart: string; horizonDays: number; now: string },
+  options: { horizonStart: string; horizonDays: number; now: string; timeZone: string },
 ): PlanningInput {
   return {
     termId,
     horizonStart: options.horizonStart,
     horizonDays: options.horizonDays,
     now: options.now,
+    timeZone: options.timeZone,
     preferences: snapshot.preferences,
     courses: snapshot.courses,
     gradingCategories: snapshot.gradingCategories,

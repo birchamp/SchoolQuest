@@ -13,7 +13,21 @@ export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   displayName: text("display_name"),
+  /**
+   * The IANA zone the student's plan runs on: what "now" and "today" mean for them. Every
+   * scheduled time is a wall-clock time in this zone (see `packages/domain/src/time.ts`).
+   */
   timezone: text("timezone").notNull().default("America/New_York"),
+  /**
+   * "device": the app keeps `timezone` in step with whichever device the student opens it on.
+   * "pinned": it stays put, for a student away from home whose classes and deadlines are not.
+   */
+  timezoneMode: text("timezone_mode").notNull().default("device"),
+  /**
+   * 0: this account's scheduled times are still the old local wall-clock values. 1: they are UTC
+   * instants, like everything else. See `db/utc-conversion.ts`; new accounts start at 1.
+   */
+  timeStandard: integer("time_standard").notNull().default(0),
   theme: text("theme").notNull().default("plain"),
   reducedMotion: integer("reduced_motion", { mode: "boolean" }).notNull().default(false),
   detailMode: text("detail_mode").notNull().default("standard"),

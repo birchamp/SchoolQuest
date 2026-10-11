@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useBodyTheme } from "../lib/use-body-theme";
 import type { Term } from "../lib/types";
+import { formatCalendarDate } from "../lib/clock";
 
 /**
  * The way back from "start a new semester".
@@ -13,12 +14,7 @@ import type { Term } from "../lib/types";
  * archived, so it can sit on both onboarding and Setup and simply disappear when it is not needed.
  */
 function range(startDate: string, endDate: string): string {
-  const fmt = (d: string) =>
-    new Date(`${d.slice(0, 10)}T00:00:00Z`).toLocaleDateString(undefined, {
-      month: "short",
-      year: "numeric",
-      timeZone: "UTC",
-    });
+  const fmt = (d: string) => formatCalendarDate(d.slice(0, 10), { month: "short", year: "numeric" });
   return `${fmt(startDate)} - ${fmt(endDate)}`;
 }
 

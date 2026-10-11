@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ThemeName } from "@schoolquest/domain";
 import { explainRisk, label } from "@schoolquest/theme-language";
-import { wallClockToday } from "../lib/clock";
+import { appToday, formatInstant, formatTime, localDate } from "../lib/clock";
 import { api } from "../lib/api";
 import { addDays } from "@schoolquest/domain";
 import { clearSessionStarted, minutesSinceStarted, noteSessionStarted } from "../lib/session-clock";
@@ -101,14 +101,14 @@ export function Today({
   const coursesById = new Map(plan.courses.map((c) => [c.id, c]));
   const itemsById = new Map(plan.workItems.map((w) => [w.id, w]));
   // The student's own date, in the frame every stored time is written in (lib/clock.ts).
-  const today = wallClockToday();
+  const today = appToday();
   /**
    * Blocks still open today, which is what giving the day up costs. Rows carry a status on a
    * saved-plan read; a freshly generated plan's blocks are all still open.
    */
   const openToday = plan.sessions.filter(
     (s) =>
-      s.startAt.slice(0, 10) === today &&
+      localDate(s.startAt) === today &&
       (s.status === undefined || s.status === "planned" || s.status === "started"),
   );
 
@@ -289,7 +289,7 @@ export function Today({
       string,
       { id: string; courseId: string; title: string; when: string; minutes: number; blocks: number }
     >();
-    for (const s of plan.sessions.filter((s) => s.startAt.slice(0, 10) > today)) {
+    for (const s of plan.sessions.filter((s) => localDate(s.startAt) > today)) {
       const existing = groups.get(s.workItemId);
       if (existing) {
         existing.minutes += s.minutes;
@@ -301,7 +301,7 @@ export function Today({
         courseId: s.courseId,
         title: itemsById.get(s.workItemId)?.title ?? "Session",
         // The first block's day: when this work starts, not when it ends.
-        when: new Date(s.startAt).toLocaleDateString(undefined, { weekday: "short" }),
+        when: formatInstant(s.startAt, { weekday: "short" }),
         minutes: s.minutes,
         blocks: 1,
       });
@@ -552,12 +552,7 @@ export function Today({
           <p className="meta">
             {courseLabel(primary.courseId)} &middot; {primary.durationMinutes} minutes
             &middot;{" "}
-            {new Date(primary.startAt).toLocaleTimeString(undefined, {
-              hour: "numeric",
-              minute: "2-digit",
-              // UTC, like every other clock in the app: stored wall-clock times are UTC.
-              timeZone: "UTC",
-            })}
+            {formatTime(primary.startAt)}
           </p>
           <p className="rationale">{primary.explanation}</p>
           {primary.tradeoff && <p className="muted">{primary.tradeoff}</p>}

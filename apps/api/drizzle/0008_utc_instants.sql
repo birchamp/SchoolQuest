@@ -1,0 +1,11 @@
+-- Every stored time becomes a UTC instant (issue #4).
+--
+-- Until now, due dates, study blocks and reported interruptions were stored as the student's
+-- local wall-clock time with a `Z` on the end: "9am" was written 09:00Z wherever the student
+-- lived, while sign-in expiry and audit stamps were real UTC. Two meanings for one spelling. From
+-- here on every stored time is UTC and the student's zone is applied only when one is shown.
+--
+-- SQLite has no time zone rules, so the values themselves are converted by the Worker, once per
+-- account, on that account's first request (`apps/api/src/db/utc-conversion.ts`). This column
+-- records which accounts are done: 0 for every existing account, 1 for accounts created after.
+ALTER TABLE users ADD COLUMN time_standard INTEGER NOT NULL DEFAULT 0;
