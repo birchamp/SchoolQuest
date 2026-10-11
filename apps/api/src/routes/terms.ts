@@ -3,8 +3,6 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   COURSE_COLOR_TOKENS,
-  FAIL_LETTER,
-  PASS_LETTER,
   newId,
   planningPreferences,
   termCalendar,
@@ -54,6 +52,7 @@ import {
 import { collectSubtreeIds, deleteWorkItems } from "../db/delete-work.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
 import { isoInstant } from "../iso-instant.js";
+import { gradeBody, resolveGradeEntry } from "../grade-entry.js";
 import { NO_PROVIDER_MESSAGE, providerForUser } from "../provider-for-user.js";
 import { studentNow } from "../wall-clock.js";
 import type { AppBindings } from "../env.js";
@@ -1334,14 +1333,6 @@ termsRoute.post("/work-items/:id/stages", async (c) => {
  * `passFail` records a Pass/Fail outcome instead of a score. It is stored with no points and the
  * outcome as the letter, so it marks the work as having a result without moving the percentage.
  */
-const gradeBody = z.object({
-  pointsEarned: z.number().nonnegative().nullable().default(null),
-  pointsPossible: z.number().positive().nullable().default(null),
-  letterGrade: z.string().max(8).nullable().default(null),
-  passFail: z.enum(["pass", "fail"]).nullable().default(null),
-  confirmationStatus: z.enum(["confirmed", "extracted_unreviewed", "estimated"]).default("confirmed"),
-});
-
 termsRoute.put("/work-items/:id/grade", async (c) => {
   const db = getDb(c.env.DB);
   const id = c.req.param("id");
@@ -1357,20 +1348,9 @@ termsRoute.put("/work-items/:id/grade", async (c) => {
   const parsed = gradeBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const { pointsEarned, pointsPossible, passFail } = parsed.data;
-  if (passFail !== null && (pointsEarned !== null || pointsPossible !== null)) {
-    return c.json({ error: "A Pass/Fail result has no score; send one or the other." }, 400);
-  }
-  if (pointsEarned !== null && pointsPossible !== null && pointsEarned > pointsPossible) {
-    return c.json({ error: "A score cannot be higher than the total it is out of." }, 400);
-  }
-
-  // Fall back to the item's own points when the student gives only a score — the syllabus
-  // already said what it was out of, and making them retype it invites a mismatch. Never for
-  // Pass/Fail: a total with no score would read back as a pending result.
-  const outOf = passFail !== null ? null : (pointsPossible ?? existing.item.pointsPossible ?? null);
-  const letterGrade =
-    passFail === "pass" ? PASS_LETTER : passFail === "fail" ? FAIL_LETTER : parsed.data.letterGrade;
+  const resolved = resolveGradeEntry(parsed.data, existing.item.pointsPossible);
+  if ("error" in resolved) return c.json({ error: resolved.error }, 400);
+  const { pointsEarned, pointsPossible, letterGrade } = resolved.entry;
 
   await db.delete(gradeResults).where(eq(gradeResults.workItemId, id));
   const [grade] = await db
@@ -1379,7 +1359,7 @@ termsRoute.put("/work-items/:id/grade", async (c) => {
       id: newId("gradeResult"),
       workItemId: id,
       pointsEarned,
-      pointsPossible: outOf,
+      pointsPossible,
       letterGrade,
       postedAt: new Date().toISOString(),
       confirmationStatus: parsed.data.confirmationStatus,
