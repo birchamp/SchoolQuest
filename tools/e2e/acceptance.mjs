@@ -275,13 +275,15 @@ try {
   const labRow = page.locator("tr", { hasText: "Lab safety quiz" });
   // Handed in first, as a student would; that is what brings up the result box.
   await labRow.getByRole("button", { name: /^Handed in$/ }).click({ timeout: 15_000 });
-  await labRow.getByRole("button", { name: /^Pass$/ }).click({ timeout: 15_000 }).catch(async (e) => {
-    await page.screenshot({ path: "/tmp/claude-0/pass-fail-step.png", fullPage: true });
-    throw e;
-  });
-  await page.waitForTimeout(1500);
-  const afterPass = await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken);
-  const passGrade = (afterPass.grades ?? []).find((g) => g.workItemId === labSafety.id);
+  await labRow.getByRole("button", { name: /^Pass$/ }).click({ timeout: 15_000 });
+  // Wait for the save itself rather than for a fixed time a slow runner could overrun.
+  let afterPass;
+  let passGrade;
+  for (let tries = 0; tries < 30 && !passGrade; tries += 1) {
+    if (tries > 0) await new Promise((r) => setTimeout(r, 500));
+    afterPass = await api(`/api/terms/${term.id}/plans/current`, "GET", undefined, sessionToken);
+    passGrade = (afterPass.grades ?? []).find((g) => g.workItemId === labSafety.id);
+  }
   check(
     "Pass in the assignments table records a Pass with no points",
     passGrade?.letterGrade === "Pass" && passGrade.pointsEarned === null && passGrade.pointsPossible === null,
