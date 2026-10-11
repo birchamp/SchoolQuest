@@ -1,3 +1,4 @@
+/* global Event */
 /**
  * Does every assignment that is coming due get time on the calendar?
  *
@@ -17,10 +18,14 @@
  * the Worker honours a simulated `now`, which is what lets "the week after" be tomorrow's test
  * rather than next week's.
  */
+import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { chromiumLaunchOptions } from "./browser.mjs";
 import { startServers, stopServers, waitForServers, ATTACH } from "./servers.mjs";
 
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const APP = "http://127.0.0.1:5173";
 const API = "http://127.0.0.1:8787";
 
@@ -48,6 +53,45 @@ const DAY = 86_400_000;
 const TODAY = new Date().toISOString().slice(0, 10);
 const dateFrom = (base, days) => new Date(Date.parse(`${base}T12:00:00Z`) + days * DAY).toISOString().slice(0, 10);
 const at = (date, time) => `${date}T${time}:00.000Z`;
+
+/** The student's date for a moment, in an IANA zone. */
+function localDateIn(moment, zone) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" })
+      .formatToParts(moment)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/** The UTC instant of a local date and time in an IANA zone, worked out independently of the app. */
+function instantIn(date, time, zone) {
+  // Start from the time read as UTC and correct by the zone's offset until the local reading
+  // matches; three rounds settle any real zone, daylight saving included.
+  const naive = Date.parse(`${date}T${time}:00.000Z`);
+  let t = naive;
+  for (let i = 0; i < 3; i += 1) {
+    const p = Object.fromEntries(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+      })
+        .formatToParts(new Date(t))
+        .map((x) => [x.type, x.value]),
+    );
+    t += naive - Date.parse(`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:00.000Z`);
+  }
+  return new Date(t).toISOString();
+}
+
+/** Runs SQL against the local D1 the dev Worker uses. Local runs only, which is all this is. */
+function localSql(sql) {
+  const result = spawnSync("npx", ["wrangler", "d1", "execute", "schoolquest", "--local", "--command", sql], {
+    cwd: join(ROOT, "apps", "api"),
+    shell: process.platform === "win32",
+    encoding: "utf8",
+  });
+  if (result.status !== 0) throw new Error(`local SQL failed: ${result.stderr || result.stdout}`);
+}
 
 async function signUp(label) {
   const email = `scheduling-${label}-${Date.now()}@example.edu`;
@@ -336,52 +380,143 @@ try {
     await context.close();
   });
 
-  // 4. The real clock, for a student who does not live at UTC+0. No simulated time at all: the
-  //    browser is in Honolulu (UTC-10, no daylight saving, so the offset is the same all year),
-  //    and the student is free every hour of every day. The first block should be about now --
-  //    their now -- not ten hours later when it is "now" in Greenwich.
+  // 4. The real clock, for a student who does not live at UTC+0 (issue #4). No simulated time:
+  //    the browser is in Chicago, with daylight saving and all. Inside the system every time is
+  //    UTC; the student sees and types Chicago time. A deadline typed as "Friday, end of day" is
+  //    stored as the real instant of midnight in Chicago, shown back as Friday, and the first
+  //    block lands at the real now -- not five or six hours later, when it is "now" in Greenwich.
   await journey(async () => {
+    const zone = "America/Chicago";
     const token = await signUp("zone");
-    const s = await ordinaryStudent(token, { termStart: dateFrom(TODAY, -21), termEnd: dateFrom(TODAY, 80) });
+    const localToday = localDateIn(new Date(), zone);
+    const s = await ordinaryStudent(token, { termStart: dateFrom(localToday, -21), termEnd: dateFrom(localToday, 80) });
     await api(
       `/api/terms/${s.termId}/availability-rules`,
       "PUT",
       { rules: [0, 1, 2, 3, 4, 5, 6].map((d) => ({ dayOfWeek: d, startTime: "00:00", endTime: "23:59" })) },
       token,
     );
-    // No classes or shift in the way of the measurement.
+    // No classes, shift or meals in the way of the measurement.
     for (const id of Object.values(s.courses)) {
       await api(`/api/courses/${id}/meeting-patterns`, "PUT", { patterns: [] }, token);
     }
     const snapshot = await api(`/api/terms/${s.termId}/snapshot`, "GET", undefined, token);
     for (const commitment of snapshot.commitments) await api(`/api/commitments/${commitment.id}`, "DELETE", undefined, token);
+    await api(`/api/terms/${s.termId}`, "PATCH", { planningPreferences: { mealWindows: [] } }, token);
 
-    const wall = new Date(Date.now() - 10 * 3_600_000);
-    const wallDate = wall.toISOString().slice(0, 10);
-    await addWork(token, s.courses.bio, "Lab report", "assignment", at(dateFrom(wallDate, 2), "23:59"), 60);
-
-    const { context, errors } = await openApp(browser, token, null, { timezoneId: "Pacific/Honolulu" });
+    const { page, context, errors } = await openApp(browser, token, null, { timezoneId: zone, locale: "en-US" });
     const me = (await api("/api/me", "GET", undefined, token)).user;
-    check("time zone: the app tells the server where the student is", me.timezone === "Pacific/Honolulu", `stored ${me.timezone}`);
+    check("time zone: the app tells the server where the student is", me.timezone === zone, `stored ${me.timezone}`);
 
-    await api(`/api/terms/${s.termId}/plans/generate`, "POST", {}, token);
+    // Type a deadline the way a student does: a date, and the end-of-day default time.
+    const dueDay = dateFrom(localToday, 2);
+    const nav = page.getByRole("navigation", { name: "Main" });
+    await nav.getByRole("button", { name: "Assignments" }).click();
+    await page.evaluate(() => {
+      localStorage.setItem("sq_view_mode", "table");
+      window.dispatchEvent(new Event("sq:view-mode"));
+    });
+    await page.waitForTimeout(800);
+    await page.getByRole("button", { name: /Add an assignment/ }).first().click();
+    await page.getByPlaceholder("Reading response 4").fill("Lab report");
+    await page.locator("input[type=date]").first().fill(dueDay);
+    await page.getByRole("button", { name: /Add it/ }).click();
+    await page.getByText("Lab report").first().waitFor({ timeout: 15_000 }).catch(() => {});
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(1500);
+
+    const item = (await api(`/api/terms/${s.termId}/snapshot`, "GET", undefined, token)).workItems.find(
+      (w) => w.title === "Lab report",
+    );
+    const expected = instantIn(dueDay, "23:59", zone);
+    check(
+      "time zone: a deadline typed in Chicago is stored as the UTC instant it means",
+      item?.dueAt === expected,
+      `typed ${dueDay} end of day, stored ${item?.dueAt}, expected ${expected}`,
+    );
+    const shownDate = await page.locator(`#work-item-${item?.id} input[type=date]`).first().inputValue().catch(() => "");
+    check("time zone: the table shows it back on the day it was typed", shownDate === dueDay, `shows ${shownDate}`);
+
     const plan = await currentPlan(token, s.termId, null);
-    const wallNow = Date.now() - 10 * 3_600_000;
     const first = plan.sessions
       .filter((x) => x.status === "planned")
-      .map((x) => Date.parse(x.startAt))
-      .sort((a, b) => a - b)[0];
-    const lagMinutes = first === undefined ? null : Math.round((first - wallNow) / 60_000);
-    // Meals can hold an hour or so; ten hours is the bug.
+      .sort((a, b) => a.startAt.localeCompare(b.startAt))[0];
+    const lagMinutes = first ? Math.round((Date.parse(first.startAt) - Date.now()) / 60_000) : null;
+    // A break or a rounding to the minute; five hours is the bug.
     check(
-      "time zone: the first block starts around the student's own now",
-      lagMinutes !== null && lagMinutes >= -5 && lagMinutes <= 150,
-      `first block ${first ? new Date(first).toISOString().slice(0, 16) : "none"}, ` +
-        `student's wall clock ${new Date(wallNow).toISOString().slice(0, 16)} (${lagMinutes} min later)`,
+      "time zone: the first block starts at the real now",
+      lagMinutes !== null && lagMinutes >= -5 && lagMinutes <= 60,
+      `first block ${first?.startAt}, ${lagMinutes} min from now`,
     );
-    report("time zone", auditCoverage(plan, new Date(wallNow).toISOString()));
+
+    await nav.getByRole("button", { name: "Today" }).click();
+    await page.waitForTimeout(800);
+    const shownTime = first
+      ? new Date(first.startAt).toLocaleTimeString("en-US", { timeZone: zone, hour: "numeric", minute: "2-digit" })
+      : "none";
+    const primaryText = await page.locator(".primary-action").innerText().catch(() => "");
+    check(
+      "time zone: Today shows the block at its Chicago time",
+      primaryText.includes(shownTime),
+      `expected "${shownTime}" in: ${primaryText.split("\n").slice(0, 3).join(" | ")}`,
+    );
+    report("time zone", auditCoverage(plan, new Date().toISOString()));
     check("time zone: no page errors", errors.length === 0, errors.join(" | "));
     await context.close();
+  });
+
+  // 5b. An account from before every time was UTC. Its stored times were Chicago wall-clock
+  //     values spelled as UTC; the first requests after the update convert them -- once, even
+  //     when the app fires several at the same moment, and across more rows than one statement.
+  await journey(async () => {
+    const email = `scheduling-legacy-${Date.now()}@example.edu`;
+    const login = await api("/api/auth/login", "POST", { email });
+    const { sessionToken: token } = await api("/api/auth/callback", "POST", {
+      token: new URL(login.devLoginUrl).searchParams.get("token"),
+    });
+    await api("/api/me", "PATCH", { timezone: "America/Chicago" }, token);
+    const { term } = await api("/api/terms", "POST", { name: "Fall", startDate: "2026-08-24", endDate: "2026-12-15" }, token);
+    await api(
+      `/api/terms/${term.id}/availability-rules`,
+      "PUT",
+      { rules: [0, 1, 2, 3, 4, 5, 6].map((d) => ({ dayOfWeek: d, startTime: "10:00", endTime: "20:00" })) },
+      token,
+    );
+    const { course } = await api(`/api/terms/${term.id}/courses`, "POST", { name: "History" }, token);
+    // Written the old way: "midnight on the day", in the student's own clock. Enough rows that
+    // the conversion needs more than one statement.
+    for (let i = 0; i < 35; i += 1) {
+      await addWork(token, course.id, `Reading ${i + 1}`, "reading", `2026-10-${String(13 + (i % 5)).padStart(2, "0")}T23:59:00.000Z`, 30);
+    }
+    await api(`/api/terms/${term.id}/plans/generate`, "POST", { now: "2026-10-12T15:00:00.000Z", horizonStart: "2026-10-12" }, token);
+    const before = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token);
+    localSql(`UPDATE users SET time_standard = 0 WHERE email = '${email}'`);
+
+    // The app's first requests after an update arrive together.
+    await Promise.all([1, 2, 3].map(() => api("/api/terms", "GET", undefined, token)));
+    const after = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token);
+    await api("/api/terms", "GET", undefined, token);
+    const later = await api(`/api/terms/${term.id}/snapshot`, "GET", undefined, token);
+
+    // October in Chicago is UTC-5: every value moves exactly five hours later, once.
+    const fiveHours = (iso) => new Date(Date.parse(iso) + 5 * 3_600_000).toISOString();
+    const wrongItems = before.workItems.filter(
+      (w) => after.workItems.find((x) => x.id === w.id)?.dueAt !== fiveHours(w.dueAt),
+    );
+    const wrongSessions = before.existingSessions.filter(
+      (s) => after.existingSessions.find((x) => x.id === s.id)?.startAt !== fiveHours(s.startAt),
+    );
+    check(
+      "an old account's local times become the UTC instants they meant, exactly once",
+      before.workItems.length === 35 &&
+        before.existingSessions.length > 0 &&
+        wrongItems.length === 0 &&
+        wrongSessions.length === 0 &&
+        JSON.stringify(later.workItems) === JSON.stringify(after.workItems),
+      `${before.workItems.length} items, ${before.existingSessions.length} blocks; ` +
+        `${wrongItems.length} items and ${wrongSessions.length} blocks wrong; ` +
+        `e.g. ${before.workItems[0]?.dueAt} -> ${after.workItems.find((x) => x.id === before.workItems[0]?.id)?.dueAt}`,
+    );
   });
 
   // 6. The same ordinary week, starting on every day of the week, planned in the morning and in
