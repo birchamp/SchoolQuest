@@ -11,7 +11,6 @@ import { CourseManager } from "./components/CourseManager";
 import { Today } from "./components/Today";
 import { Coach } from "./components/Coach";
 import { WeekMap } from "./components/WeekMap";
-import { Questline } from "./components/Questline";
 import { CampaignArc } from "./components/CampaignArc";
 import { SessionBrief } from "./components/SessionBrief";
 import { WeeklyReview } from "./components/WeeklyReview";
@@ -899,11 +898,6 @@ export function App() {
                         courses={plan.courses}
                         hiddenCourseIds={hiddenCourseIds}
                       />
-                    </ErrorBoundary>
-                  )}
-                  {plan.progress && (
-                    <ErrorBoundary area={label("progress", theme)}>
-                      <Questline progress={plan.progress} courses={plan.courses} />
                     </ErrorBoundary>
                   )}
                 </>

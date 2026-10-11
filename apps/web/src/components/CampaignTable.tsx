@@ -83,7 +83,7 @@ function spellEffort(minutes: number): string {
 }
 
 /**
- * Floors rather than rounds, matching Questline.tsx and Stats.tsx. Here it also keeps the
+ * Floors rather than rounds, matching Stats.tsx. Here it also keeps the
  * card honest in the direction that matters: five floored shares sum to slightly under 100,
  * never to 103, so the table never claims more of the week than the week contains.
  */
@@ -816,7 +816,7 @@ export function CampaignTable({
                 </div>
 
                 {/* Everything below hangs clear of the sigil gutter, the same indent
-                    Questline, CampaignArc and Stats use. */}
+                    CampaignArc and Stats use. */}
                 <div style={{ marginLeft: 38 }}>
                   {/* Every row's track spans the full width and is measured against the
                       same denominator, so the fills can be compared by eye and visibly sum

@@ -51,7 +51,7 @@ interface Snapshot {
 }
 
 
-/** Quest palette, duplicated from the `--q-*` custom properties as literals (cf. Questline). */
+/** Quest palette, duplicated from the `--q-*` custom properties as literals (cf. Stats). */
 const Q = {
   gold: "#c9a227",
   goldBright: "#e8c95a",

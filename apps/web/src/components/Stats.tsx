@@ -66,8 +66,7 @@ function spellEffort(minutes: number): string {
 }
 
 /**
- * Locale-formatted, but never rounded up into a friendlier number. Copied from Questline.tsx:
- * point totals can be fractional, and a raw "87.50000000000001" on screen reads as a fault in
+ * Locale-formatted, but never rounded up into a friendlier number. Point totals can be fractional, and a raw "87.50000000000001" on screen reads as a fault in
  * the arithmetic rather than in the formatting.
  */
 function num(value: number): string {
@@ -75,7 +74,7 @@ function num(value: number): string {
 }
 
 /**
- * Floors rather than rounds, matching Questline.tsx: 99.6% must not read as "100%" while
+ * Floors rather than rounds: 99.6% must not read as "100%" while
  * work remains. Understating by less than a point is the only direction this may be wrong in.
  */
 function percentOf(fraction: number): number {
@@ -215,7 +214,7 @@ function Track({
 /**
  * One labelled figure in a summary band.
  *
- * Unlike the equivalents in Questline.tsx and CampaignArc.tsx these tiles are *not* wrapped
+ * Unlike the equivalents in CampaignArc.tsx these tiles are *not* wrapped
  * in a blanket `aria-hidden`: there are more of them here than one meter label could carry
  * without turning into a paragraph, so each is announced on its own and the two that the
  * meter already states are the ones hidden. `spokenValue` exists because "8h 30m" is not
@@ -305,7 +304,7 @@ function Rule({
   );
 }
 
-/** The leather-and-gold banner used at the top of the term card; mirrors Questline.tsx. */
+/** The leather-and-gold banner used at the top of the term card. */
 function Banner({ children, quest }: { children: ReactNode; quest: boolean }) {
   return (
     <div
@@ -575,7 +574,7 @@ function ProjectRow({
       </div>
 
       {/* Course, type and date hang under the title, clear of the sigil gutter — the same
-          indent Questline and CampaignArc use. */}
+          indent CampaignArc and the course rows below use. */}
       <div style={{ marginLeft: 38 }}>
         <p
           className="muted"
@@ -830,6 +829,30 @@ export function Stats({
   // Pass/Fail results are results, just not scored ones: a course holding only those has been
   // graded, and saying "no result recorded" beside the dashboard's Pass/Fail count contradicts it.
   const anyPassFail = courses.some((c) => standingPassFailCount(standings[c.id]) > 0);
+
+  /**
+   * Per-course progress, which used to be its own card on the week (Questline) and now lives
+   * on the course rows below (issue #37). Its three rules come with it:
+   *
+   * 1. `basis === "items"`: the syllabus never stated point values, so no points figure may
+   *    appear on that row at all -- not even "0 of 0".
+   * 2. `pointsCoverage < 1`: the point total is a floor. The row is marked, and why is said
+   *    once in a footnote rather than on every row.
+   * 3. `itemsTotal === 0`: a course with nothing in it yet gets a sentence, never a 0% bar
+   *    implying the student is behind.
+   */
+  const courseProgress = (courseId: string): CourseProgressView | undefined =>
+    progress?.courses.find((c) => c.courseId === courseId);
+  const shownProgress = courses
+    .map((c) => courseProgress(c.id))
+    .filter((cp): cp is CourseProgressView => cp !== undefined && cp.itemsTotal > 0);
+  const partialCourses = shownProgress.filter(
+    (cp) => cp.basis === "points" && cp.pointsCoverage < 1,
+  ).length;
+  // Said on the term card when the whole term is counted by task; said here only when some
+  // courses are counted one way and some the other, which the term-level note cannot express.
+  const someTaskCounted =
+    !taskCounted && shownProgress.some((cp) => cp.basis === "items");
 
   return (
     <>
@@ -1199,9 +1222,7 @@ export function Stats({
 
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {courses.map((course, index) => {
-              const cp: CourseProgressView | undefined = progress?.courses.find(
-                (c) => c.courseId === course.id,
-              );
+              const cp = courseProgress(course.id);
               const standing: CourseStandingView | undefined = standings[course.id];
               const name = courseLabel(course, course.id);
               const percent = cp ? percentOf(cp.completionFraction) : 0;
@@ -1209,6 +1230,8 @@ export function Stats({
               // Points are printed only where the engine judged them representative; on an
               // item-counted course no points figure may appear at all, not even "0 of 0".
               const points = cp?.basis === "points";
+              // A floor, not the full tally: some required work states no point value.
+              const partial = points && cp !== undefined && cp.pointsCoverage < 1;
 
               return (
                 <li
@@ -1254,7 +1277,15 @@ export function Stats({
                           <Track
                             quest={quest}
                             percent={percent}
-                            ariaLabel={`${name}: ${percent} percent complete, ${cp.itemsDone} of ${cp.itemsTotal} required tasks finished`}
+                            ariaLabel={
+                              points
+                                ? `${name}: ${percent} percent complete, ${num(cp.pointsDone)} of ${num(cp.pointsTotal)} points finished, ${cp.itemsDone} of ${cp.itemsTotal} required tasks done${
+                                    partial
+                                      ? ", and some required items in this course state no point value"
+                                      : ""
+                                  }`
+                                : `${name}: ${percent} percent complete, ${cp.itemsDone} of ${cp.itemsTotal} required tasks finished, counted by task because this course states no point values`
+                            }
                           />
                         )}
                         <p
@@ -1270,6 +1301,16 @@ export function Stats({
                           ) : null}
                           {`${cp.itemsDone} of ${cp.itemsTotal} tasks done`}
                           {points && ` · ${num(cp.pointsDone)} of ${num(cp.pointsTotal)} points`}
+                          {partial && (
+                            <>
+                              <span aria-hidden="true" data-floor="true">
+                                {" ◇"}
+                              </span>
+                              <span className="sr-only">
+                                , a floor: some required items in this course state no point value
+                              </span>
+                            </>
+                          )}
                         </p>
                       </>
                     )}
@@ -1318,6 +1359,22 @@ export function Stats({
               );
             })}
           </ul>
+
+          {someTaskCounted && (
+            <Note quest={quest}>
+              Counted by task where a syllabus states grading weights rather than point values,
+              so those courses show tasks done and no points figure.
+            </Note>
+          )}
+
+          {/* Stated once, not per row: the marked totals are a floor, not the full tally. */}
+          {partialCourses > 0 && (
+            <Note quest={quest}>
+              Partial point data: some required items in{" "}
+              {partialCourses === 1 ? "the marked course" : "the marked courses"} state no point
+              value, so the point totals shown are a floor, not the full total.
+            </Note>
+          )}
 
           <Note quest={quest}>
             {anyGraded
