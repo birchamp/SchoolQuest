@@ -818,6 +818,7 @@ export function App() {
               health={plan.health}
               courses={plan.courses}
               workItems={plan.workItems}
+              grades={plan.grades ?? []}
               theme={theme}
               onChanged={refreshPlan}
             />
