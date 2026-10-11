@@ -84,6 +84,22 @@ command for that.
 Its first run found that "Still unanswered" on Setup only loaded on mount. After a student
 confirmed a syllabus on that same page, the card went on saying nothing was open.
 
+## The multi-week journey (runs on every push)
+
+`pnpm test:weeks` lives three weeks on the simulated clock, opening the app the way a student
+does. The student studies Monday and Thursday evenings. Each Monday they do the reading from
+Today. Each Thursday they let the problem set's block go with "Not now", naming the shift that
+took the time. In week two the weekly review asks about that Thursday once, as possibly a
+one-off. In week three it proposes the shift as a standing commitment in the student's own
+words. One click adds it, and the plan stops booking that evening, warning about the work that
+no longer fits rather than dropping it. Then the term ends: "Start a new semester" archives it,
+and reopening it from onboarding brings back every piece of work.
+
+The evenings are 20:00 to 21:00 on purpose. The default dinner window floats as late as 20:00,
+blocks are 45 minutes, and deadlines keep a one-day buffer. A journey that ignores those tests
+the defaults rather than the review. The student opens the app on the hour because the first
+load of a new day replans from "now", which moves a 20:00 block to 20:05 if opened at 20:05.
+
 # End-to-end semester test
 
 Drives the complete student journey through the real Worker API: fresh account,
