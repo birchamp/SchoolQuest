@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { selectByIdsInChunks } from "./repo.js";
+import { chunk, isUniqueViolation, selectByIdsInChunks } from "./repo.js";
 
 /**
  * The bug this guards: a single `inArray(col, ids)` binds one parameter per id, so a term with
@@ -54,5 +54,51 @@ describe("selectByIdsInChunks", () => {
 
     expect(run).not.toHaveBeenCalled();
     expect(rows).toEqual([]);
+  });
+});
+
+/**
+ * The plan write goes into one `db.batch`, so its statements are chunked up front rather than
+ * awaited one by one. A chunk that dropped or repeated a row would lose a block or fail the whole
+ * plan on a duplicate id.
+ */
+describe("chunk", () => {
+  it("splits into runs of the given size, every row once and in order", () => {
+    const rows = Array.from({ length: 21 }, (_, i) => i);
+
+    const chunks = chunk(rows, 8);
+
+    expect(chunks.map((c) => c.length)).toEqual([8, 8, 5]);
+    expect(chunks.flat()).toEqual(rows);
+  });
+
+  it("returns no chunks for no rows, so the batch gets no empty statement", () => {
+    expect(chunk([], 8)).toEqual([]);
+  });
+});
+
+/**
+ * How the generate route tells a lost race (retry) from any other failure (rethrow). The message
+ * is the one a local D1 gives for a duplicate plan version number.
+ */
+describe("isUniqueViolation", () => {
+  const columns = ["plan_versions.term_id", "plan_versions.version_number"];
+  const d1Message =
+    "D1_ERROR: UNIQUE constraint failed: plan_versions.term_id, plan_versions.version_number: SQLITE_CONSTRAINT";
+
+  it("recognises D1's duplicate-key error for those columns", () => {
+    expect(isUniqueViolation(new Error(d1Message), columns)).toBe(true);
+  });
+
+  it("finds it under a wrapping error's cause", () => {
+    expect(isUniqueViolation(new Error("Failed query", { cause: new Error(d1Message) }), columns)).toBe(true);
+  });
+
+  it("does not mistake another constraint or another failure for it", () => {
+    const otherIndex = "UNIQUE constraint failed: work_sessions.id: SQLITE_CONSTRAINT";
+    expect(isUniqueViolation(new Error(otherIndex), columns)).toBe(false);
+    expect(isUniqueViolation(new Error("FOREIGN KEY constraint failed"), columns)).toBe(false);
+    expect(isUniqueViolation("UNIQUE constraint failed", columns)).toBe(false);
+    expect(isUniqueViolation(undefined, columns)).toBe(false);
   });
 });

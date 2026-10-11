@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { and, desc, eq, inArray } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { z } from "zod";
 import { fromEpochMinutes, newId, toEpochMinutes, zoneCalendar } from "@schoolquest/domain";
 import {
@@ -19,11 +20,13 @@ import { explainRecommendation, explainRisk, explainTradeoff } from "@schoolques
 import { planVersions, workItems, workSessions } from "../db/schema.js";
 import {
   assertTermOwner,
+  chunk,
   getDb,
-  insertInChunks,
+  isUniqueViolation,
   loadEffortTotals,
   loadTermSnapshot,
   toPlanningInput,
+  type Db,
 } from "../db/repo.js";
 import { loadReview } from "./review.js";
 import { isDevMode, type AppBindings } from "../env.js";
@@ -83,24 +86,60 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
     timeTravelAllowed && parsed.data.now ? new Date(parsed.data.now).toISOString() : new Date().toISOString();
   // "Today" is the student's date, and the plan's days begin at their midnight.
   const timeZone = await studentZone(db, c.get("userId"));
-  const calendar = zoneCalendar(timeZone);
-  const horizonStart = parsed.data.horizonStart ?? calendar.dateOf(toEpochMinutes(now));
+  const horizonStart = parsed.data.horizonStart ?? zoneCalendar(timeZone).dateOf(toEpochMinutes(now));
 
-  const snapshot = await loadTermSnapshot(db, termId, {
-    sessionsFrom: fromEpochMinutes(calendar.dayStart(horizonStart)),
-  });
-  const input = toPlanningInput(termId, snapshot, {
+  const options = {
     horizonStart,
     horizonDays: parsed.data.horizonDays,
     now,
     timeZone,
-  });
+    reason: parsed.data.reason,
+    preserveAcceptedSessions: parsed.data.preserveAcceptedSessions,
+  };
 
-  if (!parsed.data.preserveAcceptedSessions) input.existingSessions = [];
+  // A second replan of this term can commit between this one's read and its write -- two tabs,
+  // or the morning replan racing a "Not now". The loser's whole batch fails at the unique version
+  // index, so it is planned once more against what the winner wrote. Losing twice in a row means
+  // something keeps replanning this term; the student is told rather than made to wait.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const { plan, snapshot, diff } = await writePlan(db, termId, options);
+      return c.json({ ...serializePlan(plan, snapshot, await loadEffortTotals(db, termId)), diff }, 201);
+    } catch (error) {
+      if (!isUniqueViolation(error, ["plan_versions.term_id", "plan_versions.version_number"])) throw error;
+      if (attempt === 2) {
+        return c.json({ error: "Another plan for this term was being made at the same time. Try again." }, 409);
+      }
+    }
+  }
+});
 
-  const planVersionId = newId("planVersion");
-  const plan = generatePlan(input, planVersionId);
+/**
+ * Plans the term and stores the result as a new version, all or nothing.
+ *
+ * The version, its new blocks, the blocks it keeps and the ones it retires are one D1 batch, which
+ * D1 runs as a single transaction (issue #19). Written as four separate steps, a failure part way
+ * left a version with half its blocks, or two plans' blocks both live; and two replans at once
+ * could both take the same version number, leaving "current" to whichever sorted first.
+ */
+async function writePlan(
+  db: Db,
+  termId: string,
+  options: {
+    horizonStart: string;
+    horizonDays: number;
+    now: string;
+    timeZone: string;
+    reason: string;
+    preserveAcceptedSessions: boolean;
+  },
+) {
+  const { now, timeZone } = options;
+  const calendar = zoneCalendar(timeZone);
 
+  // Read before the snapshot, not after. A replan that commits in between takes this number
+  // first, and this write then fails at the unique index instead of landing on top of a plan it
+  // never saw.
   const [latest] = await db
     .select({ versionNumber: planVersions.versionNumber })
     .from(planVersions)
@@ -108,13 +147,28 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
     .orderBy(desc(planVersions.versionNumber))
     .limit(1);
 
-  await db.insert(planVersions).values({
+  const snapshot = await loadTermSnapshot(db, termId, {
+    sessionsFrom: fromEpochMinutes(calendar.dayStart(options.horizonStart)),
+  });
+  const input = toPlanningInput(termId, snapshot, {
+    horizonStart: options.horizonStart,
+    horizonDays: options.horizonDays,
+    now,
+    timeZone,
+  });
+
+  if (!options.preserveAcceptedSessions) input.existingSessions = [];
+
+  const planVersionId = newId("planVersion");
+  const plan = generatePlan(input, planVersionId);
+
+  const insertVersion = db.insert(planVersions).values({
     id: planVersionId,
     termId,
     versionNumber: (latest?.versionNumber ?? 0) + 1,
     horizonStart: plan.horizonStart,
     horizonEnd: plan.horizonEnd,
-    generationReason: parsed.data.reason,
+    generationReason: options.reason,
     algorithmVersion: plan.algorithmVersion,
     status: "proposed",
     summaryJson: JSON.stringify({
@@ -148,11 +202,6 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
     tradeoffCode: s.tradeoffCode,
   }));
 
-  // A full week is easily 20+ sessions; 12 columns each would blow D1's parameter cap.
-  await insertInChunks(rows, SESSION_INSERT_BATCH, (batch) =>
-    db.insert(workSessions).values(batch),
-  );
-
   /**
    * Blocks this plan kept move into it, along with any block still underway.
    *
@@ -172,9 +221,6 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
       .where(and(inArray(workItems.courseId, courseIds), eq(workSessions.status, "started")))
   ).map((row) => row.id);
   const keep = [...new Set([...plan.sessions.filter((s) => carriedIds.has(s.id)).map((s) => s.id), ...startedIds])];
-  await insertInChunks(keep, SUPERSEDE_BATCH, (batch) =>
-    db.update(workSessions).set({ planVersionId }).where(inArray(workSessions.id, batch)),
-  );
 
   // Retire the blocks this plan replaces.
   //
@@ -197,12 +243,21 @@ plansRoute.post("/terms/:termId/plans/generate", async (c) => {
   // the diff is a reading of them, not a new record.
   const diff = diffPlans(liveBefore, plan.sessions);
 
-  await insertInChunks(superseded, SUPERSEDE_BATCH, (batch) =>
-    db.update(workSessions).set({ status: "moved" }).where(inArray(workSessions.id, batch)),
-  );
+  // One batch, still chunked: the bound-parameter ceiling is per statement, and a full week is
+  // easily 20+ sessions at 12 columns each.
+  const rest: BatchItem<"sqlite">[] = [
+    ...chunk(rows, SESSION_INSERT_BATCH).map((batch) => db.insert(workSessions).values(batch)),
+    ...chunk(keep, SUPERSEDE_BATCH).map((batch) =>
+      db.update(workSessions).set({ planVersionId }).where(inArray(workSessions.id, batch)),
+    ),
+    ...chunk(superseded, SUPERSEDE_BATCH).map((batch) =>
+      db.update(workSessions).set({ status: "moved" }).where(inArray(workSessions.id, batch)),
+    ),
+  ];
+  await db.batch([insertVersion, ...rest]);
 
-  return c.json({ ...serializePlan(plan, snapshot, await loadEffortTotals(db, termId)), diff }, 201);
-});
+  return { plan, snapshot, diff };
+}
 
 /** Returns the most recent plan version, generating one on first use. */
 plansRoute.get("/terms/:termId/plans/current", async (c) => {
