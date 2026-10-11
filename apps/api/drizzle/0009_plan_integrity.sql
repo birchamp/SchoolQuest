@@ -8,19 +8,21 @@
 -- Any duplicates already stored are renumbered first, or the index could not be built: within a
 -- term, versions are numbered again in their existing order, ties broken by creation time, so the
 -- plan written last stays the current one. A term with no duplicates keeps its numbers.
+-- The ranking is computed once, in FROM, rather than in a correlated subquery: SQLite re-runs a
+-- correlated subquery per updated row, so each row was ranked against rows already renumbered and
+-- two duplicate pairs in one term came out 1, 2, 3, 3, 5 (src/db/migration-0009.test.ts).
 UPDATE plan_versions
-SET version_number = (
-  SELECT ranked.n FROM (
-    SELECT id, ROW_NUMBER() OVER (
-      PARTITION BY term_id ORDER BY version_number, created_at, id
-    ) AS n
-    FROM plan_versions
-  ) AS ranked
-  WHERE ranked.id = plan_versions.id
-)
-WHERE term_id IN (
-  SELECT term_id FROM plan_versions GROUP BY term_id, version_number HAVING COUNT(*) > 1
-);--> statement-breakpoint
+SET version_number = ranked.n
+FROM (
+  SELECT id, ROW_NUMBER() OVER (
+    PARTITION BY term_id ORDER BY version_number, created_at, id
+  ) AS n
+  FROM plan_versions
+  WHERE term_id IN (
+    SELECT term_id FROM plan_versions GROUP BY term_id, version_number HAVING COUNT(*) > 1
+  )
+) AS ranked
+WHERE ranked.id = plan_versions.id;--> statement-breakpoint
 DROP INDEX `plan_versions_term_idx`;--> statement-breakpoint
 CREATE UNIQUE INDEX `plan_versions_term_idx` ON `plan_versions` (`term_id`,`version_number`);--> statement-breakpoint
 -- SQLite adds a foreign key only by rebuilding the table. Both rebuilt here are leaves -- no
