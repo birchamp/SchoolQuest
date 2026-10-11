@@ -92,6 +92,25 @@ describe("Stats: per-course term progress (moved from the week's Questline)", ()
     expect(coursesCard().textContent).toContain("Counted by task where a syllabus states grading weights");
   });
 
+  it("explains mixed bases on the course rows even when the term as a whole counts by task", () => {
+    render(
+      term(
+        [
+          cp({ courseId: "a" }),
+          cp({ courseId: "b", basis: "items", pointsTotal: 0, pointsDone: 0, pointsCoverage: 0 }),
+        ],
+        "items",
+      ),
+      [course("a", "Art"), course("b", "Biology")],
+    );
+    expect(coursesCard().textContent).toContain("Counted by task where a syllabus states grading weights");
+  });
+
+  it("says nothing about mixed bases when every course counts the same way", () => {
+    render(term([cp({ courseId: "a" }), cp({ courseId: "c" })]), [course("a", "Art"), course("c", "Chem")]);
+    expect(coursesCard().textContent).not.toContain("Counted by task where");
+  });
+
   it("marks a partial point total as a floor, and explains the mark once", () => {
     render(
       term([cp({ courseId: "a", pointsCoverage: 0.6 }), cp({ courseId: "b" })]),

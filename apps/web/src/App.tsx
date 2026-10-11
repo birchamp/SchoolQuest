@@ -583,6 +583,9 @@ export function App() {
   }
 
   async function signOut() {
+    // Before the request, not after: with the tracker still on, closing the page while logout was
+    // in flight sent the unsent counts (found in review on #41). Off also discards them.
+    setUsageEnabled(false);
     await api.post("/api/auth/logout").catch(() => undefined);
     setStoredToken(null);
     setMe(null);

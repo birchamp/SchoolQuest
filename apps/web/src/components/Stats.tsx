@@ -849,10 +849,12 @@ export function Stats({
   const partialCourses = shownProgress.filter(
     (cp) => cp.basis === "points" && cp.pointsCoverage < 1,
   ).length;
-  // Said on the term card when the whole term is counted by task; said here only when some
-  // courses are counted one way and some the other, which the term-level note cannot express.
+  // Said here whenever the rows mix both bases, which only a row-level note can explain -- also
+  // when the term as a whole is counted by task: the term card's note then says the term is, but
+  // not why only some rows lack a points figure (found in review on #41).
   const someTaskCounted =
-    !taskCounted && shownProgress.some((cp) => cp.basis === "items");
+    shownProgress.some((cp) => cp.basis === "items") &&
+    shownProgress.some((cp) => cp.basis === "points");
 
   return (
     <>
