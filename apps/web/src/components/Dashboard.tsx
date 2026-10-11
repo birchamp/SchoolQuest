@@ -4,6 +4,7 @@ import { explainHealth, label } from "@schoolquest/theme-language";
 import { api } from "../lib/api";
 import { courseChipFill, courseInitials } from "../lib/course-colour";
 import { workAwaitingResult } from "../lib/record-results";
+import { PassFailButtons, recordPassFail } from "./PassFailButtons";
 import type { CourseHealthView, TermHealthView } from "../lib/types";
 
 /**
@@ -365,7 +366,8 @@ function RecordResults({
     setBusy(item.id);
     setError(null);
     try {
-      await api.put(`/api/work-items/${item.id}/grade`, { passFail });
+      await recordPassFail(item.id, passFail);
+      setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not save.");
@@ -438,24 +440,10 @@ function RecordResults({
           <span aria-hidden="true" className="muted">
             or
           </span>
-          <button
-            className="action"
-            type="button"
+          <PassFailButtons
             disabled={busy === item.id}
-            onClick={() => void savePassFail(item, "pass")}
-            title="Marked Pass/Fail rather than scored: record a pass"
-          >
-            Pass
-          </button>
-          <button
-            className="action"
-            type="button"
-            disabled={busy === item.id}
-            onClick={() => void savePassFail(item, "fail")}
-            title="Marked Pass/Fail rather than scored: record a fail"
-          >
-            Fail
-          </button>
+            onRecord={(passFail) => void savePassFail(item, passFail)}
+          />
         </form>
       ))}
       {error && <p className="error">{error}</p>}

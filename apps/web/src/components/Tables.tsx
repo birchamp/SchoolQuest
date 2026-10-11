@@ -5,6 +5,7 @@ import { wallClockToday } from "../lib/clock";
 import { api } from "../lib/api";
 import { courseTincture } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
+import { PassFailButtons, recordPassFail } from "./PassFailButtons";
 import {
   composeDueAt,
   DEFAULT_DUE_TIME,
@@ -333,12 +334,11 @@ export function AssignmentsTable({
     }
   }
 
-  /** Records a Pass/Fail outcome in place of a score, for work that is not marked in points. */
   async function savePassFail(item: WorkItem, passFail: PassFail) {
     setBusy(item.id);
     setError(null);
     try {
-      await api.put(`/api/work-items/${item.id}/grade`, { passFail });
+      await recordPassFail(item.id, passFail);
       setScores((s) => ({ ...s, [item.id]: { earned: "", outOf: "" } }));
       setEditingGrade(null);
       onChanged();
@@ -725,26 +725,10 @@ export function AssignmentsTable({
                         <button className="action" type="submit" disabled={busy === item.id}>
                           Save
                         </button>
-                        {/* Not everything is marked in points. Pass/Fail is a result too: it
-                            stops the row waiting on a number, without moving the percentage. */}
-                        <button
-                          className="action"
-                          type="button"
+                        <PassFailButtons
                           disabled={busy === item.id}
-                          onClick={() => void savePassFail(item, "pass")}
-                          title="Marked Pass/Fail rather than scored: record a pass"
-                        >
-                          Pass
-                        </button>
-                        <button
-                          className="action"
-                          type="button"
-                          disabled={busy === item.id}
-                          onClick={() => void savePassFail(item, "fail")}
-                          title="Marked Pass/Fail rather than scored: record a fail"
-                        >
-                          Fail
-                        </button>
+                          onRecord={(passFail) => void savePassFail(item, passFail)}
+                        />
                         {editingGrade === item.id ? (
                           <button
                             className="action"
