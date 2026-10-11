@@ -190,7 +190,9 @@ export function CampaignRadar({
     (activeId ? inRange.find((e) => e.id === activeId) : undefined) ?? worstEncounter(inRange);
 
   // The student's own weekday: UTC's was already tomorrow for an evening west of Greenwich.
-  const todayDayOfWeek = useMemo(() => localDayOfWeek(appNow()), []);
+  // Read on every render, not memoised once: the radar outlives midnight and a change of zone,
+  // and a weekday frozen at mount labelled the spokes from yesterday. It is one cheap lookup.
+  const todayDayOfWeek = localDayOfWeek(appNow());
   const rings = useMemo(
     () => ringGeometry(weeks, radar.currentTermWeek),
     [weeks, radar.currentTermWeek],

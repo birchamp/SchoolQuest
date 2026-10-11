@@ -63,8 +63,9 @@ describe("screens leave UTC only through lib/clock", () => {
     });
 
     it(`${source.path} takes no day or clock off a stored time's characters`, () => {
-      // `dueAt.slice(0, 10)` is the UTC date, which is the student's only at UTC+0.
-      expect(offending(source.code, /At!?\)?\.slice\((0, 10|11, 16)\)/)).toEqual([]);
+      // `dueAt.slice(0, 10)` is the UTC date, which is the student's only at UTC+0; `(0, 7)` is
+      // the UTC month, which grouped a Halloween deadline under November.
+      expect(offending(source.code, /At!?\)?\.slice\((0, (7|10)|11, 16)\)/)).toEqual([]);
     });
 
     it(`${source.path} reads the clock only through appNow`, () => {

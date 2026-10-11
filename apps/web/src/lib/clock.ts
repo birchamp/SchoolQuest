@@ -1,6 +1,7 @@
 import {
   formatTimeOfDay,
   fromEpochMinutes,
+  isTimeZone,
   parseTimeOfDay,
   toEpochMinutes,
   zoneCalendar,
@@ -22,9 +23,14 @@ import {
  */
 let planZone: string | null = null;
 
-/** Sets the zone the student's times are shown in, from their settings. */
+/**
+ * Sets the zone the student's times are shown in, from their settings.
+ *
+ * A zone this browser does not know is ignored, not kept: every formatter would throw a
+ * RangeError on it and take the screen down with it. Found in review.
+ */
 export function setPlanTimeZone(timeZone: string | null): void {
-  planZone = timeZone;
+  planZone = timeZone && isTimeZone(timeZone) ? timeZone : null;
 }
 
 /** The zone times are shown in. */
@@ -36,10 +42,11 @@ function calendar(): ZoneCalendar {
   return zoneCalendar(planTimeZone());
 }
 
-/** The browser's IANA time zone, or null where the platform will not say. */
+/** The browser's IANA time zone, or null where the platform will not say or says nonsense. */
 export function browserTimeZone(): string | null {
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return zone && isTimeZone(zone) ? zone : null;
   } catch {
     return null;
   }
@@ -48,11 +55,13 @@ export function browserTimeZone(): string | null {
 /**
  * A moment to read the term from, other than now. A UTC instant, like every other.
  *
- * **Development only, twice over**: the server ignores it outright once a mail provider is
- * configured, so a stray key in a real browser changes nothing it sends back. It exists so the
- * screenshot and simulation tools can look at a term from week nine.
+ * **Development only, twice over**: a production build never reads it, and the server ignores
+ * it outright once a mail provider is configured. Before the first of those, a stray key in a
+ * real browser moved "today" on every screen while the server planned from the real day. It
+ * exists so the screenshot and simulation tools can look at a term from week nine.
  */
 export function devNow(): string | null {
+  if (!import.meta.env.DEV) return null;
   try {
     return localStorage.getItem("sq_dev_now");
   } catch {
@@ -95,14 +104,28 @@ export function fromLocal(date: string, time: string): string {
   return fromEpochMinutes(calendar().at(date, parseTimeOfDay(time)));
 }
 
-/** The UTC instant the student's day begins. */
-export function localDayStart(date: string): string {
-  return fromEpochMinutes(calendar().dayStart(date));
+/**
+ * Formatters, one per zone and set of options. Building an `Intl.DateTimeFormat` costs far more
+ * than using one, and a calendar week formats hundreds of times per render.
+ */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = JSON.stringify(options);
+  let format = formatters.get(key);
+  if (!format) {
+    if (formatters.size > 200) formatters.clear();
+    format = new Intl.DateTimeFormat(undefined, options);
+    formatters.set(key, format);
+  }
+  return format;
 }
 
-/** A stored instant, formatted in the student's zone. */
+/** A stored instant, formatted in the student's zone; "" for a value that is not a time. */
 export function formatInstant(iso: string, options: Intl.DateTimeFormatOptions): string {
-  return new Date(iso).toLocaleString(undefined, { ...options, timeZone: planTimeZone() });
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return formatter({ ...options, timeZone: planTimeZone() }).format(date);
 }
 
 /** "9:00 AM": a stored instant's time of day, on the student's clock. */
@@ -117,7 +140,9 @@ export function formatTime(iso: string): string {
  * every browser. Only for dates; a stored instant goes through `formatInstant`.
  */
 export function formatCalendarDate(date: string, options: Intl.DateTimeFormatOptions): string {
-  return new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { ...options, timeZone: "UTC" });
+  const noon = new Date(`${date}T12:00:00Z`);
+  if (Number.isNaN(noon.getTime())) return "";
+  return formatter({ ...options, timeZone: "UTC" }).format(noon);
 }
 
 /** A time of day, which has no zone: "5:00 PM" for "17:00". */
@@ -126,9 +151,16 @@ export function formatClock(
   options: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" },
 ): string {
   const minutes = parseTimeOfDay(time);
-  return new Date(Date.UTC(2000, 0, 1, Math.floor(minutes / 60), minutes % 60)).toLocaleTimeString(undefined, {
-    ...options,
-    timeZone: "UTC",
+  return formatter({ ...options, timeZone: "UTC" }).format(
+    new Date(Date.UTC(2000, 0, 1, Math.floor(minutes / 60), minutes % 60)),
+  );
+}
+
+/** A minute of the student's day as a short clock reading: "9 AM", "9:30 AM". */
+export function formatMinuteOfDay(minuteOfDay: number): string {
+  return formatClock(formatTimeOfDay(minuteOfDay), {
+    hour: "numeric",
+    ...(minuteOfDay % 60 === 0 ? {} : { minute: "2-digit" as const }),
   });
 }
 

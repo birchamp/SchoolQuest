@@ -8,7 +8,7 @@ import type {
   ProjectsSummaryView,
   TermProgressView,
 } from "../lib/types";
-import { formatDueDay } from "../lib/due-time";
+import { formatDueDay, LONG_DUE_DAY } from "../lib/due-time";
 
 /**
  * Where the term stands, and whether the long work is going to land.
@@ -127,7 +127,7 @@ function workTypeLabel(workType: string): string {
  * omitted year would hide exactly the fault the row is flagging.
  */
 function formatDue(dueAt: string): string {
-  return formatDueDay(dueAt, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  return formatDueDay(dueAt, LONG_DUE_DAY);
 }
 
 /** Course code appended only when the name does not already carry it (see WeekMap). */

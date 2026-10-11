@@ -3,7 +3,6 @@ import {
   addDays,
   dateToEpochMinutes,
   dayOfWeekFor,
-  formatTimeOfDay,
   fromEpochMinutes,
   type Course,
   type ThemeName,
@@ -16,7 +15,7 @@ import type {
   PlanResponse,
   SessionBriefView,
 } from "../lib/types";
-import { appToday, formatClock, formatTime, localDate, planTimeZone } from "../lib/clock";
+import { appToday, formatMinuteOfDay, formatTime, localDate, planTimeZone } from "../lib/clock";
 import { courseLabelInk } from "../lib/course-colour";
 import { openDeadlines } from "../lib/deadlines";
 import { CalendarLegend } from "./CalendarLegend";
@@ -635,10 +634,7 @@ function DueLine({
   // day", and printing it as a time is how a student plans to finish at 23:30 for a deadline
   // their instructor holds at 9am.
   const clock = deadline.timeStated
-    ? formatClock(formatTimeOfDay(deadline.minuteOfDay), {
-        hour: "numeric",
-        ...(deadline.minuteOfDay % 60 === 0 ? {} : { minute: "2-digit" as const }),
-      })
+    ? formatMinuteOfDay(deadline.minuteOfDay)
     : null;
 
   return (

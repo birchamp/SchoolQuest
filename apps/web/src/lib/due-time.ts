@@ -15,7 +15,7 @@ export const DEFAULT_DUE_TIME = "23:59";
 
 /** The student's date for a deadline, or "" when the work has no due date. */
 export function dueDatePart(dueAt: string | null | undefined): string {
-  return dueAt ? localDate(dueAt) : "";
+  return dueAt && !Number.isNaN(Date.parse(dueAt)) ? localDate(dueAt) : "";
 }
 
 /**
@@ -56,6 +56,14 @@ export function dueAfterEdit(
   const next = composeDueAt(date, time);
   return next === (stored ?? null) ? undefined : next;
 }
+
+/** "Mon, Oct 5, 2026": a deadline in full, for lists that span more than one year. */
+export const LONG_DUE_DAY: Intl.DateTimeFormatOptions = {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+};
 
 /** A deadline as a short day, on the student's calendar: "Oct 5". */
 export function formatDueDay(
