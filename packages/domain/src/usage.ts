@@ -41,6 +41,7 @@ export const USAGE_EVENTS = [
   // Actions
   "session.start",
   "session.stop",
+  "session.do_now",
   "plan.rebuild",
   "grade.record",
   "stats.go_fix",
