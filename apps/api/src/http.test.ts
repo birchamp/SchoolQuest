@@ -815,3 +815,97 @@ describe("usage log", () => {
     }
   });
 });
+
+describe("do-now", () => {
+  type Block = { id: string; workItemId: string; startAt: string; endAt: string; status?: string; acceptedByUser?: boolean };
+  // A Monday morning inside the term `buildTerm` makes; the plan is read and rebuilt as of it.
+  const now = "2026-09-07T08:00:00Z";
+  let client: Client;
+  let termId: string;
+  let first: Block;
+  let later: Block;
+
+  async function sessions(): Promise<Block[]> {
+    const res = await client.get(`/api/terms/${termId}/plans/current?now=${now}`);
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { sessions: Block[] }).sessions;
+  }
+
+  async function regenerate(): Promise<Block[]> {
+    const res = await client.send("POST", `/api/terms/${termId}/plans/generate`, { now });
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { sessions: Block[] }).sessions.sort((x, y) =>
+      x.startAt.localeCompare(y.startAt),
+    );
+  }
+
+  beforeAll(async () => {
+    client = await signIn("do-now@example.com");
+    const built = await buildTerm(client);
+    termId = built.termId;
+    await client.send("PUT", `/api/terms/${termId}/availability-rules`, {
+      rules: [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({ dayOfWeek, startTime: "09:00", endTime: "17:00" })),
+    });
+    await client.send("PATCH", `/api/work-items/${built.workItemId}`, {
+      estimatedMinutes: 120,
+      dueAt: "2026-09-10T23:00:00Z",
+    });
+    await client.send("POST", "/api/work-items", {
+      courseId: built.courseId,
+      title: "Chapter reading",
+      workType: "reading",
+      estimatedMinutes: 120,
+      dueAt: "2026-09-12T23:00:00Z",
+    });
+    const planned = await regenerate();
+    expect(planned.length).toBeGreaterThanOrEqual(2);
+    first = planned[0]!;
+    later = planned[planned.length - 1]!;
+    expect(later.startAt > first.startAt).toBe(true);
+  }, 60_000);
+
+  it("puts the later block in the first one's slot, keeps its length, and retires the first", async () => {
+    const res = await client.send("POST", `/api/work-sessions/${later.id}/do-now`, {
+      startAt: first.startAt,
+      displacing: first.id,
+    });
+    expect(res.status).toBe(200);
+    const { session } = (await res.json()) as { session: Block };
+    expect(session.id).toBe(later.id);
+    expect(session.startAt).toBe(first.startAt);
+    expect(session.acceptedByUser).toBe(true);
+    expect(Date.parse(session.endAt) - Date.parse(session.startAt)).toBe(
+      Date.parse(later.endAt) - Date.parse(later.startAt),
+    );
+
+    const current = await sessions();
+    expect(current.map((s) => s.id)).not.toContain(first.id);
+    expect(current.find((s) => s.id === later.id)).toMatchObject({ startAt: first.startAt });
+  });
+
+  it("survives the replan the client runs next, as an accepted block", async () => {
+    const replanned = await regenerate();
+    expect(replanned.find((s) => s.id === later.id)).toMatchObject({ startAt: first.startAt });
+    expect(replanned.map((s) => s.id)).not.toContain(first.id);
+  });
+
+  it("refuses to push aside a block that is no longer open", async () => {
+    const other = (await sessions()).find((s) => s.id !== later.id);
+    expect(other).toBeDefined();
+    const res = await client.send("POST", `/api/work-sessions/${other!.id}/do-now`, {
+      startAt: first.startAt,
+      displacing: first.id,
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("answers 404 for a session that is not the caller's, and 400 for a bad body", async () => {
+    expect(
+      (await client.send("POST", "/api/work-sessions/session_nobody_has/do-now", { startAt: now })).status,
+    ).toBe(404);
+    expect((await client.send("POST", `/api/work-sessions/${later.id}/do-now`, {})).status).toBe(400);
+    expect(
+      (await client.send("POST", `/api/work-sessions/${later.id}/do-now`, { startAt: "tomorrow" })).status,
+    ).toBe(400);
+  });
+});
