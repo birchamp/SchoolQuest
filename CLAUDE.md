@@ -33,3 +33,22 @@ execution policy can veto. Call the `.cmd` explicitly. From Node, `spawn`/`execF
 A test written for a bug that has already been fixed passes whether or not it works. Reintroduce
 the fault, watch the test fail, then restore. Applies to the encoding test and to anything else
 added in response to a live failure.
+
+## Releasing: merging to main is the release
+
+Students run SchoolQuest from a desktop shortcut that points at `tools/windows/SchoolQuest.cmd`.
+On every launch it fast-forwards the local checkout to the latest `main`, and if HEAD moved it
+runs `pnpm install` and `db:migrate:local` before starting. So a merged pull request reaches
+students the next time they open the app. There is no separate release step.
+
+- The update is skipped, and the copy on disk opens, when the machine is offline, the checkout
+  has local edits, or the shortcut is started with `--no-update`.
+- Student data is never touched. The database (`apps/api/.wrangler`) and secrets
+  (`apps/api/.dev.vars`) are gitignored, so a pull only replaces code.
+- A change that needs a schema change still ships this way, because the launcher applies
+  migrations after the pull. Migrations must stay additive.
+
+The `v*` tag path in `apps/desktop/README.md` and `.github/workflows/desktop-windows.yml` builds a
+packaged Windows installer. It is a separate distribution channel, it has never been used, and
+it is not how students get updates. Do not tag or bump versions as part of "release" unless the
+user asks for the installer specifically. Cloud sessions cannot push tags anyway.
