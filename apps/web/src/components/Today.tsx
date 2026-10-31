@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { explainRisk, label } from "@schoolquest/theme-language";
-import { appToday, formatInstant, formatTime, localDate } from "../lib/clock";
+import { appNow, appToday, formatInstant, formatTime, localDate } from "../lib/clock";
 import { api } from "../lib/api";
 import { track } from "../lib/usage";
 import { addDays } from "@schoolquest/domain";
@@ -79,6 +79,30 @@ export function Today({
     }
   }
   const underway = primary?.status === "started";
+  /** Work item id whose "do it now" confirmation is open, or null. */
+  const [doingNow, setDoingNow] = useState<string | null>(null);
+  /**
+   * Pulls a later block into the current slot. The block the primary recommendation holds is
+   * pushed aside, not skipped; the replan books it again and the plan-diff panel says where.
+   * With nothing recommended the slot is simply now.
+   */
+  async function doNow(sessionId: string) {
+    setBusy("do-now");
+    setError(null);
+    try {
+      await api.post(`/api/work-sessions/${sessionId}/do-now`, {
+        startAt: primary ? primary.startAt : appNow(),
+        displacing: primary?.sessionId,
+      });
+      track("session.do_now");
+      setDoingNow(null);
+      await onReplan();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not work.");
+    } finally {
+      setBusy(null);
+    }
+  }
   /**
    * Re-renders the "started N minutes ago" line once a minute while a block is underway. The
    * time itself comes from `minutesSinceStarted` on every render; this only makes sure a
@@ -284,21 +308,34 @@ export function Today({
   const protectedLater = (() => {
     const groups = new Map<
       string,
-      { id: string; courseId: string; title: string; when: string; minutes: number; blocks: number }
+      {
+        id: string;
+        courseId: string;
+        title: string;
+        /** The item's earliest block: the one "do it now" pulls forward. */
+        sessionId: string;
+        startAt: string;
+        minutes: number;
+        blocks: number;
+      }
     >();
     for (const s of plan.sessions.filter((s) => localDate(s.startAt) > today)) {
       const existing = groups.get(s.workItemId);
       if (existing) {
         existing.minutes += s.minutes;
         existing.blocks += 1;
+        if (s.startAt < existing.startAt) {
+          existing.sessionId = s.id;
+          existing.startAt = s.startAt;
+        }
         continue;
       }
       groups.set(s.workItemId, {
         id: s.workItemId,
         courseId: s.courseId,
         title: itemsById.get(s.workItemId)?.title ?? "Session",
-        // The first block's day: when this work starts, not when it ends.
-        when: formatInstant(s.startAt, { weekday: "short" }),
+        sessionId: s.id,
+        startAt: s.startAt,
         minutes: s.minutes,
         blocks: 1,
       });
@@ -737,11 +774,52 @@ export function Today({
                   <span className="course-line muted">{courseLabel(s.courseId)}</span>
                 </span>
                 <span>
-                  {s.when} &middot; {formatEffort(s.minutes)}
+                  {/* The first block's day: when this work starts, not when it ends. */}
+                  {formatInstant(s.startAt, { weekday: "short" })} &middot; {formatEffort(s.minutes)}
                   {s.blocks > 1 && (
                     <span className="muted"> &middot; {s.blocks} blocks</span>
                   )}
+                  {!underway && (
+                    <button
+                      className="action do-now"
+                      aria-label={`Do ${s.title} now`}
+                      disabled={busy !== null}
+                      onClick={() => setDoingNow(doingNow === s.id ? null : s.id)}
+                    >
+                      {label("doNow", theme)}
+                    </button>
+                  )}
                 </span>
+                {doingNow === s.id && !underway && (
+                  <div className="do-now-confirm">
+                    <p style={{ margin: "0 0 0.5rem" }}>
+                      {primary ? (
+                        <>
+                          Start <b>{s.title}</b> at {formatTime(primary.startAt)} instead of{" "}
+                          {primary.title}? {primary.title} will be rebooked, and you will see where
+                          it moved. Nothing is dropped.
+                        </>
+                      ) : (
+                        <>
+                          Start <b>{s.title}</b> now? The rest of the week will be redrawn around
+                          it. Nothing is dropped.
+                        </>
+                      )}
+                    </p>
+                    <div className="button-row">
+                      <button
+                        className="action primary"
+                        disabled={busy !== null}
+                        onClick={() => void doNow(s.sessionId)}
+                      >
+                        {busy === "do-now" ? "Replanning…" : "Yes, start it now"}
+                      </button>
+                      <button className="action" disabled={busy !== null} onClick={() => setDoingNow(null)}>
+                        Keep the plan
+                      </button>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

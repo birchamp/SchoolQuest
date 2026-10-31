@@ -1,11 +1,12 @@
 import { Hono } from "hono";
-import { and, eq, gte, inArray, lt, ne } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, ne, notInArray, or, type SQL } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { z } from "zod";
 import { addDays, fromEpochMinutes, newId, outcomeCode, zoneCalendar } from "@schoolquest/domain";
 import { auditEvents, commitments, courses, meetingPatterns, workItems, workSessions } from "../db/schema.js";
-import { getDb } from "../db/repo.js";
+import { getDb, type Db } from "../db/repo.js";
 import { completeParentIfDone, releaseFutureSessions } from "../db/finish-work.js";
-import { findMoveConflict } from "../db/move-check.js";
+import { findMoveConflict, type MoveSurroundings } from "../db/move-check.js";
 import { remainingAfterOutcome } from "../db/remaining-effort.js";
 import { isOpenOnDay } from "../db/lost-day.js";
 import { assertTermOwner } from "../db/repo.js";
@@ -141,6 +142,52 @@ const moveBody = z.object({
   endAt: z.string().datetime({ offset: true }),
 });
 
+/**
+ * What a block placed by hand has to be checked against: the term's classes, its fixed
+ * commitments, and whichever of its other blocks `occupied` selects. The two routes that place a
+ * block disagree only on that last part. A plain move must clear every live block; "do it now"
+ * clears only the blocks the replan that follows will leave where they are.
+ */
+async function loadMoveSurroundings(
+  db: Db,
+  term: { id: string; startDate: string; endDate: string },
+  timeZone: string,
+  occupied: SQL,
+): Promise<MoveSurroundings> {
+  const termCourses = await db
+    .select({ id: courses.id, name: courses.name })
+    .from(courses)
+    .where(eq(courses.termId, term.id));
+  const courseIds = termCourses.map((x) => x.id);
+  const courseNames = new Map(termCourses.map((x) => [x.id, x.name]));
+  const [sessions, meetings, fixed] = await Promise.all([
+    courseIds.length === 0
+      ? Promise.resolve([])
+      : db
+          .select({ id: workSessions.id, startAt: workSessions.startAt, endAt: workSessions.endAt, title: workItems.title })
+          .from(workSessions)
+          .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
+          .where(and(inArray(workItems.courseId, courseIds), occupied)),
+    courseIds.length === 0
+      ? Promise.resolve([])
+      : db.select().from(meetingPatterns).where(inArray(meetingPatterns.courseId, courseIds)),
+    db.select().from(commitments).where(eq(commitments.termId, term.id)),
+  ]);
+  return {
+    sessions,
+    meetings: meetings.map((m) => ({
+      daysOfWeek: m.daysOfWeek,
+      startTime: m.startTime,
+      endTime: m.endTime,
+      courseName: courseNames.get(m.courseId) ?? "a class",
+    })),
+    commitments: fixed,
+    termStartDate: term.startDate,
+    termEndDate: term.endDate,
+    timeZone,
+  };
+}
+
 sessionsRoute.post("/work-sessions/:id/move", async (c) => {
   const db = getDb(c.env.DB);
   const parsed = moveBody.safeParse(await c.req.json().catch(() => null));
@@ -156,45 +203,13 @@ sessionsRoute.post("/work-sessions/:id/move", async (c) => {
   // The same checks the scheduler applies when it places a block, applied at the one door
   // where a person places one. Before this the route wrote whatever it was given, and the
   // week on screen could show a block inside a class until the next replan noticed.
-  const termId = owned.term.id;
-  const termCourses = await db
-    .select({ id: courses.id, name: courses.name })
-    .from(courses)
-    .where(eq(courses.termId, termId));
-  const courseIds = termCourses.map((x) => x.id);
-  const courseNames = new Map(termCourses.map((x) => [x.id, x.name]));
-  const [others, meetings, fixed] = await Promise.all([
-    courseIds.length === 0
-      ? Promise.resolve([])
-      : db
-          .select({ id: workSessions.id, startAt: workSessions.startAt, endAt: workSessions.endAt, title: workItems.title })
-          .from(workSessions)
-          .innerJoin(workItems, eq(workItems.id, workSessions.workItemId))
-          .where(
-            and(
-              inArray(workItems.courseId, courseIds),
-              inArray(workSessions.status, ["planned", "started"]),
-              ne(workSessions.id, owned.session.id),
-            ),
-          ),
-    courseIds.length === 0
-      ? Promise.resolve([])
-      : db.select().from(meetingPatterns).where(inArray(meetingPatterns.courseId, courseIds)),
-    db.select().from(commitments).where(eq(commitments.termId, termId)),
-  ]);
-  const conflict = findMoveConflict(parsed.data, {
-    sessions: others,
-    meetings: meetings.map((m) => ({
-      daysOfWeek: m.daysOfWeek,
-      startTime: m.startTime,
-      endTime: m.endTime,
-      courseName: courseNames.get(m.courseId) ?? "a class",
-    })),
-    commitments: fixed,
-    termStartDate: owned.term.startDate,
-    termEndDate: owned.term.endDate,
-    timeZone: c.get("timeZone"),
-  });
+  const around = await loadMoveSurroundings(
+    db,
+    owned.term,
+    c.get("timeZone"),
+    and(inArray(workSessions.status, ["planned", "started"]), ne(workSessions.id, owned.session.id))!,
+  );
+  const conflict = findMoveConflict(parsed.data, around);
   if (conflict) return c.json({ error: conflict }, 409);
 
   const updated = await db
@@ -209,6 +224,88 @@ sessionsRoute.post("/work-sessions/:id/move", async (c) => {
     .returning();
 
   if (updated.length === 0) return c.json({ error: "Session not found" }, 404);
+  return c.json({ session: updated[0] });
+});
+
+const doNowBody = z.object({
+  startAt: z.string().datetime({ offset: true }),
+  /** The block currently in the slot, which the replan that follows rebooks. */
+  displacing: z.string().optional(),
+});
+
+/**
+ * "Do this now": a later block takes the current slot, keeping its own length.
+ *
+ * The Coming up list showed the week's later work with no way to pull any of it forward; a
+ * student who wanted to start tomorrow's reading now had to leave Today for the week map and
+ * drag. The block it displaces is retired exactly as a replan retires a block it has replaced
+ * (`writePlan`, status "moved"): it was not declined, so it is not skipped, and the replan the
+ * client runs next books it again and shows where it went. The chosen block is marked accepted
+ * so that replan keeps it where the student put it.
+ *
+ * Only blocks the replan will leave in place are checked for overlap: started, locked, or
+ * accepted. Ordinary planned blocks are left out on purpose, since the replan rebuilds them
+ * around the new one (see `carryOverSessions` in the planning engine).
+ */
+sessionsRoute.post("/work-sessions/:id/do-now", async (c) => {
+  const db = getDb(c.env.DB);
+  const parsed = doNowBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  const userId = c.get("userId");
+  const owned = await loadOwnedSession(db, c.req.param("id"), userId);
+  if (!owned) return c.json({ error: "Session not found" }, 404);
+  if (owned.session.status !== "planned") return c.json({ error: "That block is not open." }, 409);
+
+  const displaced = parsed.data.displacing
+    ? await loadOwnedSession(db, parsed.data.displacing, userId)
+    : null;
+  if (parsed.data.displacing) {
+    if (!displaced || displaced.term.id !== owned.term.id) {
+      return c.json({ error: "The block in that slot is not in this term." }, 409);
+    }
+    if (displaced.session.status !== "planned" || displaced.session.locked) {
+      return c.json(
+        { error: "The block in that slot is underway or locked, so it cannot be moved aside." },
+        409,
+      );
+    }
+  }
+
+  const startAt = parsed.data.startAt;
+  const length = Date.parse(owned.session.endAt) - Date.parse(owned.session.startAt);
+  const endAt = new Date(Date.parse(startAt) + length).toISOString();
+  const taken = [owned.session.id, ...(displaced ? [displaced.session.id] : [])];
+  const around = await loadMoveSurroundings(
+    db,
+    owned.term,
+    c.get("timeZone"),
+    and(
+      inArray(workSessions.status, ["planned", "started"]),
+      or(
+        eq(workSessions.status, "started"),
+        eq(workSessions.locked, true),
+        eq(workSessions.acceptedByUser, true),
+      ),
+      notInArray(workSessions.id, taken),
+    )!,
+  );
+  const conflict = findMoveConflict({ startAt, endAt }, around);
+  if (conflict) return c.json({ error: conflict }, 409);
+
+  const writes: BatchItem<"sqlite">[] = [];
+  if (displaced) {
+    writes.push(
+      db.update(workSessions).set({ status: "moved" }).where(eq(workSessions.id, displaced.session.id)),
+    );
+  }
+  const [updated] = await db.batch([
+    db
+      .update(workSessions)
+      .set({ startAt, endAt, acceptedByUser: true })
+      .where(eq(workSessions.id, owned.session.id))
+      .returning(),
+    ...writes,
+  ]);
   return c.json({ session: updated[0] });
 });
 

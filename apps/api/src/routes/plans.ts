@@ -298,10 +298,11 @@ plansRoute.get("/terms/:termId/plans/current", async (c) => {
   const sessions = (
     await db.select().from(workSessions).where(eq(workSessions.planVersionId, current.id))
   )
-    // Released blocks belonged to work that is already finished. They stay in the table
-    // as history but are no longer part of the plan, so the week map and the forecast
-    // must not go on drawing them.
-    .filter((s) => s.status !== "released");
+    // Released blocks belonged to work that is already finished, and a moved block in this
+    // version was pushed aside by "do it now" and is booked again by the next replan. Both stay
+    // in the table as history but are no longer part of the plan, so the week map and the
+    // forecast must not go on drawing them.
+    .filter((s) => s.status !== "released" && s.status !== "moved");
 
   const snapshot = await loadTermSnapshot(db, termId);
   // Display: every field read from the summary is already checked (see `isCapacity`), so an

@@ -40,7 +40,8 @@ export type LabelKey =
   | "termMap"
   | "preparedFull"
   | "preparedPartial"
-  | "preparedShort";
+  | "preparedShort"
+  | "doNow";
 
 type LabelSet = Record<ThemeName, string>;
 
@@ -97,6 +98,8 @@ export const LABELS: Record<LabelKey, LabelSet> = {
   preparedFull: { quest: "Provisioned", mission: "Provisioned", plain: "Time booked" },
   preparedPartial: { quest: "Under-planned", mission: "Under-planned", plain: "Short on time" },
   preparedShort: { quest: "Critical", mission: "Critical", plain: "Far short" },
+  /** Pulls a later block into the current slot; what it displaces is rebooked, never dropped. */
+  doNow: { quest: "Take this quest", mission: "Reassign now", plain: "Do it now" },
 };
 
 export function label(key: LabelKey, theme: ThemeName): string {

@@ -425,9 +425,33 @@ button.action:disabled {
 .protected li {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
   padding: 0.3rem 0;
   font-size: 0.88rem;
   color: var(--text-dim);
+}
+
+/* A quiet way to pull a row forward: outlined in the accent, not a filled button, so the list
+   still reads as a forecast rather than a row of calls to action. */
+.protected li .do-now {
+  margin-left: 0.6rem;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.82rem;
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+.protected li .do-now:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--accent);
+}
+
+.protected li .do-now-confirm {
+  flex-basis: 100%;
+  margin-top: 0.4rem;
+  color: var(--text);
 }
 
 .capacity-bar {
@@ -1243,6 +1267,22 @@ body[data-theme="quest"] .protected {
 }
 body[data-theme="quest"] .protected li {
   color: #5a4730;
+}
+/* The leather button rule above would paint this row's control as a full button; it stays an
+   outline in the list's own ink, with gold for the edge, so the forecast keeps its quiet. */
+body[data-theme="quest"] .protected li button.do-now {
+  background: transparent;
+  color: var(--q-ink);
+  border-color: var(--q-gold-dim);
+  box-shadow: none;
+}
+body[data-theme="quest"] .protected li button.do-now:hover:not(:disabled) {
+  background: rgba(201, 162, 39, 0.18);
+  border-color: var(--q-gold);
+  box-shadow: none;
+}
+body[data-theme="quest"] .protected li .do-now-confirm {
+  color: var(--q-ink);
 }
 
 /* 6. Buttons earn a bevel and a pressed state; hierarchy comes from gold vs leather. */
